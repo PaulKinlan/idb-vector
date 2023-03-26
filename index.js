@@ -1,6 +1,6 @@
 const DB_DEFAUlTS = {
-  dbName: 'vectorDB',
-  objectStore: 'vectors'
+  dbName: "vectorDB",
+  objectStore: "vectors",
 };
 
 async function create(options = DB_DEFAUlTS) {
@@ -10,7 +10,7 @@ async function create(options = DB_DEFAUlTS) {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      db.createObjectStore(objectStore, { keyPath: 'id', autoIncrement: true });
+      db.createObjectStore(objectStore, { keyPath: "id", autoIncrement: true });
     };
 
     request.onsuccess = (event) => {
@@ -31,30 +31,30 @@ function cosineSimilarity(a, b) {
 }
 
 async function insert(vector, options = DB_DEFAUlTS) {
-  const { dbName, objectStore } = options;
+  const { dbName, objectStore: objectStoreName } = options;
   const db = await create(options);
-  const transaction = db.transaction([objectStore], 'readwrite');
-  const objectStore = transaction.objectStore('vectors');
+  const transaction = db.transaction([objectStoreName], "readwrite");
+  const objectStore = transaction.objectStore("vectors");
   objectStore.add({ vector });
 }
 
 // Return the most similar items.
 async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
-  const { dbName, objectStore } = options;
-  
+  const { dbName, objectStore: objectStoreName } = options;
+
   const db = await create(options);
-  const transaction = db.transaction([objectStore], 'readonly');
-  const objectStore = transaction.objectStore(objectStore);
+  const transaction = db.transaction([objectStoreName], "readonly");
+  const objectStore = transaction.objectStore(objectStoreName);
   const request = objectStore.openCursor();
 
-  const similarities = new SortedArray(limit);
+  const similarities = new SortedArray(limit, "similarity");
 
   return new Promise((resolve, reject) => {
     request.onsuccess = (event) => {
       const cursor = event.target.result;
       if (cursor) {
         const similarity = cosineSimilarity(queryVector, cursor.value.vector);
-        similarities.push({ id: cursor.value.id, similarity });
+        similarities.insert({ id: cursor.value.id, similarity });
         cursor.continue();
       } else {
         // sorted already.
@@ -67,7 +67,6 @@ async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
     };
   });
 }
-
 
 // Nabbed from lodash
 /**
@@ -84,45 +83,61 @@ async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
  */
 
 class SortedArray extends Array {
-  
-  #maxLength
+  #maxLength;
+  #keyPath;
 
-  constructor(maxLength = 0) {
+  constructor(maxLength = 0, keyPath) {
     super();
     this.#maxLength = maxLength;
-    
+    this.#keyPath = keyPath;
   }
   push() {
-    throw new Error("Can't push on to a sorted array")
+    throw new Error("Can't push on to a sorted array");
   }
 
   insert(value) {
-    console.log(`Adding ${value}`);
     const array = this;
     const maxLength = this.#maxLength;
     const halfMaxLength = maxLength / 2;
     let low = 0,
-      high = (array == null) ? low : array.length;
-    
-    if (typeof value == 'number') {
+      high = array == null ? low : array.length;
+
+    if (typeof value == "object") {
       while (low < high) {
         let mid = (low + high) >>> 1;
-        let computed = array[mid];
-        
-        if (computed !== null & (computed <= value)) {
+        let computed = array[mid][this.#keyPath];
+
+        if ((computed !== null) & (computed >= value[this.#keyPath])) {
           low = mid + 1;
         } else {
           high = mid;
         }
       }
-      
-      if (this.length == maxLength) {
+
+      this.splice(high, 0, value);
+
+      if (this.length > maxLength) {
         this.pop(); // Remove the last entry to make way for the new one
       }
-      
-      this.splice(high, 0, value)
+    } else if (typeof value == "number") {
+      while (low < high) {
+        let mid = (low + high) >>> 1;
+        let computed = array[mid];
+
+        if ((computed !== null) & (computed >= value)) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+
+      this.splice(high, 0, value);
+
+      if (this.length > maxLength) {
+        this.pop(); // Remove the last entry to make way for the new one
+      }
     }
   }
 }
 
-export { insert, query, create }
+export { insert, query, create };
