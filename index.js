@@ -1,5 +1,3 @@
-const indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
-
 const DB_DEFAUlTS = {
   dbName: 'vectorDB',
   objectStore: 'vectors'
