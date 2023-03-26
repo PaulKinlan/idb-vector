@@ -31,6 +31,7 @@ function cosineSimilarity(a, b) {
 }
 
 async function insert(vector, options = DB_DEFAUlTS) {
+  const { dbName, objectStore } = options;
   const db = await create(options);
   const transaction = db.transaction([objectStore], 'readwrite');
   const objectStore = transaction.objectStore('vectors');
@@ -39,6 +40,8 @@ async function insert(vector, options = DB_DEFAUlTS) {
 
 // Return the most similar items.
 async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
+  const { dbName, objectStore } = options;
+  
   const db = await create(options);
   const transaction = db.transaction([objectStore], 'readonly');
   const objectStore = transaction.objectStore(objectStore);
