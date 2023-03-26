@@ -10,7 +10,7 @@ async function create(options = DB_DEFAUlTS) {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      db.createObjectStore(objectStore, { autoIncrement: true });
+      db.createObjectStore(objectStore, { keyPath: 'id', autoIncrement: true });
     };
 
     request.onsuccess = (event) => {
@@ -37,12 +37,14 @@ async function insert(vector, options = DB_DEFAUlTS) {
   objectStore.add({ vector });
 }
 
-async function query(queryVector, k, options = DB_DEFAUlTS) {
+// Return the most similar items.
+async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
   const db = await create(options);
   const transaction = db.transaction([objectStore], 'readonly');
   const objectStore = transaction.objectStore(objectStore);
   const request = objectStore.openCursor();
-  const similarities = [];
+
+  const similarities = new SortedArray(limit);
 
   return new Promise((resolve, reject) => {
     request.onsuccess = (event) => {
@@ -52,8 +54,8 @@ async function query(queryVector, k, options = DB_DEFAUlTS) {
         similarities.push({ id: cursor.value.id, similarity });
         cursor.continue();
       } else {
-        similarities.sort((a, b) => b.similarity - a.similarity);
-        resolve(similarities.slice(0, k));
+        // sorted already.
+        resolve(similarities.slice(0, limit));
       }
     };
 
@@ -61,6 +63,63 @@ async function query(queryVector, k, options = DB_DEFAUlTS) {
       reject(event.target.error);
     };
   });
+}
+
+
+// Nabbed from lodash
+/**
+ * The base implementation of `_.sortedIndex` and `_.sortedLastIndex` which
+ * performs a binary search of `array` to determine the index at which `value`
+ * should be inserted into `array` in order to maintain its sort order.
+ *
+ * @private
+ * @param {Array} array The sorted array to inspect.
+ * @param {*} value The value to evaluate.
+ * @param {boolean} [retHighest] Specify returning the highest qualified index.
+ * @returns {number} Returns the index at which `value` should be inserted
+ *  into `array`.
+ */
+
+class SortedArray extends Array {
+  
+  #maxLength
+
+  constructor(maxLength = 0) {
+    super();
+    this.#maxLength = maxLength;
+    
+  }
+  push() {
+    throw new Error("Can't push on to a sorted array")
+  }
+
+  insert(value) {
+    console.log(`Adding ${value}`);
+    const array = this;
+    const maxLength = this.#maxLength;
+    const halfMaxLength = maxLength / 2;
+    let low = 0,
+      high = (array == null) ? low : array.length;
+    
+    if (typeof value == 'number') {
+      while (low < high) {
+        let mid = (low + high) >>> 1;
+        let computed = array[mid];
+        
+        if (computed !== null & (computed <= value)) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      
+      if (this.length == maxLength) {
+        this.pop(); // Remove the last entry to make way for the new one
+      }
+      
+      this.splice(high, 0, value)
+    }
+  }
 }
 
 export { insert, query, create }
