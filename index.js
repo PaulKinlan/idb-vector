@@ -3,14 +3,15 @@ const DB_DEFAUlTS = {
   objectStore: "vectors",
 };
 
-async function create(options = DB_DEFAUlTS) {
+async function create(vectorPath, options = DB_DEFAUlTS) {
   const { dbName, objectStore } = options;
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(dbName, 1);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      db.createObjectStore(objectStore, { keyPath: "id", autoIncrement: true });
+      const store = db.createObjectStore(objectStore, { autoIncrement: true });
+      store.createIndex(vectorPath, vectorPath, { unique: false });
     };
 
     request.onsuccess = (event) => {
@@ -30,19 +31,24 @@ function cosineSimilarity(a, b) {
   return dotProduct / (aMagnitude * bMagnitude);
 }
 
-async function insert(vector, options = DB_DEFAUlTS) {
+async function insert(object, vectorPath, options = DB_DEFAUlTS) {
   const { dbName, objectStore: objectStoreName } = options;
-  const db = await create(options);
+  const db = await create(vectorPath, options);
   const transaction = db.transaction([objectStoreName], "readwrite");
-  const objectStore = transaction.objectStore("vectors");
-  objectStore.add({ vector });
+  const objectStore = transaction.objectStore(objectStoreName);
+  objectStore.add(object);
 }
 
 // Return the most similar items.
-async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
+async function query(
+  queryVector,
+  vectorPath,
+  limit = 10,
+  options = DB_DEFAUlTS
+) {
   const { dbName, objectStore: objectStoreName } = options;
 
-  const db = await create(options);
+  const db = await create(vectorPath, options);
   const transaction = db.transaction([objectStoreName], "readonly");
   const objectStore = transaction.objectStore(objectStoreName);
   const request = objectStore.openCursor();
@@ -53,8 +59,11 @@ async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
     request.onsuccess = (event) => {
       const cursor = event.target.result;
       if (cursor) {
-        const similarity = cosineSimilarity(queryVector, cursor.value.vector);
-        similarities.insert({ id: cursor.value.id, similarity });
+        const similarity = cosineSimilarity(
+          queryVector,
+          cursor.value[vectorPath]
+        );
+        similarities.insert({ object: cursor.value, similarity });
         cursor.continue();
       } else {
         // sorted already.
@@ -69,6 +78,19 @@ async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
 }
 
 // Nabbed from lodash
+/**
+ * The base implementation of `_.sortedIndex` and `_.sortedLastIndex` which
+ * performs a binary search of `array` to determine the index at which `value`
+ * should be inserted into `array` in order to maintain its sort order.
+ *
+ * @private
+ * @param {Array} array The sorted array to inspect.
+ * @param {*} value The value to evaluate.
+ * @param {boolean} [retHighest] Specify returning the highest qualified index.
+ * @returns {number} Returns the index at which `value` should be inserted
+ *  into `array`.
+ */
+
 class SortedArray extends Array {
   #maxLength;
   #keyPath;
@@ -78,21 +100,28 @@ class SortedArray extends Array {
     this.#maxLength = maxLength;
     this.#keyPath = keyPath;
   }
+  
   push() {
     throw new Error("Can't push on to a sorted array");
   }
 
+  unshift() {
+    throw new Error("Can't unshift on to a sorted array");
+  }
+
   insert(value) {
-    // Nabbed original code from lodash
     const array = this;
     const maxLength = this.#maxLength;
-    const halfMaxLength = maxLength / 2;
     let low = 0,
       high = array == null ? low : array.length;
-    
-    const accessor = (typeof value == "object") ? (array, mid) => array[mid][this.#keyPath] : (array, mid) => array[mid];
-    const resolvedValue = (typeof value == "object") ? value[this.#keyPath]: value;
-    
+
+    const accessor =
+      typeof value == "object"
+        ? (array, mid) => array[mid][this.#keyPath]
+        : (array, mid) => array[mid];
+    const resolvedValue =
+      typeof value == "object" ? value[this.#keyPath] : value;
+
     while (low < high) {
       let mid = (low + high) >>> 1;
       let computed = accessor(array, mid);
