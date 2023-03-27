@@ -11,7 +11,7 @@
     "test": "echo \"No test specified\" && exit 0",
     "start": "python3 -m http.server"
   },
-  "license": "Apaceh-2.0",
+  "license": "Apache-2.0",
   "author": {
     "name": "Paul Kinlan",
     "email": "paul.kinlan@gmail.com",
