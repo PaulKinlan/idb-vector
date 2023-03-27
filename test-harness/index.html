@@ -13,11 +13,11 @@
     <script type="module">
       import { create, insert, query } from "../index.js";
 
-      await insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" }, "embedding");
-      await insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" }, "embedding");
-      await insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" }, "embedding");
+      await insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" }, { vectorPath: "embedding" });
+      await insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" }, { vectorPath: "embedding" });
+      await insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" }, { vectorPath: "embedding" });
 
-      console.log(await query([1, 2, 3], "embedding", 20));
+      console.log(await query([1, 2, 3], { vectorPath: "embedding", limit: 20 } ));
     </script>
   </head>
   <body></body>

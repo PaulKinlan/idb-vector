@@ -3,8 +3,10 @@ const DB_DEFAUlTS = {
   objectStore: "vectors",
 };
 
-async function create(vectorPath, options = DB_DEFAUlTS) {
-  const { dbName, objectStore } = options;
+const OPTION_DEFAULTS = { ...DB_DEFAUlTS, ...{ limit: 10, vectorPath: "" } };
+
+async function create(options) {
+  const { dbName, objectStore, vectorPath } = { ...OPTION_DEFAULTS, ...options };
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(dbName, 1);
 
@@ -31,24 +33,23 @@ function cosineSimilarity(a, b) {
   return dotProduct / (aMagnitude * bMagnitude);
 }
 
-async function insert(object, vectorPath, options = DB_DEFAUlTS) {
-  const { dbName, objectStore: objectStoreName } = options;
-  const db = await create(vectorPath, options);
+async function insert(object, options = OPTION_DEFAULTS) {
+  const { objectStore: objectStoreName } = { ...OPTION_DEFAULTS, ...options };
+  const db = await create(options);
   const transaction = db.transaction([objectStoreName], "readwrite");
   const objectStore = transaction.objectStore(objectStoreName);
   objectStore.add(object);
 }
 
 // Return the most similar items.
-async function query(
-  queryVector,
-  vectorPath,
-  limit = 10,
-  options = DB_DEFAUlTS
-) {
-  const { dbName, objectStore: objectStoreName } = options;
+async function query(queryVector, options) {
+  const {
+    objectStore: objectStoreName,
+    vectorPath,
+    limit,
+  } = { ...OPTION_DEFAULTS, ...options };
 
-  const db = await create(vectorPath, options);
+  const db = await create(options);
   const transaction = db.transaction([objectStoreName], "readonly");
   const objectStore = transaction.objectStore(objectStoreName);
   const request = objectStore.openCursor();
@@ -78,19 +79,6 @@ async function query(
 }
 
 // Nabbed from lodash
-/**
- * The base implementation of `_.sortedIndex` and `_.sortedLastIndex` which
- * performs a binary search of `array` to determine the index at which `value`
- * should be inserted into `array` in order to maintain its sort order.
- *
- * @private
- * @param {Array} array The sorted array to inspect.
- * @param {*} value The value to evaluate.
- * @param {boolean} [retHighest] Specify returning the highest qualified index.
- * @returns {number} Returns the index at which `value` should be inserted
- *  into `array`.
- */
-
 class SortedArray extends Array {
   #maxLength;
   #keyPath;
@@ -100,7 +88,7 @@ class SortedArray extends Array {
     this.#maxLength = maxLength;
     this.#keyPath = keyPath;
   }
-  
+
   push() {
     throw new Error("Can't push on to a sorted array");
   }
