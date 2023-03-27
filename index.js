@@ -69,19 +69,6 @@ async function query(queryVector, limit = 10, options = DB_DEFAUlTS) {
 }
 
 // Nabbed from lodash
-/**
- * The base implementation of `_.sortedIndex` and `_.sortedLastIndex` which
- * performs a binary search of `array` to determine the index at which `value`
- * should be inserted into `array` in order to maintain its sort order.
- *
- * @private
- * @param {Array} array The sorted array to inspect.
- * @param {*} value The value to evaluate.
- * @param {boolean} [retHighest] Specify returning the highest qualified index.
- * @returns {number} Returns the index at which `value` should be inserted
- *  into `array`.
- */
-
 class SortedArray extends Array {
   #maxLength;
   #keyPath;
@@ -96,46 +83,31 @@ class SortedArray extends Array {
   }
 
   insert(value) {
+    // Nabbed original code from lodash
     const array = this;
     const maxLength = this.#maxLength;
     const halfMaxLength = maxLength / 2;
     let low = 0,
       high = array == null ? low : array.length;
+    
+    const accessor = (typeof value == "object") ? (array, mid) => array[mid][this.#keyPath] : (array, mid) => array[mid];
+    const resolvedValue = (typeof value == "object") ? value[this.#keyPath]: value;
+    
+    while (low < high) {
+      let mid = (low + high) >>> 1;
+      let computed = accessor(array, mid);
 
-    if (typeof value == "object") {
-      while (low < high) {
-        let mid = (low + high) >>> 1;
-        let computed = array[mid][this.#keyPath];
-
-        if ((computed !== null) & (computed >= value[this.#keyPath])) {
-          low = mid + 1;
-        } else {
-          high = mid;
-        }
+      if ((computed !== null) & (computed >= resolvedValue)) {
+        low = mid + 1;
+      } else {
+        high = mid;
       }
+    }
 
-      this.splice(high, 0, value);
+    this.splice(high, 0, value);
 
-      if (this.length > maxLength) {
-        this.pop(); // Remove the last entry to make way for the new one
-      }
-    } else if (typeof value == "number") {
-      while (low < high) {
-        let mid = (low + high) >>> 1;
-        let computed = array[mid];
-
-        if ((computed !== null) & (computed >= value)) {
-          low = mid + 1;
-        } else {
-          high = mid;
-        }
-      }
-
-      this.splice(high, 0, value);
-
-      if (this.length > maxLength) {
-        this.pop(); // Remove the last entry to make way for the new one
-      }
+    if (this.length > maxLength) {
+      this.pop(); // Remove the last entry to make way for the new one
     }
   }
 }
