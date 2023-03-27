@@ -6,7 +6,10 @@ const DB_DEFAUlTS = {
 const OPTION_DEFAULTS = { ...DB_DEFAUlTS, ...{ limit: 10, vectorPath: "" } };
 
 async function create(options) {
-  const { dbName, objectStore, vectorPath } = { ...OPTION_DEFAULTS, ...options };
+  const { dbName, objectStore, vectorPath } = {
+    ...OPTION_DEFAULTS,
+    ...options,
+  };
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(dbName, 1);
 

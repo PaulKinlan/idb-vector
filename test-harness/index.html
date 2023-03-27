@@ -1,24 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <!-- 
+
+<head>
+  <!-- 
       This is an HTML comment
       You can write text in a comment and the content won't be visible in the page
     -->
 
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hello World!</title>
-    <!-- The website JavaScript file -->
-    <script type="module">
-      import { create, insert, query } from "../index.js";
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hello World!</title>
+  <!-- The website JavaScript file -->
+  <script type="module">
+    import { create, insert, query } from "../index.js";
 
-      await insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" }, { vectorPath: "embedding" });
-      await insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" }, { vectorPath: "embedding" });
-      await insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" }, { vectorPath: "embedding" });
+    await insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" }, { vectorPath: "embedding" });
+    await insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" }, { vectorPath: "embedding" });
+    await insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" }, { vectorPath: "embedding" });
 
-      console.log(await query([1, 2, 3], { vectorPath: "embedding", limit: 20 } ));
-    </script>
-  </head>
-  <body></body>
+    console.log(await query([1, 2, 3], { vectorPath: "embedding", limit: 20 }));
+  </script>
+</head>
+
+<body></body>
+
 </html>
