@@ -1,0 +1,11 @@
+{
+  "name": "idb-vector",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PaulKinlan/idb-vector"
+  },
+  "license": "Apaceh-2.0"
+}
