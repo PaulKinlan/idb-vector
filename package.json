@@ -1,6 +1,6 @@
 {
   "name": "idb-vector",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "main": "index.js",
   "repository": {
@@ -8,7 +8,8 @@
     "url": "https://github.com/PaulKinlan/idb-vector"
   },
   "scripts": {
-    "test": "echo \"No test specified\" && exit 0"
+    "test": "echo \"No test specified\" && exit 0",
+    "start": "python3 -m http.server"
   },
   "license": "Apaceh-2.0",
   "author": {
