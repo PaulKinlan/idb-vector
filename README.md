@@ -3,15 +3,17 @@
 A simple IDB vector store.
 
 ```JavaScript
- <script type="module">
-  import { create, insert, query } from "../index.js";
+<script type="module">
+  import { VectorDB } from "../index.js";
 
-  const path =  { vectorPath: "embedding" };
+  const db = new VectorDB({
+    vectorPath: "embedding"
+  });
 
-  await insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" }, path);
-  await insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" }, path);
-  await insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" }, path);
+  await db.insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" });
+  await db.insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" });
+  await db.insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" });
 
-  console.log(await query([1, 2, 3], { vectorPath: "embedding", limit: 20 } ));
+  console.log(await db.query([1, 2, 3], { limit: 20 }));
 </script>
 ```

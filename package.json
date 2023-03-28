@@ -1,6 +1,6 @@
 {
   "name": "idb-vector",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "type": "module",
   "main": "index.js",
   "repository": {
@@ -9,12 +9,15 @@
   },
   "scripts": {
     "test": "echo \"No test specified\" && exit 0",
-    "start": "python3 -m http.server"
+    "start": "serve"
   },
   "license": "Apache-2.0",
   "author": {
     "name": "Paul Kinlan",
     "email": "paul.kinlan@gmail.com",
     "url": "https://paul.kinlan.me/"
+  },
+  "devDependencies": {
+    "serve": "^14.2.0"
   }
 }

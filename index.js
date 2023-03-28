@@ -1,13 +1,20 @@
+import { SortedArray } from "./utils/sortedarray.js";
+
 const DB_DEFAUlTS = {
   dbName: "vectorDB",
-  objectStore: "vectors",
+  objectStore: "vectors"
 };
 
-const OPTION_DEFAULTS = { ...DB_DEFAUlTS, ...{ limit: 10, vectorPath: "" } };
+function cosineSimilarity(a, b) {
+  const dotProduct = a.reduce((sum, aVal, idx) => sum + aVal * b[idx], 0);
+  const aMagnitude = Math.sqrt(a.reduce((sum, aVal) => sum + aVal * aVal, 0));
+  const bMagnitude = Math.sqrt(b.reduce((sum, bVal) => sum + bVal * bVal, 0));
+  return dotProduct / (aMagnitude * bMagnitude);
+}
 
 async function create(options) {
   const { dbName, objectStore, vectorPath } = {
-    ...OPTION_DEFAULTS,
+    ...DB_DEFAUlTS,
     ...options,
   };
   return new Promise((resolve, reject) => {
@@ -29,107 +36,80 @@ async function create(options) {
   });
 }
 
-function cosineSimilarity(a, b) {
-  const dotProduct = a.reduce((sum, aVal, idx) => sum + aVal * b[idx], 0);
-  const aMagnitude = Math.sqrt(a.reduce((sum, aVal) => sum + aVal * aVal, 0));
-  const bMagnitude = Math.sqrt(b.reduce((sum, bVal) => sum + bVal * bVal, 0));
-  return dotProduct / (aMagnitude * bMagnitude);
-}
+class VectorDB {
+  #objectStore;
+  #vectorPath;
+  #db;
 
-async function insert(object, options = OPTION_DEFAULTS) {
-  const { objectStore: objectStoreName } = { ...OPTION_DEFAULTS, ...options };
-  const db = await create(options);
-  const transaction = db.transaction([objectStoreName], "readwrite");
-  const objectStore = transaction.objectStore(objectStoreName);
-  objectStore.add(object);
-}
-
-// Return the most similar items.
-async function query(queryVector, options) {
-  const {
-    objectStore: objectStoreName,
-    vectorPath,
-    limit,
-  } = { ...OPTION_DEFAULTS, ...options };
-
-  const db = await create(options);
-  const transaction = db.transaction([objectStoreName], "readonly");
-  const objectStore = transaction.objectStore(objectStoreName);
-  const request = objectStore.openCursor();
-
-  const similarities = new SortedArray(limit, "similarity");
-
-  return new Promise((resolve, reject) => {
-    request.onsuccess = (event) => {
-      const cursor = event.target.result;
-      if (cursor) {
-        const similarity = cosineSimilarity(
-          queryVector,
-          cursor.value[vectorPath]
-        );
-        similarities.insert({ object: cursor.value, similarity });
-        cursor.continue();
-      } else {
-        // sorted already.
-        resolve(similarities.slice(0, limit));
-      }
+  constructor(options) {
+    const { dbName, objectStore, vectorPath } = {
+      ...DB_DEFAUlTS,
+      ...options,
     };
 
-    request.onerror = (event) => {
-      reject(event.target.error);
-    };
-  });
-}
-
-// Nabbed from lodash
-class SortedArray extends Array {
-  #maxLength;
-  #keyPath;
-
-  constructor(maxLength = 0, keyPath) {
-    super();
-    this.#maxLength = maxLength;
-    this.#keyPath = keyPath;
-  }
-
-  push() {
-    throw new Error("Can't push on to a sorted array");
-  }
-
-  unshift() {
-    throw new Error("Can't unshift on to a sorted array");
-  }
-
-  insert(value) {
-    const array = this;
-    const maxLength = this.#maxLength;
-    let low = 0,
-      high = array == null ? low : array.length;
-
-    const accessor =
-      typeof value == "object"
-        ? (array, mid) => array[mid][this.#keyPath]
-        : (array, mid) => array[mid];
-    const resolvedValue =
-      typeof value == "object" ? value[this.#keyPath] : value;
-
-    while (low < high) {
-      let mid = (low + high) >>> 1;
-      let computed = accessor(array, mid);
-
-      if ((computed !== null) & (computed >= resolvedValue)) {
-        low = mid + 1;
-      } else {
-        high = mid;
-      }
+    if (!dbName) {
+      // Note only used in create()
+      throw new Error("dbName is required");
     }
 
-    this.splice(high, 0, value);
-
-    if (this.length > maxLength) {
-      this.pop(); // Remove the last entry to make way for the new one
+    if (!objectStore) {
+      throw new Error("objectStore is required");
     }
+
+    if (!vectorPath) {
+      throw new Error("vectorPath is required");
+    }
+
+    this.#objectStore = objectStore;
+    this.#vectorPath = vectorPath;
+
+    this.#db = create(options);
+  }
+
+  async insert(object) {
+    const db = await this.#db;
+    const storeName = this.#objectStore;
+
+    const transaction = db.transaction([storeName], "readwrite");
+    const store = transaction.objectStore(storeName);
+    store.add(object);
+  }
+
+  // Return the most similar items up to [limit] items
+  async query(queryVector, options = { limit: 10 }) {
+    const { limit } = options;
+
+    const db = await this.#db;
+    const storeName = this.#objectStore;
+    const vectorPath = this.#vectorPath;
+
+    const transaction = db.transaction([storeName], "readonly");
+    const objectStore = transaction.objectStore(storeName);
+    const request = objectStore.openCursor();
+
+    const similarities = new SortedArray(limit, "similarity");
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          const similarity = cosineSimilarity(
+            queryVector,
+            cursor.value[vectorPath]
+          );
+          similarities.insert({ object: cursor.value, key: cursor.key, similarity });
+          cursor.continue();
+        } else {
+          // sorted already.
+          resolve(similarities.slice(0, limit));
+        }
+      };
+
+      request.onerror = (event) => {
+        reject(event.target.error);
+      };
+    });
   }
 }
 
-export { insert, query, create };
+export { VectorDB };
