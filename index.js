@@ -88,6 +88,8 @@ class VectorDB {
   async query(queryVector, options = { limit: 10 }) {
     const { limit } = options;
 
+    const queryVectorLength = queryVector.length;
+
     const db = await this.#db;
     const storeName = this.#objectStore;
     const vectorPath = this.#vectorPath;
@@ -102,11 +104,15 @@ class VectorDB {
       request.onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor) {
-          const similarity = cosineSimilarity(
-            queryVector,
-            cursor.value[vectorPath]
-          );
-          similarities.insert({ object: cursor.value, key: cursor.key, similarity });
+          const vectorValue = cursor.value[vectorPath];
+          if (vectorValue.length == queryVectorLength) {
+            // Only add the vector to the results set if the vector is the same length as query.
+            const similarity = cosineSimilarity(
+              queryVector,
+              vectorValue
+            );
+            similarities.insert({ object: cursor.value, key: cursor.key, similarity });
+          }
           cursor.continue();
         } else {
           // sorted already.

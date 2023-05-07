@@ -36,7 +36,10 @@
       console.log(error)
     }
 
-    console.log(await db.query([1, 2, 3], { limit: 20 }));
+    console.log("Results:", await db.query([1, 2, 3], { limit: 20 }));
+    const incorrectVectorQueryLength = await db.query([1, 2], { limit: 20 });
+    console.assert(incorrectVectorQueryLength == 0, "Incorrect Vectory Query Length");
+
   </script>
 </head>
 
