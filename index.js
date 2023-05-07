@@ -72,6 +72,15 @@ class VectorDB {
 
     const transaction = db.transaction([storeName], "readwrite");
     const store = transaction.objectStore(storeName);
+
+    if (this.#vectorPath in object == false) {
+      throw new Error(`${this.#vectorPath} expected to be present 'object' being inserted`);
+    }
+
+    if (Array.isArray(object[this.#vectorPath]) == false) {
+      throw new Error(`${this.#vectorPath} on 'object' is expected to be an Array`);
+    }
+
     store.add(object);
   }
 

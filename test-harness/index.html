@@ -22,6 +22,20 @@
     await db.insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" });
     await db.insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" });
 
+    try {
+      await db.insert({ array: [1, 2, 3], "text": "ASDASINDASDASZd" });
+    }
+    catch(error) {
+      console.log(error)
+    }
+
+    try {
+      await db.insert({ embedding: "embedding", "text": "ASDASINDASDASZd" });
+    }
+    catch(error) {
+      console.log(error)
+    }
+
     console.log(await db.query([1, 2, 3], { limit: 20 }));
   </script>
 </head>
