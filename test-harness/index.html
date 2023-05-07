@@ -18,9 +18,9 @@
       vectorPath: "embedding"
     });
 
-    await db.insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" });
-    await db.insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" });
-    await db.insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" });
+    const key1 = await db.insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" });
+    const key2 = await db.insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" });
+    const key3 = await db.insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" });
 
     try {
       await db.insert({ array: [1, 2, 3], "text": "ASDASINDASDASZd" });
@@ -36,7 +36,14 @@
       console.log(error)
     }
 
+
     console.log("Results:", await db.query([1, 2, 3], { limit: 20 }));
+
+    await db.update(key1, {embedding: [1,1,1], text: "UPDATED"});
+    await db.delete(key3);
+
+    console.log("Updated:", await db.query([1, 2, 3], { limit: 20 }));
+    
     const incorrectVectorQueryLength = await db.query([1, 2], { limit: 20 });
     console.assert(incorrectVectorQueryLength == 0, "Incorrect Vectory Query Length");
 

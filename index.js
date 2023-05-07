@@ -67,11 +67,6 @@ class VectorDB {
   }
 
   async insert(object) {
-    const db = await this.#db;
-    const storeName = this.#objectStore;
-
-    const transaction = db.transaction([storeName], "readwrite");
-    const store = transaction.objectStore(storeName);
 
     if (this.#vectorPath in object == false) {
       throw new Error(`${this.#vectorPath} expected to be present 'object' being inserted`);
@@ -81,7 +76,80 @@ class VectorDB {
       throw new Error(`${this.#vectorPath} on 'object' is expected to be an Array`);
     }
 
-    store.add(object);
+    const db = await this.#db;
+    const storeName = this.#objectStore;
+
+    const transaction = db.transaction([storeName], "readwrite");
+    const store = transaction.objectStore(storeName);
+
+    const request = store.add(object);
+    return new Promise((resolve, reject) => {
+      request.onsuccess = (event) => {
+        resolve(event.target.result);
+      };
+
+      request.onerror = (event) => {
+        reject(event.error);
+      } 
+    });
+  }
+
+  async delete(key) {
+
+    if (key == null) {
+      throw new Error(`Unable to delete object without a key`)
+    }
+
+    const db = await this.#db;
+    const storeName = this.#objectStore;
+
+    const transaction = db.transaction([storeName], "readwrite");
+    const store = transaction.objectStore(storeName);
+
+    const request = store.delete(key);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = (event) => {
+        resolve(event.target.result);
+      };
+
+      request.onerror = (event) => {
+        reject(event.error);
+      } 
+    });
+  }
+
+  async update(key, object) {
+
+    if (key == null) {
+      throw new Error(`Unable to update object without a key`)
+    }
+
+    if (this.#vectorPath in object == false) {
+      throw new Error(`${this.#vectorPath} expected to be present 'object' being updated`);
+    }
+
+    if (Array.isArray(object[this.#vectorPath]) == false) {
+      throw new Error(`${this.#vectorPath} on 'object' is expected to be an Array`);
+    }
+
+    const db = await this.#db;
+    const storeName = this.#objectStore;
+
+    const transaction = db.transaction([storeName], "readwrite");
+    const store = transaction.objectStore(storeName);
+
+    const request = store.put(object, key);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = (event) => {
+        resolve(event.target.result);
+      };
+
+      request.onerror = (event) => {
+        reject(event.error);
+      } 
+    });
   }
 
   // Return the most similar items up to [limit] items
@@ -124,6 +192,11 @@ class VectorDB {
         reject(event.target.error);
       };
     });
+  }
+
+  get objectStore() {
+    // Escape hatch.
+    return this.#objectStore;
   }
 }
 
