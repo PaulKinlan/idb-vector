@@ -72,7 +72,10 @@ export async function experiment({ count = 100000, dim = 128, onProgress = () =>
       });
       const opfsRead = await timed(async () => new Float32Array(await (await handle.getFile()).arrayBuffer()));
       report.storage.opfs = { writeMs: opfsWrite.ms, readMs: opfsRead.ms, roundTripExact: equal(values, opfsRead.value), layout: 'Raw Float32 file; async writable stream and File.arrayBuffer; no metadata index' };
-    } catch (error) { report.storage.opfs = { unavailable: error.message }; }
+    } catch (error) {
+      if (error.message.startsWith('Storage ')) throw error;
+      report.storage.opfs = { unavailable: error.message };
+    }
 
     onProgress('Preparing WASM-SIMD and WebGPU…');
     let wasm;

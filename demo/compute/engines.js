@@ -54,7 +54,7 @@ export function compare(reference, candidate, referenceScores, candidateScores) 
     orderedTopKMatch: reference.length === candidate.length && reference.every((x, i) => x.id === candidate[i].id),
     overlap: candidate.filter(x => ids.has(x.id)).length / reference.length,
     maxAbsoluteScoreError,
-    scoreErrorScope: referenceScores ? 'all corpus scores' : 'shared top-k only',
+    scoreErrorScope: referenceScores && candidateScores ? 'all corpus scores' : 'shared top-k only',
   };
 }
 

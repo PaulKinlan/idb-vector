@@ -29,6 +29,10 @@ try {
   assert.equal(report.count, 100000);
   for (const backend of Object.values(report.storage)) if (!backend.unavailable) assert.equal(backend.roundTripExact, true);
   assert.ok(!report.engines.wasm.unavailable, report.engines.wasm.unavailable);
+  for (const query of report.queries) {
+    assert.equal(query.results.library.comparison.scoreErrorScope, 'shared top-k only');
+    assert.equal(query.results.wasm.comparison.scoreErrorScope, 'all corpus scores');
+  }
   for (const query of report.queries) for (const result of Object.values(query.results)) {
     assert.equal(result.comparison.orderedTopKMatch, true, JSON.stringify(result));
     assert.ok(result.comparison.maxAbsoluteScoreError < 1e-5);
