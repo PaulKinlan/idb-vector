@@ -117,3 +117,24 @@ edge case, not a relevance benchmark or an excuse to silently claim exact answer
 The three seeded100k queries still match; universal top-k equivalence is disproved.
 `npm test` also passed after this added check. Rebuilding cosine.wasm with clang22
 reproduces SHA256 `a0c8c33b448f77ed76498de4ce7a990a8a35505aa69703677dd19199a2eb7457`.
+
+## Live GitHub Pages acceptance
+
+Driven **https://paulkinlan.github.io/idb-vector/demo/compute/index.html** with real
+Run-button input after main merged the independently reviewed candidate. Served
+assets (including library and WASM binary) were individually SHA256-compared to
+main **2dc41082d0c3bd4ee4177266b90a5d316504b6a1**; see
+[live binding](live/served-assets.json) and [raw run](live/measurement.json).
+The measurement JSON's `conditions.commit` is the **test-driver** commit fba3546,
+not a claim that Pages serves that commit.
+
+Same100k×128 synthetic corpus, Chrome152, Ryzen9955HX and AMD RDNA2 Vulkan flags
+as above: GPU upload**29.7ms**, queries**27.5/23.1/25.7ms**; resident JS
+**13.8/16.1/19.4ms**, SIMD**6.5/2.6/2.5ms**, existing library
+**907.0/882.4/915.4ms**. All three seeded query ordered top-10s match.
+Storage write/read ms: records**5210.0/1146.4**, packedIDB**69.7/38.9**,
+OPFS**34.2/12.1**; exact roundtrips. Host load/browser provenance in live JSON.
+The live near-tie fixture again reports overlap0.8 for both SIMD and GPU;
+negated-score check rejects, narrow390px layout has no page overflow. Screenshots
+captured. No visual-review claim. This closes the earlier local-only acceptance
+limitation; it does not extend the result to other devices or real embeddings.

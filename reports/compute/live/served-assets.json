@@ -1,0 +1,34 @@
+{
+  "deployedCommit": "2dc41082d0c3bd4ee4177266b90a5d316504b6a1",
+  "verified": "2026-09-21T22:11:15.813Z",
+  "assets": [
+    {
+      "file": "demo/compute/index.html",
+      "sha256": "7588c525f9f912019c30ac4cbfd2e9e75e67fe1a23690b88ebb880bb89cb1a9c"
+    },
+    {
+      "file": "demo/compute/engines.js",
+      "sha256": "aff5a42b38bc7da6402cbd98bc0910e9b93d59498fd6a85ffdcf93729b2bf6d1"
+    },
+    {
+      "file": "demo/compute/experiment.js",
+      "sha256": "f2980e5bb4b961bf7cddb2309606201bcbccea114a36696473439e0116b8c80d"
+    },
+    {
+      "file": "demo/compute/page.js",
+      "sha256": "1fc5c6c39ddd24580cdd4df2f1a586cf8aae29ddcc788eb591fd6eeac6a68f0b"
+    },
+    {
+      "file": "demo/compute/cosine.wasm",
+      "sha256": "a0c8c33b448f77ed76498de4ce7a990a8a35505aa69703677dd19199a2eb7457"
+    },
+    {
+      "file": "index.js",
+      "sha256": "9481979b01606c2266c4a5017e0f81b667f4694a4eac0c0e61ab74e4dcb6b26a"
+    },
+    {
+      "file": "utils/sortedarray.js",
+      "sha256": "4f2d43de5ed6433dfdd1f5939c50a140ce29e15f13fb3f574c49907a4f2ff2fb"
+    }
+  ]
+}
