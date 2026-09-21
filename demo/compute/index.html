@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cosine compute and storage lab · idb-vector</title>
+<style>
+:root { color-scheme: light dark; font: 17px/1.5 system-ui; } body { max-width: 1100px; margin: auto; padding: 24px; } h1 { line-height: 1.15; } button,select { font: inherit; min-height: 44px; } button { cursor:pointer; } label { display:inline-block; margin:8px 16px 8px 0; } .scroll { overflow:auto; } table { border-collapse:collapse; width:100%; } th,td { text-align:left; padding:8px; border-bottom:1px solid #888; } .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:16px; } article { border:1px solid #888; border-radius:8px; padding:12px; } pre { white-space:pre-wrap; overflow-wrap:anywhere; } #status { min-height:3em; } a { color:light-dark(#1358aa,#8bc4ff); } code { overflow-wrap:anywhere; }
+</style>
+<main>
+<p><a href="../">Wikipedia search</a> · <a href="./README.md">Method and limitations</a></p>
+<h1>Same vectors. Four paths. Three storage layouts.</h1>
+<p>This experimental lab does not change the library. It compares its existing IndexedDB cosine query against an in-memory JavaScript scan, WASM-SIMD and WebGPU matrix-vector scoring. Top-k IDs and score errors stay visible, including disagreement.</p>
+<p>Synthetic Float32 vectors, not semantic embeddings. GPU upload is measured once, separately. Queries include readback and JavaScript top-k. Unsupported engines show their actual error; no silent fallback or assumed hardware speed.</p>
+<form id="controls"><label>Vectors <select id="count"><option value="1000">1,000</option><option value="10000">10,000</option><option value="100000" selected>100,000</option></select></label><label>Dimensions <select id="dim"><option>32</option><option selected>128</option><option>384</option></select></label><button id="run">Run comparison</button></form>
+<p>This writes temporary IndexedDB and OPFS data on this origin. 100k × 128 uses 51.2 MB per packed copy, with additional CPU/GPU copies and larger Array records. Database cleanup finishes when this page closes because the current library has no close API. Runs may briefly block the main thread.</p>
+<p id="status" role="status" aria-live="polite">Ready. Nothing runs until you press Run.</p>
+<section id="results" aria-label="Comparison results"></section>
+<button id="download" hidden>Download full JSON</button>
+<details><summary>What is being tested?</summary><p>The prior research predicted 6–51 ms upload for 51.2 MB and estimated an IndexedDB/scoring split of roughly 666/130 ms. Neither was a local measurement. This lab measures the upload and storage directly; cursor read includes materialisation, not a separately instrumented deserialisation phase.</p><p>Snapshot storage sacrifices per-record mutation and metadata-index semantics. OPFS also requires a format, key map and recovery strategy. Fast bulk reads alone do not justify replacing IndexedDB. GPU and SIMD use Float32 arithmetic; JavaScript uses double accumulators, so bit-identical scores are not promised. Near ties may reorder neighbours.</p></details>
+</main><script type="module" src="./page.js"></script></html>
