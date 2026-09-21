@@ -1,55 +1,48 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-  <!-- 
-      This is an HTML comment
-      You can write text in a comment and the content won't be visible in the page
-    -->
-
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hello World!</title>
-  <!-- The website JavaScript file -->
-  <script type="module">
-    import { VectorDB } from "../index.js";
-
-    const db = new VectorDB({
-      vectorPath: "embedding"
-    });
-
-    const key1 = await db.insert({ embedding: [1, 2, 3], "text": "ASDASINDASDASZd" });
-    const key2 = await db.insert({ embedding: [2, 3, 4], "text": "GTFSDGRG" });
-    const key3 = await db.insert({ embedding: [73, -213, 3], "text": "hYTRTERFR" });
-
-    try {
-      await db.insert({ array: [1, 2, 3], "text": "ASDASINDASDASZd" });
-    }
-    catch(error) {
-      console.log(error)
-    }
-
-    try {
-      await db.insert({ embedding: "embedding", "text": "ASDASINDASDASZd" });
-    }
-    catch(error) {
-      console.log(error)
-    }
-
-
-    console.log("Results:", await db.query([1, 2, 3], { limit: 20 }));
-
-    await db.update(key1, {embedding: [1,1,1], text: "UPDATED"});
-    await db.delete(key3);
-
-    console.log("Updated:", await db.query([1, 2, 3], { limit: 20 }));
-    
-    const incorrectVectorQueryLength = await db.query([1, 2], { limit: 20 });
-    console.assert(incorrectVectorQueryLength == 0, "Incorrect Vectory Query Length");
-
-  </script>
-</head>
-
-<body></body>
-
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector IDB — browser experiment</title>
+<style>
+  :root { color-scheme: light dark; font: 17px/1.5 system-ui; }
+  body { max-width: 960px; margin: auto; padding: 24px; }
+  label { display: inline-block; margin: 8px 16px 8px 0; }
+  input, select, button { font: inherit; padding: 8px; max-width: 100%; }
+  input { width: 110px; }
+  button { cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #888; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #status { min-height: 3em; }
+</style>
+<main>
+<h1>Vector search, in your browser</h1>
+<p>Real IndexedDB, deterministic synthetic vectors, exact cosine nearest neighbours.
+No model downloads or semantic text search. Everything stays in this browser.</p>
+<form id="build">
+  <label>Vectors <select id="count"><option>1000</option><option>10000</option><option>100000</option></select></label>
+  <label>Dimensions <select id="dimensions"><option>128</option><option>384</option></select></label>
+  <button id="generate">Create dataset</button>
+</form>
+<p>100k vectors may take minutes and significant disk space. Data is disposable: each dataset gets
+its own database; deletion is requested when replaced or when you leave. The library cannot close
+its connection, so deletion may wait for the page to close. No existing application databases are touched.</p>
+<form id="search">
+  <label>Query vector ID <input id="query" type="number" min="0" max="99999" value="42" required></label>
+  <label>Category <select id="category"><option value="">All</option><option value="7">7 (1% of data)</option></select></label>
+  <button id="run" disabled>Find nearest 10</button>
+</form>
+<p id="status" role="status" aria-live="polite">Create a dataset to begin.</p>
+<pre id="timing"></pre>
+<table><caption>Exact nearest neighbours (ID, category, cosine similarity)</caption><thead><tr><th>ID</th><th>Category</th><th>Similarity</th></tr></thead><tbody id="results"></tbody></table>
+<h2>What is being compared?</h2>
+<p>All: the unmodified library cursor scan versus an experimental paged <code>getAll</code> scan
+with query norm computed once. Category 7: exact predicate-before-top-k versus an IndexedDB
+metadata index over a separate copy with identical records. Timing includes IndexedDB reads and scoring,
+not dataset creation. These alternatives are experiments, not new library APIs.</p>
+<p>Filtering only <em>after</em> the global top 10 is not equivalent to finding the top 10 in a category;
+the demo prints that negative control. Approximate search is not implemented.</p>
+<p><a href="../reports/browser-analysis.md">Analysis and measured limitations</a></p>
+</main>
+<script type="module" src="demo.js"></script>
 </html>

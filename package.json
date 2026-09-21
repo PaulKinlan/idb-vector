@@ -8,8 +8,10 @@
     "url": "https://github.com/PaulKinlan/idb-vector"
   },
   "scripts": {
-    "test": "echo \"No test specified\" && exit 0",
-    "start": "serve"
+    "test": "node tests/browser.mjs",
+    "start": "serve",
+    "demo": "node tools/demo-server.mjs",
+    "measure": "node tests/browser.mjs --measure"
   },
   "license": "Apache-2.0",
   "author": {
