@@ -1,0 +1,334 @@
+{
+  "url": "http://127.0.0.1:33851/research/",
+  "browser": "Chrome/152.0.7977.82",
+  "checks": [
+    {
+      "citationsPreserved": 66,
+      "headingsPreserved": 30,
+      "tables": 8,
+      "evidenceLabels": 53
+    },
+    {
+      "width": 1280,
+      "scheme": "light",
+      "scrollWidth": 1265,
+      "background": "rgb(250, 250, 247)",
+      "scrollableTables": 1
+    },
+    {
+      "width": 1280,
+      "scheme": "dark",
+      "scrollWidth": 1265,
+      "background": "rgb(21, 27, 28)",
+      "scrollableTables": 1
+    },
+    {
+      "width": 390,
+      "scheme": "light",
+      "scrollWidth": 390,
+      "background": "rgb(250, 250, 247)",
+      "scrollableTables": 6
+    },
+    {
+      "width": 390,
+      "scheme": "dark",
+      "scrollWidth": 390,
+      "background": "rgb(21, 27, 28)",
+      "scrollableTables": 6
+    },
+    {
+      "anchorsClicked": 29
+    },
+    {
+      "localLinks": [
+        {
+          "url": "http://127.0.0.1:33851/demo/",
+          "status": 200
+        },
+        {
+          "url": "http://127.0.0.1:33851/research/architecture.md",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "externalBrowserVisit": {
+        "url": "https://github.com/jasonmayes/VectorSearch.js",
+        "title": "GitHub - jasonmayes/VectorSearch.js: Client side vector search using EmbeddingGemma with Web AI (LiteRT.js, TensorFlow.js, and Transformers.js) · GitHub",
+        "textLength": 11911
+      }
+    },
+    {
+      "externalBrowserVisit": {
+        "url": "https://arxiv.org/html/2407.01972",
+        "title": "MeMemo: On-device Retrieval Augmentation for Private and Personalized Text Generation",
+        "textLength": 44946
+      }
+    },
+    {
+      "externalBrowserVisit": {
+        "url": "https://github.com/PaulKinlan/idb-vector/blob/232b95c0215dab48d760bef6c2cf7e88186f4780/reports/packed-read.json",
+        "title": "idb-vector/reports/packed-read.json at 232b95c0215dab48d760bef6c2cf7e88186f4780 · PaulKinlan/idb-vector · GitHub",
+        "textLength": 4602
+      }
+    }
+  ],
+  "externalLinks": [
+    {
+      "url": "https://arxiv.org/abs/2403.05440",
+      "finalUrl": "https://arxiv.org/abs/2403.05440",
+      "status": 200
+    },
+    {
+      "url": "https://arxiv.org/html/2407.01972",
+      "finalUrl": "https://arxiv.org/html/2407.01972",
+      "status": 200
+    },
+    {
+      "url": "https://arxiv.org/html/2407.08623",
+      "finalUrl": "https://arxiv.org/html/2407.08623",
+      "status": 200
+    },
+    {
+      "url": "https://arxiv.org/html/2606.29571v1",
+      "finalUrl": "https://arxiv.org/html/2606.29571v1",
+      "status": 200
+    },
+    {
+      "url": "https://arxiv.org/pdf/1702.01417.pdf",
+      "finalUrl": "https://arxiv.org/pdf/1702.01417",
+      "status": 200
+    },
+    {
+      "url": "https://arxiv.org/pdf/1909.00512",
+      "finalUrl": "https://arxiv.org/pdf/1909.00512",
+      "status": 200
+    },
+    {
+      "url": "https://caniuse.com/webgpu",
+      "finalUrl": "https://caniuse.com/webgpu",
+      "status": 200
+    },
+    {
+      "url": "https://dev.to/thealpha93/i-built-a-vector-search-library-in-rustwasm-heres-what-i-learned-about-performance-browser-172c",
+      "finalUrl": "https://dev.to/thealpha93/i-built-a-vector-search-library-in-rustwasm-heres-what-i-learned-about-performance-browser-172c",
+      "status": 200
+    },
+    {
+      "url": "https://emscripten.org/docs/tools_reference/settings_reference.html",
+      "finalUrl": "https://emscripten.org/docs/tools_reference/settings_reference.html",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/0xHecker/hnswlib-wasm-core",
+      "finalUrl": "https://github.com/0xHecker/hnswlib-wasm-core",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/0xnyn/tinkerbird",
+      "finalUrl": "https://github.com/0xnyn/tinkerbird",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/Brainwires/idbvec",
+      "finalUrl": "https://github.com/Brainwires/idbvec",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/deepfates/hnsw/",
+      "finalUrl": "https://github.com/deepfates/hnsw/",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/discere-os/faiss.wasm",
+      "finalUrl": "https://github.com/discere-os/faiss.wasm",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/electric-sql/pglite",
+      "finalUrl": "https://github.com/electric-sql/pglite",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances",
+      "finalUrl": "https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/GeoffreyWang1117/VecDB-WASM",
+      "finalUrl": "https://github.com/GeoffreyWang1117/VecDB-WASM",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/gfx-rs/wgpu/issues/945",
+      "finalUrl": "https://github.com/gfx-rs/wgpu/issues/945",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/gpuweb/gpuweb/wiki/Implementation-Status",
+      "finalUrl": "https://github.com/gpuweb/gpuweb/wiki/Implementation-Status",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/greggman/webgpu-benchmark/",
+      "finalUrl": "https://github.com/greggman/webgpu-benchmark/",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/hqjb91/victor-db",
+      "finalUrl": "https://github.com/hqjb91/victor-db",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/jasonmayes/VectorSearch.js",
+      "finalUrl": "https://github.com/jasonmayes/VectorSearch.js",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/jasonmayes/web-ai-demos",
+      "finalUrl": "https://github.com/jasonmayes/web-ai-demos",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/jasonmayes/WebAIAgent",
+      "finalUrl": "https://github.com/jasonmayes/WebAIAgent",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/milhidaka/webgpu-blas",
+      "finalUrl": "https://github.com/milhidaka/webgpu-blas",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/PaulKinlan/idb-vector",
+      "finalUrl": "https://github.com/PaulKinlan/idb-vector",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/PaulKinlan/idb-vector/blob/232b95c0215dab48d760bef6c2cf7e88186f4780/reports/packed-read.json",
+      "finalUrl": "https://github.com/PaulKinlan/idb-vector/blob/232b95c0215dab48d760bef6c2cf7e88186f4780/reports/packed-read.json",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/PaulKinlan/idb-vector/blob/232b95c0215dab48d760bef6c2cf7e88186f4780/reports/packed-read.md",
+      "finalUrl": "https://github.com/PaulKinlan/idb-vector/blob/232b95c0215dab48d760bef6c2cf7e88186f4780/reports/packed-read.md",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/poloclub/mememo",
+      "finalUrl": "https://github.com/poloclub/mememo",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/sharma-open-source/browservec",
+      "finalUrl": "https://github.com/sharma-open-source/browservec",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/ShravanSunder/hnswlib-wasm",
+      "finalUrl": "https://github.com/ShravanSunder/hnswlib-wasm",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/tantaraio/voy/",
+      "finalUrl": "https://github.com/tantaraio/voy/",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/Tej-Sharma/astro-vectordb",
+      "finalUrl": "https://github.com/Tej-Sharma/astro-vectordb",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/tensorflow/tfjs/blob/master/tfjs-backend-webgpu/README.md",
+      "finalUrl": "https://github.com/tensorflow/tfjs/blob/master/tfjs-backend-webgpu/README.md",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/thealpha93/VecLite",
+      "finalUrl": "https://github.com/thealpha93/VecLite",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/unum-cloud/USearch",
+      "finalUrl": "https://github.com/unum-cloud/USearch",
+      "status": 200
+    },
+    {
+      "url": "https://github.com/unum-cloud/USearch/issues/191",
+      "finalUrl": "https://github.com/unum-cloud/USearch/issues/191",
+      "status": 200
+    },
+    {
+      "url": "https://jmlr.org/papers/v11/radovanovic10a.html",
+      "finalUrl": "https://jmlr.org/papers/v11/radovanovic10a.html",
+      "status": 200
+    },
+    {
+      "url": "https://nolanlawson.com/2021/08/22/speeding-up-indexeddb-reads-and-writes/",
+      "finalUrl": "https://nolanlawson.com/2021/08/22/speeding-up-indexeddb-reads-and-writes/",
+      "status": 200
+    },
+    {
+      "url": "https://patrickbrosset.com/articles/2024-11-19-even-faster-indexeddb-reads-with-getallrecords/",
+      "error": "fetch failed"
+    },
+    {
+      "url": "https://pglite.dev/docs/filesystems",
+      "finalUrl": "https://pglite.dev/docs/filesystems",
+      "status": 200
+    },
+    {
+      "url": "https://pglite.dev/extensions/",
+      "finalUrl": "https://pglite.dev/extensions/",
+      "status": 200
+    },
+    {
+      "url": "https://raw.githubusercontent.com/jasonmayes/VectorSearch.js/main/src/CosineSimilarity.js",
+      "finalUrl": "https://raw.githubusercontent.com/jasonmayes/VectorSearch.js/main/src/CosineSimilarity.js",
+      "status": 200
+    },
+    {
+      "url": "https://stevenic.github.io/vectra/storage.html",
+      "finalUrl": "https://stevenic.github.io/vectra/storage.html",
+      "status": 200
+    },
+    {
+      "url": "https://suhasjs.github.io/files/diskann_neurips19.pdf",
+      "finalUrl": "https://suhasjs.github.io/files/diskann_neurips19.pdf",
+      "status": 200
+    },
+    {
+      "url": "https://vldb.org/pvldb/vol16/p1100-zheng.pdf",
+      "finalUrl": "https://vldb.org/pvldb/vol16/p1100-zheng.pdf",
+      "status": 200
+    },
+    {
+      "url": "https://web.dev/blog/webgpu-supported-major-browsers",
+      "finalUrl": "https://web.dev/blog/webgpu-supported-major-browsers",
+      "status": 200
+    },
+    {
+      "url": "https://www.npmjs.com/package/vectra",
+      "finalUrl": "https://www.npmjs.com/package/vectra",
+      "status": 403
+    },
+    {
+      "url": "https://www.vldb.org/pvldb/vol18/p1770-ke.pdf",
+      "finalUrl": "https://www.vldb.org/pvldb/vol18/p1770-ke.pdf",
+      "status": 200
+    }
+  ],
+  "externalLinkFailures": [
+    {
+      "url": "https://patrickbrosset.com/articles/2024-11-19-even-faster-indexeddb-reads-with-getallrecords/",
+      "error": "fetch failed"
+    },
+    {
+      "url": "https://www.npmjs.com/package/vectra",
+      "finalUrl": "https://www.npmjs.com/package/vectra",
+      "status": 403
+    }
+  ],
+  "ok": true
+}

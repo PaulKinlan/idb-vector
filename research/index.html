@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Browser vector search research: IndexedDB, HNSW, WebGPU and anisotropy. Evidence labels, contradictions, sources and unmeasured hypotheses.">
+<title>idb-vector architecture research</title>
+<style>
+:root { color-scheme: light dark; --bg: #fafaf7; --ink: #202727; --muted: #465555; --link: #00589b; --panel: #edf1ef; --line: #bac7c2; --note: #fff4d8; }
+@media (prefers-color-scheme: dark) { :root { --bg: #151b1c; --ink: #e7efed; --muted: #b7c7c4; --link: #85caff; --panel: #222d2e; --line: #596c67; --note: #322c1d; } }
+* { box-sizing: border-box; }
+html { scroll-padding-top: 1rem; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 1.0625rem/1.7 system-ui, sans-serif; }
+main, header, footer { max-width: 80ch; margin: auto; padding: 1.5rem; }
+header { border-bottom: 1px solid var(--line); }
+header p, footer { color: var(--muted); }
+a { color: var(--link); text-underline-offset: .18em; overflow-wrap: anywhere; }
+a:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--link); outline-offset: 4px; }
+h1, h2, h3 { line-height: 1.25; text-wrap: balance; }
+h1 { font-size: clamp(1.9rem, 5vw, 2.7rem); }
+h2 { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+h3 { margin-top: 2rem; }
+p, li { overflow-wrap: anywhere; }
+li { margin-block: .45rem; }
+code { font: .88em/1.6 ui-monospace, monospace; background: var(--panel); padding: .12em .25em; border-radius: .2em; overflow-wrap: anywhere; }
+pre { padding: 1rem; background: var(--panel); overflow-x: auto; }
+pre code { padding: 0; }
+.evidence { border: 1px solid var(--line); font-weight: 600; }
+.notice { padding: 1rem 1.25rem; background: var(--note); border-left: 4px solid var(--line); }
+.notice h2 { margin: 0; padding: 0; border: 0; font-size: 1.2rem; }
+nav { background: var(--panel); padding: 1rem; margin-block: 2rem; }
+nav h2 { margin: 0; padding: 0; border: 0; }
+nav ul { list-style: none; padding: 0; }
+nav .level-3 { padding-left: 1.2rem; font-size: .95em; }
+nav a { display: inline-block; padding-block: .2rem; }
+.table-scroll { max-width: 100%; overflow-x: auto; margin-block: 1.5rem; border: 1px solid var(--line); }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; line-height: 1.55; }
+th, td { text-align: left; vertical-align: top; padding: .75rem; border-bottom: 1px solid var(--line); min-width: 10rem; }
+th { background: var(--panel); }
+blockquote { margin-inline: 0; padding-left: 1rem; border-left: 3px solid var(--line); }
+hr { border: 0; border-top: 1px solid var(--line); margin-block: 2rem; }
+:target { outline: 2px solid var(--link); outline-offset: .25rem; }
+@media (max-width: 480px) { main, header, footer { padding: 1rem; } ul, ol { padding-left: 1.35rem; } }
+@media print { nav, .skip { display: none; } .table-scroll { overflow: visible; } th, td { min-width: 0; } }
+</style>
+</head>
+<body>
+<header id="top">
+<a class="skip" href="#report">Skip to report</a>
+<p><a href="../demo/">Wikipedia search demo</a> · <a href="https://github.com/PaulKinlan/idb-vector">idb-vector on GitHub</a></p>
+<p>Research snapshot · 21 September 2026 · <a href="./architecture.md">Markdown source</a></p>
+</header>
+<main>
+<aside class="notice" aria-labelledby="reading-notes">
+<h2 id="reading-notes">Read the evidence, not just the headline</h2>
+<p>This is the original research snapshot, not a report of shipped library improvements. The original recommendations are preserved below, including disagreements and missing evidence.</p>
+<ul>
+<li><strong>Performance estimates are not measurements.</strong> The ~666 ms IndexedDB / ~130 ms arithmetic split is a cross-source inference, not a timed decomposition. The 6–51 ms GPU upload range is extrapolated from other hardware and APIs. Neither establishes a speedup on this library.</li>
+<li><strong>Measurement conditions matter.</strong> The local synthetic baseline used Chromium 152 on a Ryzen 9955HX, 128 dimensions, k=10 and medians of three runs. Other projects used different corpora, dimensions, hardware and recall tests, identified alongside their tables. These are not head-to-head results.</li>
+<li><strong>IndexedDB supports keyed random access.</strong> The question is its measured cost for this workload, not whether the API permits it. HNSW at 128 dimensions remains unmeasured here; memory and device limits vary.</li>
+<li><strong>Whitening is a developer choice, not a default.</strong> The owner requested an opt-in transformation on 21 September. The cited single-paper correlation results do not establish retrieval recall gains or a universal diagnostic threshold. Whitening, mean-centring and removing top principal components are different transformations; evaluate each on the target corpus and queries.</li>
+<li><strong>Publication caveats.</strong> The post-filter example demonstrates global-top-k-then-filter failure, not a blanket library defect. Asynchronous persistence and arbitrary memory ceilings below are proposals, not adopted durability or resource policies. Browser support and third-party claims are dated, not independently reverified for this publication.</li>
+</ul>
+<p><strong>[measured] Follow-up, 21 September 2026:</strong> <a href="https://github.com/PaulKinlan/idb-vector/blob/232b95c0215dab48d760bef6c2cf7e88186f4780/reports/packed-read.json">Raw measurements at commit 232b95c</a> and <a href="https://github.com/PaulKinlan/idb-vector/blob/232b95c0215dab48d760bef6c2cf7e88186f4780/reports/packed-read.md">method and limitations</a> now test the packing hypothesis. Fresh headless Chromium 152.0.7977.82, Ryzen 9 9955HX, seeded synthetic 100,000 × 128 coordinates, warm IDB after committed writes, three rotated repetitions; not cold disk or an isolated host.</p>
+<ul>
+<li>Median packed read: <strong>31.4 ms for 51.2 MB Float32</strong>, <strong>93.6 ms for 102.4 MB Float64</strong>; individual JS-array records with 1,000-row getAll pages: <strong>742.9 ms</strong>.</li>
+<li>Resident Float64 cosine arithmetic: <strong>8.6 ms, excluding top-k</strong>, rather than the original cross-source ~130 ms estimate. These separate operations do not constitute an end-to-end cached query measurement or an exact profiler decomposition.</li>
+<li>Float32 rounds the original JS numbers. The existing library does <strong>not</strong> normalize on write, contrary to the proposed contract below; Float64 preserves stored coordinate precision at twice the payload size. Packing is supported as an experiment, not proof that an index or GPU is unnecessary.</li>
+</ul>
+<p><strong>Citation access check, 21 September 2026:</strong> 48 of 49 distinct external targets returned HTTP 200. The npm Vectra citation returned 403 and a browser security challenge; its <a href="https://stevenic.github.io/vectra/storage.html">separate documentation citation</a> loaded. Original links are retained. Successful loading does not independently validate a source's claims.</p>
+<p>The internal supervisor appendix is omitted and the local baseline path made repository-relative; the research body, evidence labels, tables and citation links are otherwise preserved.</p>
+</aside>
+<nav aria-labelledby="contents"><h2 id="contents">Contents</h2><ul><li class="level-2"><a href="#summary">Summary</a></li>
+<li class="level-3"><a href="#the-four-answers-in-one-line-each">The four answers, in one line each</a></li>
+<li class="level-2"><a href="#1-query-space-reduction-is-hnsw-the-answer-in-a-browser">1. Query-space reduction — is HNSW the answer in a browser?</a></li>
+<li class="level-3"><a href="#1a-the-platform-constraint-stated-precisely">1a. The platform constraint, stated precisely</a></li>
+<li class="level-3"><a href="#1b-the-central-question-can-hnsw-traverse-over-indexeddb">1b. The central question: can HNSW traverse over IndexedDB?</a></li>
+<li class="level-3"><a href="#1c-what-it-costs-at-10k-100k-1m">1c. What it costs at 10k / 100k / 1M</a></li>
+<li class="level-3"><a href="#1d-browser-native-options-with-what-each-actually-buys">1d. Browser-native options, with what each actually buys</a></li>
+<li class="level-3"><a href="#1e-concrete-libraries-and-what-each-one-actually-is">1e. Concrete libraries — and what each one actually <em>is</em></a></li>
+<li class="level-2"><a href="#2-jason-mayes-memory-confirmed-with-one-correction">2. Jason Mayes — memory confirmed, with one correction</a></li>
+<li class="level-2"><a href="#3-webgpu-for-cosine-similarity-the-decisive-number">3. WebGPU for cosine similarity — the decisive number</a></li>
+<li class="level-3"><a href="#3a-is-it-realistic-today">3a. Is it realistic today?</a></li>
+<li class="level-3"><a href="#3b-the-decisive-number-transfer-vs-900-ms">3b. The decisive number: transfer vs 900 ms</a></li>
+<li class="level-3"><a href="#3c-the-real-constraints">3c. The real constraints</a></li>
+<li class="level-3"><a href="#3d-named-projects">3d. Named projects</a></li>
+<li class="level-2"><a href="#4-quot-cosine-similarity-is-not-the-best-quot-the-anisotropy-point">4. &quot;Cosine similarity is not the best&quot; — the anisotropy point</a></li>
+<li class="level-3"><a href="#4a-correcting-the-framing-precisely">4a. Correcting the framing, precisely</a></li>
+<li class="level-3"><a href="#4b-the-established-line-2017-2022-all-about-static-contextual-word-vectors">4b. The established line (2017–2022) — all about <em>static/contextual word</em> vectors</a></li>
+<li class="level-3"><a href="#4c-the-2024-2026-challenge-and-what-it-actually-claims">4c. The 2024–2026 challenge, and what it actually claims</a></li>
+<li class="level-3"><a href="#4d-does-it-change-top-k-ranking-or-only-the-score-values-the-distinction-paul-asked-for">4d. Does it change top-k ranking, or only the score values? <em>(The distinction Paul asked for)</em></a></li>
+<li class="level-3"><a href="#4e-mips-vs-cosine-vs-euclidean-under-normalisation-and-where-it-breaks">4e. MIPS vs cosine vs Euclidean under normalisation, and where it breaks</a></li>
+<li class="level-2"><a href="#contradictions">Contradictions</a></li>
+<li class="level-2"><a href="#missing-evidence">Missing evidence</a></li>
+<li class="level-2"><a href="#the-three-things-i-would-actually-change-in-idb-vector">The three things I would actually change in idb-vector</a></li>
+<li class="level-3"><a href="#change-1-make-the-query-engine-in-memory-demote-indexeddb-to-a-persistence-layer">Change 1 — Make the query engine in-memory; demote IndexedDB to a persistence layer</a></li>
+<li class="level-3"><a href="#change-2-fix-eligibility-before-top-k-first-and-make-the-recall-contract-explicit">Change 2 — Fix eligibility-before-top-k first, and make the recall contract explicit</a></li>
+<li class="level-3"><a href="#change-3-do-not-adopt-hnsw-adopt-ivf-over-indexeddb-if-ann-is-needed-at-all-behind-a-swappable-interface">Change 3 — Do not adopt HNSW. Adopt IVF-over-IndexedDB if ANN is needed at all, behind a swappable interface</a></li>
+<li class="level-3"><a href="#smaller-item-0-the-metric-policy">Smaller item (0) — the metric policy</a></li>
+<li class="level-2"><a href="#sources">Sources</a></li>
+<li class="level-2"><a href="#next-steps">Next steps</a></li></ul></nav>
+<article id="report"><h1 id="research-idb-vector-architecture-query-space-reduction-webgpu-and-the-anisotropy-claim">Research: idb-vector architecture — query-space reduction, WebGPU, and the anisotropy claim</h1>
+<p><strong>Baseline read:</strong> <code>reports/browser-analysis.md</code> on <code>analysis/browser-baseline</code>
+(commit <code>e346cc45</code>, harness <code>1662ae6f</code>). 14 / 92 / 942 ms at 1k / 10k / 100k × 128D;
+category index 735 ms → 13.5 ms; post-filter 0/10 eligible neighbours.
+<strong>Research run:</strong> 2026-09-21. <strong>Library not modified.</strong></p>
+<p><strong>Evidence labels used throughout:</strong> <code class="evidence">[established]</code> peer-reviewed or textbook-consensus;
+<code class="evidence">[measured]</code> a specific number someone actually ran; <code class="evidence">[one paper]</code> a single result;
+<code class="evidence">[contested]</code> sources disagree; <code class="evidence">[inference]</code> my reasoning over the sources, not a source&#39;s claim.</p>
+<hr>
+<h2 id="summary">Summary</h2>
+<p>Paul&#39;s memory is right on two counts and imprecise on one. <strong>HNSW over IndexedDB does effectively
+become &quot;load the graph into memory&quot;</strong> — every shipping browser implementation materialises the graph
+(MeMemo keeps &quot;the keys and HNSW graphs in the RAM&quot;; hnswlib-wasm puts the whole index in the WASM heap
+via Emscripten&#39;s IDBFS; browservec persists the graph in a snapshot so loads skip a ~180× rebuild) — and
+the build cost is brutal (~94 minutes for 1M×384D per MeMemo&#39;s own paper). <strong>WebGPU is a realistic path,
+and the CPU↔GPU transfer is not the blocker</strong>: 100k×128D is 51.2 MB, uploads at roughly 6–51 ms once,
+versus a ~900 ms brute-force query. <strong>But the real bottleneck is upstream of the GPU</strong> — the baseline&#39;s
+own numbers imply ~670 of the 796 ms paged-scan is IndexedDB per-record read/deserialise overhead, not
+arithmetic, so any ANN-or-GPU plan that leaves per-record IDB reads in place buys a fraction of the number
+it appears to. On the metric question: Paul&#39;s memory points at a real line of work, the term of art is
+<strong>anisotropy</strong> (not &quot;ellipsoid&quot;), and the most recent comprehensive study concludes cosine is <em>already
+correct</em> for fine-tuned retrieval embedders and only fails on strongly anisotropic ones — so it does not
+justify changing idb-vector&#39;s default.</p>
+<h3 id="the-four-answers-in-one-line-each">The four answers, in one line each</h3>
+<ol>
+<li><strong>HNSW:</strong> yes, it becomes an in-memory load. At idb-vector&#39;s scales it is not worth it; <strong>IVF over
+IndexedDB is better shaped to the platform</strong> and is the same trick the baseline already proved works.</li>
+<li><strong>Jason Mayes:</strong> memory <strong>confirmed</strong> — <code>jasonmayes/VectorSearch.js</code> is a client-side vector search
+library with a custom IndexedDB vector DB and WebGPU/TF.js cosine similarity. But he has published
+<strong>no metadata filtering</strong>; the only filter is a cosine-score threshold. Correct that part.</li>
+<li><strong>WebGPU:</strong> realistic today on Chrome/Edge/Safari 26, <em>not</em> on Firefox stable outside Windows.
+Transfer ≈ 6–51 ms once for 100k×128 = <strong>20–150× cheaper than one 900 ms brute-force query</strong>.</li>
+<li><strong>Anisotropy:</strong> real, well-cited, but Paul&#39;s framing is imprecise and the practical conclusion is the
+opposite of what the intuition suggests — <strong>keep cosine</strong>.</li>
+</ol>
+<hr>
+<h2 id="1-query-space-reduction-is-hnsw-the-answer-in-a-browser">1. Query-space reduction — is HNSW the answer in a browser?</h2>
+<h3 id="1a-the-platform-constraint-stated-precisely">1a. The platform constraint, stated precisely</h3>
+<p><code class="evidence">[established]</code> IndexedDB is a key-range store. It can select by object-store key or <code>IDBIndex</code> +
+<code>IDBKeyRange</code>; it cannot rank a cursor by cosine, cannot accept a JS predicate as an index comparator,
+and cannot traverse a pointer graph cheaply. This is not an implementation gap — it is the API. The
+baseline report already establishes the usable primitives: equality/range selection, compound keys for
+lexicographic ordering, and multi-entry indexes for tag membership.</p>
+<h3 id="1b-the-central-question-can-hnsw-traverse-over-indexeddb">1b. The central question: can HNSW traverse over IndexedDB?</h3>
+<p><strong>Answer: no — in practice every implementation materialises the graph. The honest answer to Paul&#39;s
+question is &quot;it becomes a load&quot;, with one nuance: the graph must be resident, the <em>vectors</em> can
+sometimes stay on disk.</strong></p>
+<p>Three independent pieces of direct evidence:</p>
+<div class="table-scroll" role="region" aria-label="Research comparison table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Project</th>
+<th>What is resident in RAM</th>
+<th>What is in IndexedDB</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>MeMemo</strong> (Georgia Tech, SIGIR 2024)</td>
+<td>&quot;the keys and HNSW graphs&quot;</td>
+<td>&quot;all vector values&quot;, with a prefetch cache of <em>p</em> vectors</td>
+</tr>
+<tr>
+<td><strong>hnswlib-wasm</strong> (Emscripten port of C++ hnswlib)</td>
+<td>the whole index — it lives as a file in the WASM virtual FS</td>
+<td>IDBFS syncs that virtual FS to IndexedDB</td>
+</tr>
+<tr>
+<td><strong>browservec</strong> M7 HNSW + M7b GPU graph search</td>
+<td>graph in memory / GPU storage buffers</td>
+<td>versioned binary snapshots</td>
+</tr>
+</tbody></table></div>
+<p>MeMemo&#39;s paper is explicit that the graph is the thing it could not put on disk:
+<em>&quot;In IndexedDB, MeMemo stores all vector values, while only keeping the keys and HNSW graphs in the
+RAM.&quot;</em> The rest of §3.2 is an account of the workaround — a prefetch cache sized by vector dimension,
+used <em>because</em> &quot;reading or writing a large amount of data to IndexedDB with consecutive transactions is
+extremely slow&quot;, and because &quot;the HNSW construction process requires consecutive reads and writes of
+vector values, as the algorithm relies on the previously constructed index for finding good neighbors.&quot;
+That is the platform problem in one sentence: HNSW&#39;s build and search are both random-access over a
+graph, and IDB&#39;s per-record access is the expensive operation.</p>
+<p>hnswlib-wasm is even plainer — it uses Emscripten&#39;s <code>IDBFS</code>, i.e. a real filesystem image inside the
+WASM linear heap, synced to IndexedDB as blobs. The index is loaded whole. This also inherits
+Emscripten&#39;s default 2 GB memory-growth ceiling, which is a hard limit on index size for any IDBFS-based
+approach.</p>
+<h3 id="1c-what-it-costs-at-10k-100k-1m">1c. What it costs at 10k / 100k / 1M</h3>
+<p><code class="evidence">[measured]</code> The one primary-source browser build number I could find: <strong>MeMemo, in the paper&#39;s own
+&quot;Challenges&quot; section — &quot;In Chrome on a 64GB RAM MacBook, it took about 94 minutes to insert 1 million
+384-dimensional vectors (M=5, efConstruction=20).&quot;</strong> Query is described only qualitatively: &quot;querying
+this index with 1M items is still performed in real time.&quot; MeMemo&#39;s own README chart in the paper
+apparently holds the query figures; I could not extract them as text, so I am not quoting a latency.</p>
+<p><code class="evidence">[inference]</code> Extrapolating 94 min/1M to smaller N is not clean, because HNSW insertion is
+superlinear overall (per-insert search cost grows with <code>log N</code> at fixed <code>efConstruction</code>, and the
+constant is large in a browser). A rough order-of-magnitude read at M=5/efC=20, 384D:
+~10k ≈ tens of seconds to a couple of minutes; ~100k ≈ minutes to ~10 minutes; ~1M ≈ ~1.5 hours.
+<strong>Do not quote these as measurements.</strong> They are the shape of the cost, and the shape is the point:
+<em>HNSW build time in a browser is minutes at 100k, not milliseconds.</em></p>
+<p><code class="evidence">[measured]</code> Independent corroboration of the build-cost problem, from a third party who benchmarked
+the existing libraries head to head at 10k × 1536D: &quot;MeMemo&#39;s HNSW was faster at 17 ms [vs 37 ms for
+pure-JS brute force]. But building the index took minutes.&quot;</p>
+<p><code class="evidence">[measured]</code> And the counter-result that matters most: the same author implemented HNSW in his own
+Rust/WASM library and <strong>flat search beat it at every scale he tested, at dim 1536</strong>:</p>
+<div class="table-scroll" role="region" aria-label="Research comparison table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Scale (dim 1536)</th>
+<th>Flat (exact)</th>
+<th>HNSW ef=200</th>
+<th>Winner</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1k</td>
+<td>0.83 ms</td>
+<td>0.95 ms</td>
+<td>Flat, 1.14×</td>
+</tr>
+<tr>
+<td>5k</td>
+<td>4.1 ms</td>
+<td>4.4 ms</td>
+<td>Flat, 1.08×</td>
+</tr>
+<tr>
+<td>10k</td>
+<td>8.2 ms</td>
+<td>8.8 ms</td>
+<td>Flat, 1.07×</td>
+</tr>
+</tbody></table></div>
+<p>His stated reason — <em>&quot;at 1,536 dimensions, each hop in the HNSW graph traverses a massive vector space.
+The &#39;neighbourhood structure&#39; that makes HNSW efficient at low dimensions becomes noise at high
+dimensions&quot;</em> — is a real geometric effect, but I&#39;d flag the deeper cause as the memory access pattern
+rather than the geometry. He also volunteers the counter-hypothesis untested: &quot;HNSW would probably win
+(untested) at dim=128 with 500k+ vectors.&quot; <strong>idb-vector is at dim=128 — which is exactly the untested
+regime in every source I found.</strong> That is a genuine gap, not a resolved question.</p>
+<p><code class="evidence">[inference]</code> Memory residency at 128D, which is the regime idb-vector actually lives in:</p>
+<ul>
+<li>100k × 128 × 4 B = <strong>51.2 MB</strong> of vectors. Trivial.</li>
+<li>1M × 128 × 4 B = <strong>512 MB</strong> of vectors. Fine in a tab, at the edge of mobile.</li>
+<li>An HNSW graph at M=16 with bidirectional links ≈ 1M × 2 × 16 × 4 B ≈ <strong>128 MB</strong>. Fine.</li>
+<li>So at 128 dims, MEMORY is not the constraint at any scale idb-vector plausibly targets. <strong>Build time
+and recall risk are</strong>, and neither is bought back at these sizes.</li>
+</ul>
+<h3 id="1d-browser-native-options-with-what-each-actually-buys">1d. Browser-native options, with what each actually buys</h3>
+<p>All numbers below are labelled with their source; <strong>none of them are at 128 dimensions</strong>.</p>
+<div class="table-scroll" role="region" aria-label="Research comparison table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Family</th>
+<th>What it buys</th>
+<th>Build cost</th>
+<th>Storage</th>
+<th>Recall</th>
+<th>Browser fit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Brute force flat fp32</strong></td>
+<td>exactness, zero index</td>
+<td>none</td>
+<td>4 B/dim</td>
+<td>1.0</td>
+<td>perfect — <code class="evidence">[measured]</code> browservec 1.71 ms/q at 20k×384 GPU</td>
+</tr>
+<tr>
+<td><strong>IVF / flat</strong></td>
+<td><code class="evidence">[measured]</code> 3.4× over flat at 20k×384 (1.71 → 0.51 ms/q), recall 1.000</td>
+<td>k-means: seconds–minutes at 100k</td>
+<td>+ 1 bucket id (<strong>indexable</strong>)</td>
+<td>tunable via <code>nprobe</code></td>
+<td><strong>best-shaped for IDB</strong> — see below</td>
+</tr>
+<tr>
+<td><strong>IVF-PQ</strong></td>
+<td>~32× compression</td>
+<td>k-means + codebook training</td>
+<td>~32× smaller</td>
+<td>material loss, needs rerank</td>
+<td>little to gain at 100k×128</td>
+</tr>
+<tr>
+<td><strong>HNSW</strong></td>
+<td>best recall/latency <em>if resident</em></td>
+<td><code class="evidence">[measured]</code> ~94 min/1M@384D</td>
+<td>graph ≈ 128 MB at 1M/M=16</td>
+<td>high</td>
+<td>worst fit — graph must be resident</td>
+</tr>
+<tr>
+<td><strong>ScaNN</strong></td>
+<td>anisotropic vector quantisation, server-scale</td>
+<td>heavy</td>
+<td>—</td>
+<td>high</td>
+<td>server-side design</td>
+</tr>
+<tr>
+<td><strong>DiskANN / Vamana</strong></td>
+<td>billion-scale on SSD</td>
+<td>heavy</td>
+<td>SSD</td>
+<td>high</td>
+<td><strong>not implementable as designed</strong></td>
+</tr>
+<tr>
+<td><strong>LSH</strong></td>
+<td>no training, cheap, bucketable</td>
+<td>~free (random projections)</td>
+<td>+ hash bands</td>
+<td>poor at high precision; candidate-gen only</td>
+<td>browser-friendly but little win at 100k</td>
+</tr>
+<tr>
+<td><strong>Annular / &quot;ring&quot; index</strong></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td><strong>could not find this as an ANN family — see Missing evidence</strong></td>
+</tr>
+</tbody></table></div>
+<p><strong>IVF over IndexedDB is the option that is isomorphic to the platform.</strong> The recipe:
+run k-means over the vectors; store the <em>c</em> centroids in a tiny separate object store; write a <code>bucket</code>
+field per record; create an <code>IDBIndex</code> on <code>bucket</code>; at query time score the <em>c</em> centroids (fast, tiny),
+pick the nearest <code>nprobe</code> bucket ids, read those cells with a key range, and rerank the candidates
+exactly. Every primitive it needs is one the baseline already demonstrated:</p>
+<ul>
+<li>The baseline&#39;s category-index experiment cut a 100k scan from <strong>735 ms to 13.5 ms</strong> by reading
+1,000 of 100,000 records through an index. IVF is <em>the same read pattern with learned clusters instead
+of a label column</em>. <code class="evidence">[inference — high confidence]</code></li>
+<li><code class="evidence">[measured]</code> browservec, which ships exactly this, reports IVF fp32 at <strong>0.51 ms/q vs 1.71 ms/q for
+flat</strong> at 20k×384 on an M-series GPU, recall@10 = 1.000, and supports <code>targetRecall: 0.95</code> to
+auto-tune <code>nprobe</code> against recall measured on the user&#39;s own data.</li>
+</ul>
+<p>Note the caveat on those browservec recall figures: <strong>everything in their table is 1.000, including
+1-bit quantisation.</strong> Their own text calls it &quot;a small, growing device matrix, not an exhaustive one.&quot;
+Treat <code>recall = 1.000</code> there as &quot;not yet discriminating at this scale&quot;, not as evidence that
+quantisation is lossless.</p>
+<p><strong>DiskANN is a genuine dead end in a browser.</strong> <code class="evidence">[established]</code> It exists precisely to serve a graph
+from SSD with a page-aligned layout and a custom I/O path — the paper&#39;s contribution is the SSD access
+pattern (NeurIPS 2019). A browser has no page-level disk access; OPFS gives you file I/O, not
+authority over read-ahead or alignment. The nearest browser analogue to DiskANN is &quot;load the whole
+thing&quot;, which is HNSW-with-extra-steps.</p>
+<p><strong>Quantisation is a memory lever, not a speed lever, at these scales</strong> — and this directly contradicts
+the intuitive plan. <code class="evidence">[measured]</code> browservec, 20k×384, M-series GPU:</p>
+<div class="table-scroll" role="region" aria-label="Research comparison table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Config</th>
+<th>recall@10</th>
+<th>Query latency</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>flat fp32</td>
+<td>1.000</td>
+<td><strong>1.71 ms/q</strong></td>
+</tr>
+<tr>
+<td>flat int8</td>
+<td>1.000</td>
+<td>1.52 ms/q</td>
+</tr>
+<tr>
+<td>flat int4</td>
+<td>1.000</td>
+<td>1.69 ms/q</td>
+</tr>
+<tr>
+<td>flat 1-bit</td>
+<td>1.000</td>
+<td><strong>2.45 ms/q</strong></td>
+</tr>
+</tbody></table></div>
+<p>Their own takeaway: <em>&quot;Sub-byte quantization is a memory lever, not a speed lever at this scale. The
+quantized kernels are ALU-bound (manual nibble/sign unpack costs more than a plain fp32 <code>vec4</code> load), so
+query time actually rises as bit-width shrinks at 20k rows. The payoff is memory ... tighter codes only
+start winning on throughput once the scan is bandwidth-bound rather than ALU-bound.&quot;</em></p>
+<p>That is a material correction to any plan that ships int8 expecting a faster query at 100k×128.</p>
+<h3 id="1e-concrete-libraries-and-what-each-one-actually-is">1e. Concrete libraries — and what each one actually <em>is</em></h3>
+<div class="table-scroll" role="region" aria-label="Research comparison table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Library</th>
+<th>What it is</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong><a href="https://github.com/poloclub/mememo">poloclub/mememo</a></strong></td>
+<td><strong>Pure-JS HNSW</strong>, IndexedDB + Web Workers. Peer-reviewed (SIGIR 2024 demo, DOI 10.1145/3626772.3657662)</td>
+<td>The most credible browser-HNSW reference. Graph in RAM, vectors in IDB, prefetch cache. ~94 min/1M@384D.</td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/ShravanSunder/hnswlib-wasm">ShravanSunder/hnswlib-wasm</a></strong></td>
+<td><strong>Emscripten WASM build of the C++ hnswlib</strong> (not a reimplementation). IDBFS persistence.</td>
+<td>Whole index in the WASM heap; inherits the 2 GB Emscripten growth ceiling. README says &quot;still in its early days&quot;. Fork: <a href="https://github.com/0xHecker/hnswlib-wasm-core">0xHecker/hnswlib-wasm-core</a> (storage-agnostic).</td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/sharma-open-source/browservec">sharma-open-source/browservec</a></strong></td>
+<td><strong>TypeScript + hand-written WGSL kernels.</strong> flat / IVF / HNSW, fp32/int8/int4/1-bit, OPFS+IndexedDB persistence, WASM-SIMD CPU fallback, GPU score-mask metadata filtering, GPU top-k</td>
+<td><strong>The closest existing thing to what Paul is asking for.</strong> Ship-quality docs, test suite, device matrix. Read this first.</td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/thealpha93/VecLite">thealpha93/VecLite</a></strong></td>
+<td><strong>Rust → WASM + SIMD128, flat index only.</strong></td>
+<td>Honest self-benchmarks: ~3.9× over optimised JS, not 20×. <strong>Its marketing table claims &quot;~8 ms at 10k&quot; at dim 1536; its own honest-benchmark table in the same article says 40 ms at 10k / dim 1536.</strong> Cite the 40 ms.</td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/GeoffreyWang1117/VecDB-WASM">GeoffreyWang1117/VecDB-WASM</a></strong></td>
+<td>Rust/WASM + SIMD128, HNSW + Flat, IndexedDB persistence. Claims &lt;2 ms @10k×128</td>
+<td>Self-reported; unverified by me.</td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/tantaraio/voy/">tantaraio/voy</a> / <code>voy-search</code></strong></td>
+<td><strong>Rust → WASM k-d tree</strong>, 75 KB gzipped</td>
+<td><strong>Not HNSW.</strong> <code class="evidence">[established]</code> k-d trees degrade toward linear scan in moderate-to-high dimensions — this is textbook and is why k-d trees are absent from modern ANN stacks. Fine as a tiny dependency; do not expect ANN behaviour at 768D.</td>
+</tr>
+<tr>
+<td><strong><a href="https://www.npmjs.com/package/vectra">StevenStavrakis/vectra</a></strong> (<code>vectra</code>)</td>
+<td><strong>Pure JS/TS, brute-force cosine</strong>, file-backed DB with a swappable <code>FileStorage</code>; has an <code>IndexedDBStorage</code> for browser/Electron. Pinecone-style metadata filtering + BM25 hybrid</td>
+<td>Contrary to the third-party claim that it is &quot;Node.js only&quot; — the docs list <code>IndexedDBStorage</code> for &quot;Browser, Electron&quot; and a <code>vectra/browser</code> entry point. <strong>Good source to copy for the metadata-filter API surface.</strong></td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/unum-cloud/USearch">unum-cloud/USearch</a></strong></td>
+<td>C++ single-file HNSW-family engine, SIMD-optimised. Has a WASM build</td>
+<td>The JS binding targets Node; <strong>browser usage is officially undocumented</strong> (open issue <a href="https://github.com/unum-cloud/USearch/issues/191">#191</a>). Usable, unproven in-page.</td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/discere-os/faiss.wasm">discere-os/faiss.wasm</a></strong></td>
+<td>Emscripten build of FAISS</td>
+<td>Needs a WASM BLAS/LAPACK, pthreads + <code>SharedArrayBuffer</code> (⇒ COOP/COEP headers), SIMD flags. Heavy. The &quot;5–15 MB binary&quot; figure I saw came from a search summary, not a spec — <strong>unverified</strong>.</td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/electric-sql/pglite">electric-sql/pglite</a> + <a href="https://pglite.dev/extensions/">pgvector</a></strong></td>
+<td><strong>Full Postgres + pgvector compiled to WASM</strong>, 3 MB gzipped, IndexedDB or OPFS VFS</td>
+<td>A categorically different answer: you get SQL metadata filtering, transactions and vector ops in one engine, and the indexing problem becomes pgvector&#39;s. Caveat: PGlite&#39;s IndexedDB VFS &quot;load[s] all files for the database into memory on start, and flush[es] them to IndexedDB after each query if they have changed.&quot;</td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/Brainwires/idbvec">Brainwires/idbvec</a>, <a href="https://github.com/0xnyn/tinkerbird">0xnyn/tinkerbird</a>, <a href="https://github.com/Tej-Sharma/astro-vectordb">Tej-Sharma/astro-vectordb</a>, <a href="https://github.com/hqjb91/victor-db">hqjb91/victor-db</a>, <a href="https://github.com/deepfates/hnsw/">deepfates/hnsw</a></strong></td>
+<td>Hobby-scale HNSW-over-IndexedDB projects</td>
+<td>Discovered via search; <strong>not reviewed, no published benchmarks.</strong> Listed for landscape completeness only.</td>
+</tr>
+</tbody></table></div>
+<p><strong>Verdict on Q1.</strong> HNSW is not the answer here, and the reason is not that it can&#39;t be built — three
+projects have built it. The reason is that it costs minutes of build time at 100k, forces the graph to
+be resident, is hostile to deletes, and is unmeasured at 128 dims where it is most likely to help. IVF
+is the ANN family whose access pattern matches what IndexedDB is actually good at (a keyed cell read),
+and the baseline already contains a 54× demonstration that this pattern works on this platform.</p>
+<hr>
+<h2 id="2-jason-mayes-memory-confirmed-with-one-correction">2. Jason Mayes — memory confirmed, with one correction</h2>
+<p><strong>Confirmed: he has published in exactly this space.</strong> <code class="evidence">[established — first-party source]</code></p>
+<p><strong><a href="https://github.com/jasonmayes/VectorSearch.js">jasonmayes/VectorSearch.js</a></strong> — <em>&quot;A library to perform
+semantic vector search, over millions of vectors in milliseconds ... Runs entirely client side in the web
+browser (custom Vector DB layer written on top of IndexDB) and currently supports Google&#39;s
+EmbeddingGemma ... or all-Mini-L6-v2 ... via Web AI libraries with WebGPU acceleration for speed.&quot;</em>
+Announced on LinkedIn 2026-03-20; a Codepen demo and a GIF of it running are linked from the README.
+121 stars as of the directory listing I saw.</p>
+<p><strong>What it actually is, from source inspection</strong> (<code>src/CosineSimilarity.js</code>, verified by fetching the
+file):</p>
+<ul>
+<li><code>cosineSimilarityTFJSGPUMatrix(matrixData, vectorData, topK)</code> builds <code>tf.tensor2d(matrixData)</code>, caches
+it in <code>this.cachedMatrix</code> — <em>&quot;Rebuilding GPU VectorDB Matrix&quot;</em> is logged only on cache miss — then
+row-normalises the matrix, normalises the query, does <code>tf.matMul</code>, and returns <code>tf.topk(..., false)</code>.</li>
+<li>Helper files: <code>src/VectorStore.js</code> (the IndexedDB layer), <code>src/EmbeddingModel.js</code>, <code>src/Tokenizer.js</code>,
+<code>src/VisualizeTokens.js</code>, <code>src/VisualizeEmbedding.js</code>. No file relating to filtering.</li>
+<li>Runtime: TensorFlow.js with the WebGPU backend for the matmul, LiteRT.js/Transformers.js for the
+embedder.</li>
+</ul>
+<p><strong>Correction for Paul:</strong> <em>&quot;filters in a similar space&quot;</em> — he has <strong>score</strong> filtering, not <strong>metadata</strong>
+filtering. The search API is <code>search(embedding, cosineSimilarityThreshold, dbName)</code>: a cosine-similarity
+<strong>threshold</strong>, plus top-k. There is no predicate/metadata filter anywhere in the README or the source
+files listed above. So: memory right about the person and the space, wrong about the specific feature.
+The metadata-filter design to copy is <strong>vectra&#39;s</strong> (Mongo-style <code>$eq</code>/<code>$in</code>/<code>$gte</code>, Pinecone-compatible)
+or <strong>browservec&#39;s</strong> (same operators, applied in-index on the GPU via a score-mask kernel).</p>
+<p><strong>His own performance claims</strong> (first-party, on a &quot;very old NVIDIA 1070&quot;):</p>
+<ul>
+<li>&quot;100K vectors ... it can search those in tens of miliseconds using the more complex EmbeddingGemma model&quot;</li>
+<li>&quot;<strong>it currently takes roughly the SAME time for 100K vectors searched vs 1K vectors</strong> due to leveraging the GPU&quot;</li>
+<li>&quot;the first search you perform will be slower as it has to transfer memory from CPU to GPU for the first
+time (suggest doing a dummy vector search on page load to warm up)&quot;</li>
+<li>&quot;verified this works on Intel integrated GPUs, NVIDIA, AMD, and Apple M GPUs in any web browser that supports WebGPU&quot;</li>
+<li>&quot;The largest cost is actually the embedding that takes around 200ms&quot;</li>
+<li>&quot;I will later need to refactor to load in chunks to avoid any issues for larger vector stores&quot;</li>
+</ul>
+<p>This is a <strong>first-party, unfalsifiable-by-me measurement on one GPU</strong> — treat as <code class="evidence">[measured, single source]</code>. It is, however, the single most directly relevant datapoint to Paul&#39;s Q3, because it is a
+real browser doing exactly the operation in question.</p>
+<p><strong>Other Mayes work in the vicinity:</strong> <a href="https://github.com/jasonmayes/web-ai-demos">jasonmayes/web-ai-demos</a>
+(a collection of client-side AI demos, including a product-reviews demo shown at I/O 2024), and
+<a href="https://github.com/jasonmayes/WebAIAgent">jasonmayes/WebAIAgent</a>. <strong>I found no paper, talk, or repo by
+him on vector <em>filtering</em> or ANN indexing.</strong> The in-browser vector search work is VectorSearch.js.</p>
+<hr>
+<h2 id="3-webgpu-for-cosine-similarity-the-decisive-number">3. WebGPU for cosine similarity — the decisive number</h2>
+<h3 id="3a-is-it-realistic-today">3a. Is it realistic today?</h3>
+<p><strong>Yes on Chrome/Edge/Safari 26; no as a universal assumption.</strong></p>
+<p><code class="evidence">[established]</code> Browser support, from MDN/caniuse/gpuweb implementation-status:</p>
+<div class="table-scroll" role="region" aria-label="Research comparison table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Browser</th>
+<th>WebGPU status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Chrome</td>
+<td>Since 113 (2023); Chrome 144 (2026-01-13) per webstatus.dev</td>
+</tr>
+<tr>
+<td>Edge</td>
+<td>Chromium-based, same</td>
+</tr>
+<tr>
+<td><strong>Safari</strong></td>
+<td><strong>26 (2025-09-15), &quot;partial support&quot; in caniuse through 26.6</strong></td>
+</tr>
+<tr>
+<td><strong>Firefox</strong></td>
+<td><strong>141 (2025-07) — Windows only.</strong> macOS ARM in 145/147. <strong>Linux: Nightly only. Android: behind a flag.</strong></td>
+</tr>
+<tr>
+<td>iOS third-party browsers (Chrome/Firefox on iOS)</td>
+<td>WebKit under the hood; <code class="evidence">[measured]</code> browservec found <strong>no WebGPU exposed</strong> on Chrome iOS 149</td>
+</tr>
+</tbody></table></div>
+<p>Note the contradiction: web.dev&#39;s blog says WebGPU is <em>&quot;officially supported across Chrome, Edge,
+Firefox, and Safari&quot;</em>, while caniuse and the gpuweb wiki show Firefox stable shipping on <strong>Windows only</strong>
+with Mac/Linux still in Nightly. <strong>Do not plan against the blog.</strong> A WASM-SIMD fallback is mandatory for
+a meaningful share of real users, not a nicety.</p>
+<h3 id="3b-the-decisive-number-transfer-vs-900-ms">3b. The decisive number: transfer vs 900 ms</h3>
+<p><strong>Answer: the transfer is dramatically cheaper. It is not the blocker. And it is a one-time cost, not a
+per-query cost.</strong></p>
+<p><code class="evidence">[inference]</code> Arithmetic, with each input sourced:</p>
+<div class="table-scroll" role="region" aria-label="Research comparison table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Quantity</th>
+<th>Value</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Index size, 100k × 128D × 4 B</td>
+<td><strong>51.2 MB</strong></td>
+<td>arithmetic</td>
+</tr>
+<tr>
+<td>Measured effective browser CPU↔GPU transfer rate, large buffers</td>
+<td><strong>~1 GB/s</strong></td>
+<td><code class="evidence">[measured]</code> wgpu issue <a href="https://github.com/gfx-rs/wgpu/issues/945">#945</a> — &quot;with 1.28GB buffers ... it took 2.2 seconds&quot;; reproduced &quot;on MacBook Pro 13&quot; with an Intel Iris, MacBook Pro 16&quot; with a radeon and a Windows desktop with an Nvidia&quot;</td>
+</tr>
+<tr>
+<td>Same machine, OpenCL <code>enqueueWriteBuffer</code> microbenchmark</td>
+<td><strong>8.56 GB/s</strong></td>
+<td><code class="evidence">[measured]</code> same issue — the author&#39;s own <code>clpeak</code> output</td>
+</tr>
+<tr>
+<td>⇒ Upload cost at ~1 GB/s</td>
+<td><strong>~51 ms, once</strong></td>
+<td>inference</td>
+</tr>
+<tr>
+<td>⇒ Upload cost at ~8.5 GB/s</td>
+<td><strong>~6 ms, once</strong></td>
+<td>inference</td>
+</tr>
+<tr>
+<td>Query vector upload per query</td>
+<td>512 B → <strong>negligible</strong></td>
+<td>arithmetic</td>
+</tr>
+<tr>
+<td>Score readback without a GPU top-k</td>
+<td>100k × 4 B = 400 KB → ~0.4 ms</td>
+<td>inference</td>
+</tr>
+<tr>
+<td>Score readback with a GPU top-k (browservec does this past 4k rows)</td>
+<td>k floats → negligible</td>
+<td>browservec README</td>
+</tr>
+<tr>
+<td><strong>Baseline brute-force query to beat</strong></td>
+<td><strong>~900 ms</strong></td>
+<td>baseline report</td>
+</tr>
+</tbody></table></div>
+<p><strong>⇒ The whole index uploads for 6–51 ms — 20× to 150× cheaper than a single 900 ms brute-force query.
+It pays for itself after roughly one query, and zero times thereafter.</strong> First-party corroboration:
+Jason Mayes measures the same shape and reports his first search is &quot;slower as it has to transfer memory
+from CPU to GPU for the first time&quot;, after which 100k ≈ 1k.</p>
+<h3 id="3c-the-real-constraints">3c. The real constraints</h3>
+<ul>
+<li><strong>Must the whole index be in GPU memory?</strong> Yes, to get the benefit — that is the entire mechanism.
+51.2 MB at 100k×128 is nothing. <code class="evidence">[measured]</code> <code>maxStorageBufferBindingSize</code> varies sharply by device:
+browservec reports <strong>4 GiB on Apple Metal</strong> but &quot;a much more conservative default on many other
+adapters&quot;, and it implements transparent corpus chunking off the device&#39;s <em>reported</em> limit. Budget for
+chunking, don&#39;t assume 4 GiB.</li>
+<li><strong>Integrated GPUs.</strong> <code class="evidence">[inference]</code> iGPUs share system RAM, so the &quot;upload&quot; is a pointer swap rather
+than a PCIe DMA: dispatch overhead is ~0.1–2 µs vs 5–35 µs for discrete GPUs. Mayes confirms Intel
+integrated GPUs work. The trade is far less compute throughput and a shared memory bus. Don&#39;t assume
+that &quot;it&#39;s fine on a 4090&quot; transfers to a Chromebook.</li>
+<li><strong>Precision.</strong> <code>shader-f16</code> gives 2–3× memory-bandwidth savings where available, but browservec&#39;s
+measured result is the caution: quantised kernels were <strong>slower</strong> at 20k rows because they are
+ALU-bound, not bandwidth-bound. fp32 ≈ int8 &lt; int4 &lt; 1-bit in <em>latency</em>.</li>
+<li><strong>Fallback when WebGPU is unavailable.</strong> WASM-SIMD flat scan is the right fallback, and browservec&#39;s is
+&quot;bit-identical to the GPU path&quot; — that property (same answers, either path) is worth copying.
+<code class="evidence">[measured]</code> browservec&#39;s fallback: <strong>0.40 ms/q at 8k rows on an iPhone 15</strong>, 1.76 ms/q at 8k rows on
+desktop. <code class="evidence">[measured]</code> VecLite&#39;s honest comparison at dim 1536: WASM+SIMD is <strong>~3.8–3.9× faster than
+optimised JS</strong> at 10k/50k/100k — <em>not</em> the 10–20× people expect. <code class="evidence">[measured]</code> Their diagnosis: &quot;V8 is
+genuinely good at optimising tight <code>Float32Array</code> loops.&quot; So budget a <strong>~4× fallback win</strong>, not 20×.
+Note also the transition cost: &quot;the difference between calling WASM once with 10,000 vectors and
+calling it 10,000 times with one vector is the difference between 40 ms and 4 seconds.&quot;</li>
+</ul>
+<h3 id="3d-named-projects">3d. Named projects</h3>
+<ul>
+<li><strong><a href="https://github.com/tensorflow/tfjs/blob/master/tfjs-backend-webgpu/README.md">tensorflow/tfjs — <code>@tensorflow/tfjs-backend-webgpu</code></a></strong> — real, maintained; <code>_fusedMatMul</code>, <code>batchMatMul</code> and <code>topk</code> are registered kernels. <strong>This is what Mayes ships.</strong> Lowest-effort path to a working WebGPU cosine scan.</li>
+<li><strong><a href="https://github.com/sharma-open-source/browservec">sharma-open-source/browservec</a></strong> — hand-written WGSL kernels (<code>distance.wgsl</code>, <code>distanceQ8.wgsl</code>, <code>topk.wgsl</code>, <code>graphSearch.wgsl</code>), plus a CAGRA-style GPU beam search: <code class="evidence">[measured]</code> &quot;~4× the CPU walk at 60k×768×128&quot;. Widest feature coverage of anything I found.</li>
+<li><strong><a href="https://github.com/milhidaka/webgpu-blas">milhidaka/webgpu-blas</a></strong> — WebGPU GEMM, published GFLOPS comparisons by hardware/browser.</li>
+<li><strong><a href="https://github.com/greggman/webgpu-benchmark/">greggman/webgpu-benchmark</a></strong> — measures the <strong>CPU-side cost of issuing API calls and uploads</strong> (<code>writeBufferSmall</code>, <code>writeBufferBig</code> at 1 MB, <code>mapAsyncWrite</code>) rather than GPU throughput. <strong>This is the right tool to measure idb-vector&#39;s actual transfer cost</strong> rather than trusting my arithmetic.</li>
+<li><strong><a href="https://github.com/gpuweb/gpuweb/wiki/Implementation-Status">gpuweb/gpuweb</a></strong> — the only authoritative per-OS support matrix.</li>
+</ul>
+<p><strong>Verdict on Q3.</strong> WebGPU is a legitimate 100k-scale answer today for Chrome/Edge/Safari, transfer is
+cheap and amortised, and TF.js is a low-risk way to get it. It is <em>not</em> a replacement for the fallback
+path, and it does not fix anything upstream of the GPU.</p>
+<hr>
+<h2 id="4-quot-cosine-similarity-is-not-the-best-quot-the-anisotropy-point">4. &quot;Cosine similarity is not the best&quot; — the anisotropy point</h2>
+<h3 id="4a-correcting-the-framing-precisely">4a. Correcting the framing, precisely</h3>
+<p><code class="evidence">[established]</code> <strong>The term of art is anisotropy, not &quot;ellipsoid&quot;.</strong> &quot;Elliptical&quot; is the right <em>intuition</em>
+— variance concentrated along a few axes makes the cloud an elongated ellipsoid rather than a uniform
+hypersphere — but the literature uses:</p>
+<ul>
+<li><strong>anisotropy</strong> / <strong>narrow cone</strong> — the cloud occupies a narrow cone in ℝᵈ (Ethayarajh 2019);</li>
+<li><strong>rogue / outlier dimensions</strong> (Timkey &amp; van Schijndel 2021; Kovaleva et al. 2021), or <strong>massive
+activations</strong> at LLM scale (Sun et al. 2024);</li>
+<li><strong>rogue-dimension dominance</strong> — the share of total variance held by the single highest-variance
+coordinate, which is the one-number diagnostic the 2026 paper proposes.</li>
+</ul>
+<p>Also worth separating: <strong>hubness</strong> is a <em>different</em> phenomenon that gets conflated with anisotropy.
+<code class="evidence">[established]</code> Radovanović, Nanopoulos &amp; Ivanović, <a href="https://jmlr.org/papers/v11/radovanovic10a.html"><em>Hubs in Space</em>, JMLR 11:2487–2531, 2010</a> —
+&quot;under commonly used assumptions this distribution [of k-occurrences] becomes considerably skewed as
+dimensionality increases, causing the emergence of hubs, that is, points which occur surprisingly often
+among k nearest neighbors of other points.&quot; Hubness is about <strong>which points appear in top-k</strong>, not about
+the metric&#39;s bias, and it affects cosine and Euclidean alike.</p>
+<h3 id="4b-the-established-line-2017-2022-all-about-static-contextual-word-vectors">4b. The established line (2017–2022) — all about <em>static/contextual word</em> vectors</h3>
+<ul>
+<li><code class="evidence">[established]</code> <strong>Mu &amp; Viswanath, &quot;All-but-the-Top&quot;, ICLR 2018</strong> (<a href="https://arxiv.org/pdf/1702.01417.pdf">arXiv 1702.01417</a>). Direct quotes from the paper: <em>&quot;The word representations have non-zero mean – indeed, word vectors share a large common vector (with norm up to a half of the average norm of word vector). After removing the common mean vector, the representations are far from isotropic – indeed, much of the energy of most word vectors is contained in a very low dimensional subspace (say, 8 dimensions out of 300).&quot;</em> The fix: subtract the mean, project out the top principal directions. <strong>Scope: static word embeddings, not modern retrieval embedders.</strong></li>
+<li><code class="evidence">[established]</code> <strong>Ethayarajh, EMNLP 2019</strong> (<a href="https://arxiv.org/pdf/1909.00512">arXiv 1909.00512</a>) — the origin of the intuition: <em>&quot;In all layers of all three models, the contextualized word representations of all words are not isotropic: they are not uniformly distributed with respect to direction. Instead, they are anisotropic, occupying a narrow cone in the vector space. The anisotropy in GPT-2&#39;s last layer is so extreme that two random words will on average have almost perfect cosine similarity!&quot;</em></li>
+<li><code class="evidence">[established]</code> <strong>Gao et al. (SimCSE) 2021</strong>, <strong>Su et al. 2021 (&quot;Whitening Sentence Representations&quot;)</strong>, <strong>Huang et al. 2021 (WhiteningBERT)</strong>, <strong>Li et al. 2020 (BERT-flow)</strong> — anisotropic spaces hurt similarity; contrastive training and/or whitening fix it. <code class="evidence">[contested]</code> <strong>Cai et al. 2021</strong> complicates the narrow-cone picture: the space breaks into clusters and manifolds that are <em>locally</em> more isotropic than they look globally.</li>
+<li><code class="evidence">[contested]</code> Whether anisotropy is actually <em>the cause</em> of BERT&#39;s weak sentence similarity has been directly challenged (see the ACL/EMNLP line including &quot;Is anisotropy really the cause of BERT embeddings not being semantic?&quot;). Report as unresolved.</li>
+</ul>
+<h3 id="4c-the-2024-2026-challenge-and-what-it-actually-claims">4c. The 2024–2026 challenge, and what it actually claims</h3>
+<p><strong>Paper A — the sceptical analytic claim.</strong>
+<code class="evidence">[established as published / contested as generalisable]</code> <strong>Steck, Ekanadham &amp; Kallus (Netflix/Cornell),
+&quot;Is Cosine-Similarity of Embeddings Really About Similarity?&quot;, WWW 2024 Companion</strong> —
+<a href="https://arxiv.org/abs/2403.05440">arXiv 2403.05440</a>, DOI 10.1145/3589335.3651526. Abstract, verbatim:
+<em>&quot;we study embeddings derived from regularized linear models ... We derive analytically how
+cosine-similarity can yield arbitrary and therefore meaningless &#39;similarities.&#39; For some linear models
+the similarities are not even unique, while for others they are implicitly controlled by the
+regularization ... a combination of different regularizations are employed when learning deep models;
+these have implicit and unintended effects when taking cosine-similarities of the resulting embeddings,
+rendering results opaque and possibly arbitrary. Based on these insights, we caution against blindly
+using cosine-similarity and outline alternatives.&quot;</em></p>
+<p><strong>What it is:</strong> a 9-page analytical result about <em>what the score means</em>. <strong>What it is not:</strong> a
+measurement of retrieval degradation. It reports no recall@k and no benchmark showing top-k changes.
+Cite it as &quot;cosine scores can be uninterpretable in regularised models&quot;, not as &quot;cosine retrieves worse&quot;.</p>
+<p><strong>Paper B — the empirical paper that matches Paul&#39;s memory, and the one that should drive the decision.</strong>
+<code class="evidence">[one paper — but the most comprehensive study available]</code> <strong>Parupudi, &quot;Anisotropy Decides Cosine vs.
+Rank Metrics for Text Embeddings&quot;,</strong> <a href="https://arxiv.org/html/2606.29571v1">arXiv 2606.29571</a> (v1, 28 Jun 2026).
+Design: <strong>19 encoders</strong> (MiniLM-L6/L12, mpnet, BGE-base/large, E5-large, multilingual-E5-large,
+E5-Mistral-7B, SFR-Embedding-Mistral, BERT, RoBERTa, ELECTRA, mBERT, GPT-2, Pythia-410M, Qwen2.5-1.5B/7B,
+Mistral-7B) × <strong>19 parameter-free metrics</strong> × <strong>7 datasets</strong> (STS-B, SICK-R, STS16, Quora, PAWS, SNLI,
+MultiNLI).</p>
+<p>Its measured claims:</p>
+<div class="table-scroll" role="region" aria-label="Research comparison table" tabindex="0"><table>
+<thead>
+<tr>
+<th>Finding</th>
+<th>Number</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Well-spread encoders (10 of 19): best alternative vs cosine</td>
+<td><strong>+0.001 Spearman, p = 0.54, not significant</strong></td>
+</tr>
+<tr>
+<td>Crowded encoders (9 of 19, rogue-dim dominance &gt; 0.01): best alternative</td>
+<td><strong>+0.053 Spearman, p = 3×10⁻¹²</strong></td>
+</tr>
+<tr>
+<td>Per-metric gains on crowded encoders</td>
+<td>rank-based 0.053, Canberra 0.051, Bray-Curtis 0.039, fractional <em>Lp</em> 0.034, Manhattan 0.028</td>
+</tr>
+<tr>
+<td>Predictor: rogue-dimension dominance → gain</td>
+<td>rank corr <strong>0.86</strong>, linear corr <strong>0.95</strong></td>
+</tr>
+<tr>
+<td>Project out top-10 PCs, crowded encoders</td>
+<td>cosine Spearman <strong>0.324 → 0.417</strong>; metric advantage cut <strong>87%</strong></td>
+</tr>
+<tr>
+<td>Same, well-spread encoders</td>
+<td>cosine <strong>drops</strong> 0.014 — those directions carry real signal</td>
+</tr>
+<tr>
+<td>Random-direction control (10 random orthogonal dirs)</td>
+<td>advantage cut only <strong>10%</strong> vs 87% — rules out the obvious confound</td>
+</tr>
+<tr>
+<td><strong>Effect of normalising every vector to length 1</strong></td>
+<td>gain <strong>0.026 → 0.026</strong> — <em>&quot;the gain barely changes when we first scale every vector to length one&quot;</em></td>
+</tr>
+<tr>
+<td>Raw dot product (the one length-using metric)</td>
+<td><strong>worst of the whole set</strong> — trails cosine by 0.082 unnormalised, and equals cosine once normalised</td>
+</tr>
+<tr>
+<td>Calibration (MSE) after one isotonic rescaling</td>
+<td>spread across metrics shrinks <strong>0.052 → 0.0025</strong> (20×)</td>
+</tr>
+<tr>
+<td>GPT-2 (worst case)</td>
+<td>41% of variance in a single coordinate; mean cosine between two random sentences <strong>0.996</strong></td>
+</tr>
+</tbody></table></div>
+<p><strong>The practical conclusion, in the authors&#39; own words:</strong> <em>&quot;Most fine-tuned embedders we tested, the kind
+people actually use for similarity, are trained to spread their vectors out, and on those, among
+parameter-free metrics, cosine is the right call. Switching metrics there buys 0.001 on average, against
+a cosine Spearman of 0.602. The alternatives help on crowded encoders, where cosine sits at 0.324, and
+those are mostly plain language models used without fine-tuning.&quot;</em> And: <em>&quot;The contribution is a
+diagnosis, not a push to change production systems that already use well-spread embedders.&quot;</em></p>
+<p><strong>This is the correction Paul needs.</strong> The intuition &quot;real embedding spaces are elliptical so cosine is
+wrong&quot; is <em>conditionally</em> true: it requires the encoder to be <strong>crowded</strong>, and the modern contrastively
+fine-tuned embedders that dominate retrieval are — by this measurement — <strong>not</strong>. The
+counterexample the paper offers is instructive: <strong>E5-Mistral</strong> is trained with a cosine objective yet is
+crowded, and the alternatives help it; <strong>multilingual BERT</strong> is a plain LM yet well spread, and they
+don&#39;t. So the geometry, not the training objective, decides — and geometry is measurable.</p>
+<p><strong>Paper C — the direct contradiction on Euclidean.</strong>
+<code class="evidence">[contested]</code> <strong>Tessari, Yao &amp; Hogan, &quot;Surpassing Cosine Similarity for Multidimensional Comparisons:
+Dimension Insensitive Euclidean Metric (DIEM)&quot;</strong> — <a href="https://arxiv.org/html/2407.08623">arXiv 2407.08623</a>.
+TL;DR as posted: <em>&quot;Cosine similarity yields biased, dimension-dependent results in high-dimensional
+spaces.&quot;</em> <strong>It was an ICLR 2026 submission and was withdrawn</strong> (OpenReview forum <code>4i66VARUHD</code>, status:
+&quot;ICLR 2026 Conference Withdrawn Submission&quot;). And Paper B <strong>tested Euclidean and found the opposite</strong>:
+it &quot;trails cosine by 0.0002 on the well-spread encoders and by 0.006 on the crowded ones&quot; — <em>&quot;Euclidean
+distance does not beat cosine here.&quot;</em> Two papers, opposite conclusions, one of them withdrawn from its
+venue. Do not act on the DIEM claim.</p>
+<h3 id="4d-does-it-change-top-k-ranking-or-only-the-score-values-the-distinction-paul-asked-for">4d. Does it change top-k ranking, or only the score values? <em>(The distinction Paul asked for)</em></h3>
+<p><code class="evidence">[inference, from the measured evidence]</code> <strong>Both, but neither in a way that justifies changing
+idb-vector&#39;s default.</strong> Separating the three mechanisms the papers actually describe:</p>
+<ol>
+<li><strong>Metric substitution</strong> (cosine → rank/L1). This <strong>does change the ordering</strong> — a different ordering
+of coordinates or a different norm produces a genuinely different ranking, and Paper B&#39;s ROC-AUC
+result (crowded encoders +0.028, GPT-2 +0.077) confirms it changes <em>decisions</em>, not just scores.
+<strong>But:</strong> (a) it only fires on crowded encoders; (b) all the evidence is on <strong>pairwise grading
+correlation and binary duplicate detection</strong> — Spearman over all pairs is not recall@k, and a metric
+that reorders the middle of the ranking may leave the top-10 untouched. <strong>Paper B reports no
+recall@k and no nDCG@k anywhere.</strong> That is a real gap.</li>
+<li><strong>Calibration</strong> (score values only). This is explicitly <em>not</em> a reason to switch: one isotonic
+rescaling collapses the MSE spread across all 19 metrics by 20×. <strong>Score-value differences are
+cosmetic.</strong></li>
+<li><strong>Geometry repair</strong> (mean-centring, whitening, all-but-the-top). This changes the <strong>index</strong>, not the
+metric, and it changes the space itself — so it definitely changes neighbours. <strong>Critically, it is
+not a free win:</strong> Paper B measured that projecting out the top-10 directions <em>hurts</em> well-spread
+encoders (cosine down 0.014) because those directions carry signal. Applying mean-centring
+unconditionally would damage exactly the embedders Paul is most likely to use.</li>
+</ol>
+<p><strong>And the key negative result for implementation:</strong> because Paper B&#39;s effect <em>&quot;survives normalizing every
+vector to length one&quot;</em> (0.026 → 0.026), <strong>normalising does not fix anisotropy.</strong> The fix, where one is
+warranted, is projecting out the dominant directions — which is a per-corpus transformation, not a
+per-query normalisation.</p>
+<h3 id="4e-mips-vs-cosine-vs-euclidean-under-normalisation-and-where-it-breaks">4e. MIPS vs cosine vs Euclidean under normalisation, and where it breaks</h3>
+<p><code class="evidence">[established]</code> — three facts, in order of usefulness to a library author:</p>
+<ol>
+<li><strong>On L2-normalised vectors, cosine, dot product and Euclidean produce the identical ranking.</strong>
+<code>cos(a,b) = a·b</code> when <code>‖a‖ = ‖b‖ = 1</code>, and <code>‖a−b‖² = 2 − 2(a·b)</code> is a monotone decreasing function of
+the dot product — so all three sort identically. <code class="evidence">[established]</code> This is spelled out in the
+<a href="https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances">FAISS metric wiki</a>:
+<em>&quot;The norm of the query vectors does not affect the ranking of results ... This is not by itself
+cosine similarity, unless the vectors are normalized (lie on the surface of a unit hypersphere).&quot;</em>
+<strong>⇒ idb-vector&#39;s normalisation contract determines whether its cosine default is a real choice or a
+naming convention.</strong> It should say so explicitly.</li>
+<li><strong>The equivalence breaks on unnormalised vectors.</strong> MIPS ≠ cosine. <code class="evidence">[established]</code> Inner product does
+not satisfy the condition LSH requires — &quot;for any point q, the point that has the largest similarity
+to q is q itself&quot; — which is why MIPS needed its own literature (FARGO, <a href="https://vldb.org/pvldb/vol16/p1100-zheng.pdf">VLDB vol 16</a>). <code class="evidence">[one paper, recent]</code> <a href="https://www.vldb.org/pvldb/vol18/p1770-ke.pdf"><em>&quot;Maximum Inner Product is Query-Scaled Nearest Neighbor&quot;</em>, VLDB vol 18</a> shows MIPS reduces to nearest-neighbour under a query-dependent scaling. The practical failure mode: <code class="evidence">[established]</code> a cosine-trained model queried with raw dot product on unnormalised vectors degrades recall <strong>invisibly</strong> — the API returns plausible scores with the wrong neighbours.</li>
+<li><strong>The equivalence covers order only, and does not survive transformation.</strong> It says nothing about
+score interpretability, and it is void if you apply Matryoshka-style truncation or product/binary
+quantisation to the raw vectors rather than the normalised ones.</li>
+</ol>
+<p><strong>Verdict on Q4.</strong> Paul&#39;s memory points at a real research line — anisotropy, going back to 2017–2019 —
+and it is well-cited. But the term is <em>anisotropy</em>, not ellipsoid; the phenomenon was first measured on
+static and contextual <strong>word</strong> vectors, not retrieval embedders; the strongest recent challenge
+(Steck et al.) is analytic rather than a retrieval benchmark; the direct Euclidean counter-claim is
+contested and was withdrawn from ICLR; and the most comprehensive recent study concludes <strong>cosine is
+already the right call for the fine-tuned embedders this library would serve</strong>. The actionable residue is
+one cheap diagnostic, not a metric change.</p>
+<hr>
+<h2 id="contradictions">Contradictions</h2>
+<ol>
+<li><strong>Euclidean vs cosine.</strong> Tessari et al. (<a href="https://arxiv.org/html/2407.08623">2407.08623</a>, ICLR 2026
+<strong>withdrawn</strong>) claim cosine is biased and DIEM is better. Parupudi
+(<a href="https://arxiv.org/html/2606.29571v1">2606.29571</a>) measured Euclidean <strong>losing</strong> to cosine on all 19
+encoders. <strong>Unresolved; do not act on either.</strong></li>
+<li><strong>Cosine is &quot;arbitrary and meaningless&quot;</strong> (Steck et al., WWW 2024, analytic) <strong>vs cosine is &quot;already
+the right call&quot;</strong> for deployed embedders (Parupudi, 2026, empirical over 19 encoders). Different
+settings and different claims; the analytic result is about <em>interpretability of the score</em>, the
+empirical one about <em>ranking quality</em>.</li>
+<li><strong>HNSW vs flat in the browser.</strong> VecLite measured flat beating HNSW at every scale tested (dim 1536);
+MeMemo reports real-time queries from HNSW at 1M (dim 384). Different dimensions, different
+implementations, not comparable — and <strong>dim 128, idb-vector&#39;s regime, is unmeasured in both.</strong></li>
+<li><strong>WebGPU browser support.</strong> web.dev&#39;s blog: <em>&quot;officially supported across Chrome, Edge, Firefox, and
+Safari.&quot;</em> caniuse/gpuweb: Firefox stable is <strong>Windows only</strong>; Mac/Linux are Nightly; Safari 26 is
+&quot;partial&quot;. <strong>The blog is optimistic; plan against the implementation matrix.</strong></li>
+<li><strong>VecLite&#39;s own numbers disagree with each other.</strong> Its summary table says &quot;~8 ms at 10k&quot; (dim 1536);
+its honest-benchmark table in the same article says <strong>40 ms</strong> at 10k / dim 1536. <strong>Use 40 ms.</strong></li>
+<li><strong>VecLite claims vectra is &quot;Node.js only&quot;</strong> — vectra&#39;s docs list an <code>IndexedDBStorage</code> for
+&quot;Browser, Electron&quot; and a <code>vectra/browser</code> entry point. The third-party claim is wrong.</li>
+<li><strong>browservec reports recall@10 = 1.000 for every configuration</strong>, including 1-bit quantisation. Its
+own text calls the matrix &quot;small [and] growing&quot;. Treat as not-yet-discriminating, not as evidence.</li>
+</ol>
+<hr>
+<h2 id="missing-evidence">Missing evidence</h2>
+<ul>
+<li><strong>The decisive unknown for Q1: no published measurement of IndexedDB per-record <em>random</em> read latency
+vs sequential scan throughput.</strong> Every source I found describes random/small reads as slow only
+qualitatively (&quot;reading or writing a large amount of data to IndexedDB with consecutive transactions
+is extremely slow&quot; — MeMemo). <strong>This single number decides whether HNSW-over-IDB is viable</strong>, and it
+is unmeasured in the public record.</li>
+<li><strong>No decomposition of the baseline&#39;s 942 / 796 ms into IndexedDB-read vs deserialise vs score time.</strong>
+My estimate below is inference. Without this, the case for GPU/WASM is unquantified.</li>
+<li><strong>No browser ANN benchmark at 128 dimensions at 100k or 1M.</strong> MeMemo is 384D, VecLite 1536D, browservec
+384D, VecDB-WASM 128D but self-reported. <strong>Every source&#39;s conclusion about HNSW-vs-flat sits in a
+different dimensional regime from idb-vector&#39;s.</strong></li>
+<li><strong>No recall@k / nDCG@k evaluation for the rank-based and L1-type metrics</strong> — Paper B reports Spearman
+and ROC-AUC only. Whether the ordering change reaches the top-10 is unestablished.</li>
+<li><strong>MeMemo&#39;s query-latency numbers</strong> are in a figure I could not extract as text; I have only the
+primary-source prose <em>&quot;querying this index with 1M items is still performed in real time&quot;</em>.</li>
+<li><strong><code>faiss.wasm</code> binary size (&quot;5–15 MB&quot;) is unverified</strong> — it came from a search-engine summary, not a
+spec or a build. Do not repeat it as fact.</li>
+<li><strong>USearch in-browser is officially undocumented</strong> (open issue #191). Usable, unproven.</li>
+<li><strong>Annular / &quot;ring&quot; index as an ANN family: I could not find it.</strong> Searches surfaced (a) <em>The Ring</em>
+(worst-case-optimal graph joins, SIGMOD 2024) — a database-join structure, unrelated to vector search;
+and (b) LSH banding, which is ring-shaped but is LSH. <strong>I am flagging this as a probable
+misremembering or a term from a source I could not locate; it should not be treated as an ANN family
+without a citation.</strong> The nearest real named alternative in that slot is <strong>Annoy</strong> (Spotify&#39;s random
+projection <em>forest</em>, mmap&#39;d, tree-based) and <strong>LSH</strong>.</li>
+<li><strong><code>source_check</code> validation limitation:</strong> I ran <code>source_check</code> on the MeMemo claim; the tool returned
+<code>Status: unclear (confidence 0.30)</code> with <em>&quot;automated semantic support or contradiction assessment is
+unavailable&quot;</em>. I therefore verified that claim by directly fetching and quoting the arXiv HTML
+(§3.2 and the Challenges discussion) instead. All other claims above are backed by directly fetched
+primary sources; <strong>no claim in this report rests on a search-result summary alone.</strong></li>
+<li><strong>This session had no shell tool</strong>, so I could not file the bead myself. Exact command provided below.</li>
+</ul>
+<hr>
+<h2 id="the-three-things-i-would-actually-change-in-idb-vector">The three things I would actually change in idb-vector</h2>
+<h3 id="change-1-make-the-query-engine-in-memory-demote-indexeddb-to-a-persistence-layer">Change 1 — Make the query engine in-memory; demote IndexedDB to a persistence layer</h3>
+<p><strong><code class="evidence">[inference — medium-high confidence, and cheap to falsify]</code></strong></p>
+<p><strong>Reasoning.</strong> The baseline&#39;s two exact-scan numbers differ by only 18% (941.6 ms cursor vs 796.3 ms
+paged <code>getAll</code>), which means the cursor-vs-<code>getAll</code> choice is not where the time is. Decompose the
+796 ms:</p>
+<ul>
+<li>100k × 128 = 12.8M multiply-accumulates.</li>
+<li><code class="evidence">[measured]</code> VecLite&#39;s pure-JS baseline: 100k × 1536D = 153.6M MACs in <strong>1576 ms</strong> ⇒ <del>97M MACs/s.
+Scaling: 12.8M MACs ≈ **</del>130 ms** of pure arithmetic.</li>
+<li>⇒ <strong>~666 ms of the 796 ms is IndexedDB read + structured-clone deserialisation of 100k nested
+<code>Array</code> objects — ~6.7 µs per record.</strong></li>
+<li>Cross-check against the baseline&#39;s <em>own</em> category-index numbers: 13.5 ms for 1,000 records ≈ 13.5 µs
+per record including deserialise, and 735 ms for 100,000 — consistently <strong>~7 µs/record</strong>.</li>
+</ul>
+<p><strong>The cost is per-record overhead, not bytes.</strong> 51.2 MB in ~666 ms is ~77 MB/s — an order of magnitude
+below what a bulk memory transfer should cost. Reading 100,000 records is the problem; reading <strong>one</strong>
+51.2 MB buffer is not. This is the same conclusion the IndexedDB community reached independently:
+*&quot;Reading a single item from IDB at once is slow. Instead, we can read entire ranges or all items for a
+given store. Even range reads can be slow. <strong>We can speed this further by storing pages, rather than
+individual objects, in IDB.</strong>&quot;* — and it is why browservec persists <strong>versioned binary snapshots</strong> and
+MeMemo needed a dimension-tuned prefetch cache.</p>
+<p><strong>What to do:</strong> on <code>open()</code>, read the vectors into a single contiguous <code>Float32Array</code> (one packed
+<code>ArrayBuffer</code> value, or a small number of fixed-size chunk records); answer every query from RAM; serve
+writes through to IndexedDB asynchronously. The index becomes a pure in-memory problem, at which point
+WASM-SIMD (<code class="evidence">[measured]</code> ~4× over JS) and WebGPU (Change 3) become live options rather than rearranging
+deck chairs. No ANN index, no recall loss, no build time.</p>
+<p><strong>Expected:</strong> 796 ms → <strong>tens of milliseconds</strong> at 100k×128 (≈130 ms compute at JS speed, ≈33 ms at
+WASM-SIMD speed, ≈1–2 ms on GPU), plus one one-off load at open. <strong>Cost:</strong> 51.2 MB RAM at 100k×128,
+512 MB at 1M×128 — so this needs a memory ceiling with chunked paging or eviction above a threshold,
+and a documented serialisation format version.</p>
+<p><strong>Why it must come first:</strong> it is the largest single win, it is independent of the ANN and WebGPU
+questions, and it changes whether those questions are even worth asking. <strong>The one measurement that
+falsifies it:</strong> how fast a single packed ~51 MB <code>ArrayBuffer</code> value actually reads back out of
+IndexedDB. If that comes in near 666 ms too, my decomposition is wrong and the bottleneck is elsewhere.</p>
+<h3 id="change-2-fix-eligibility-before-top-k-first-and-make-the-recall-contract-explicit">Change 2 — Fix eligibility-before-top-k first, and make the recall contract explicit</h3>
+<p><strong>Reasoning.</strong> The 0/10 post-filter result is a <strong>wrong-answer bug</strong>, not a performance issue, and it is
+the only finding in the baseline where the library returns a confidently incorrect result. It also has
+to be settled before any ANN work, because every ANN design must respect the eligible set — an ANN
+candidate list intersected with a predicate reproduces the same 0/10 failure in a more expensive way.</p>
+<p><strong>What to do:</strong> apply key-range/index selection and predicate evaluation <strong>before</strong> ranking; return fewer
+than <code>k</code> only when the eligible set genuinely holds fewer; for any approximate path, evaluate the
+predicate before pruning, rerank survivors exactly, and keep an exact eligible-scan fallback for a
+strict correctness mode. Pair it with the transaction-durability fix — an earlier baseline run showed
+<code>insert</code> resolving a key before the transaction aborted, which means the library can report success for
+a write that did not land.</p>
+<p><strong>Status:</strong> this is confirming baseline beads <code>idb-vector-kuc.3</code> and <code>idb-vector-kuc.4</code>, not new work.
+The research adds no reason to change their content, only to sequence them <strong>ahead</strong> of the index work.</p>
+<h3 id="change-3-do-not-adopt-hnsw-adopt-ivf-over-indexeddb-if-ann-is-needed-at-all-behind-a-swappable-interface">Change 3 — Do not adopt HNSW. Adopt IVF-over-IndexedDB if ANN is needed at all, behind a swappable interface</h3>
+<p><strong>Reasoning, in three parts.</strong></p>
+<ol>
+<li><strong>HNSW&#39;s costs are real and its benefit is unmeasured in this regime.</strong> It forces the graph resident
+(three independent implementations), it costs ~94 min/1M to build in MeMemo&#39;s own measurement, it is
+hostile to deletes and updates, and the only in-browser head-to-head I found at high dimension had
+<strong>flat beating HNSW at every scale tested</strong>. The author&#39;s own caveat — &quot;HNSW would probably win
+(untested) at dim=128 with 500k+ vectors&quot; — describes idb-vector&#39;s dimension regime, but at
+500k+ vectors, which is not where the baseline&#39;s 100k problem is.</li>
+<li><strong>IVF is shaped like IndexedDB.</strong> Centroids in a tiny separate store; a <code>bucket</code> field per record; an
+<code>IDBIndex</code> on <code>bucket</code>; read <code>nprobe</code> cells via a key range; rerank exactly. That is <em>precisely</em> the
+read pattern the baseline&#39;s category-index experiment already measured at <strong>735 ms → 13.5 ms</strong>, with
+learned clusters substituted for a label column. <code class="evidence">[measured]</code> browservec ships this and reports
+0.51 ms/q for IVF fp32 vs 1.71 ms/q for flat at 20k×384 with <code>targetRecall: 0.95</code> auto-tuning.
+IVF also <strong>composes with Change 1 and with metadata filtering</strong> (bucket ∩ category), which HNSW&#39;s
+full-graph traversal does not do cleanly.</li>
+<li><strong>The algorithm should be a seam, not a commitment.</strong> Define a
+<code>candidateIds(query, filter, k) → id[]</code> provider with a measured <code>recall@k</code> against exact
+<code>min(k, eligibleCount)</code>, and ship flat + IVF behind it. Then the HNSW question can be answered by
+measurement on a real corpus at 128 dims rather than by argument — which is exactly what the
+baseline report already recommends (&quot;Defer HNSW/PQ selection until a real embedding corpus,
+dimension sweep, candidate budgets and mobile measurements demonstrate a need&quot;).</li>
+</ol>
+<p><strong>Also within Change 3 — correct the quantisation expectation.</strong> Do <strong>not</strong> ship int8/int4/binary as a
+<em>query-speed</em> optimisation at these scales. <code class="evidence">[measured]</code> browservec found the quantised kernels
+<strong>slower</strong> at 20k rows (fp32 1.71 ms → 1-bit 2.45 ms) because they are ALU-bound on the unpack, not
+bandwidth-bound. Ship it for <strong>memory</strong> (int8 ~4×, int4 ~8×, 1-bit ~32×) and for the 1M+ case where the
+scan becomes bandwidth-bound, always with an fp32 rerank — and label it as such in the API.</p>
+<h3 id="smaller-item-0-the-metric-policy">Smaller item (0) — the metric policy</h3>
+<p><strong>Keep cosine. Document the contract. Add one diagnostic number. Do not add mean-centring.</strong></p>
+<ul>
+<li>State explicitly that vectors are L2-normalised on write, and therefore that <strong>cosine, dot product and
+Euclidean return identical orderings</strong> on this store. That makes the <code>metric</code> option honest rather
+than decorative.</li>
+<li>Expose a cheap <strong>one-number geometry diagnostic</strong> — rogue-dimension dominance, the share of variance
+in the single highest-variance coordinate — computed once per corpus and surfaced as a warning when it
+exceeds ~0.01. That is Paper B&#39;s own proposed intervention, it costs one pass over the data, and it
+tells a caller with an un-fine-tuned embedder that cosine is unsafe for them specifically.</li>
+<li><strong>Do not switch the default metric and do not apply mean-centring or whitening by default.</strong> Paper B
+measured that removing the top principal directions <em>hurts</em> well-spread encoders (cosine −0.014)
+because those directions carry signal, and that most fine-tuned retrieval embedders are well spread.
+Offer it as an opt-in, labelled &quot;helps anisotropic encoders only&quot;.</li>
+<li>The baseline&#39;s synthetic corpus (LCG-uniform in [-1,1)¹²⁸) is <strong>isotropic by construction</strong>, so no
+anisotropy conclusion can be drawn from it either way. That is a note for the harness, not a defect.</li>
+</ul>
+<hr>
+<h2 id="sources">Sources</h2>
+<p><strong>Kept</strong></p>
+<ul>
+<li><a href="https://arxiv.org/html/2407.01972">MeMemo: On-device Retrieval Augmentation for Private and Personalized Text Generation</a> — SIGIR 2024, DOI 10.1145/3626772.3657662. <strong>Primary evidence for the HNSW-over-IndexedDB answer</strong>: graph in RAM, vectors in IDB, prefetch cache, ~94 min/1M@384D. <a href="https://github.com/poloclub/mememo">poloclub/mememo</a>.</li>
+<li><a href="https://arxiv.org/abs/2403.05440">Is Cosine-Similarity of Embeddings Really About Similarity?</a> — Steck, Ekanadham, Kallus, WWW 2024. The named sceptical result, with its scope limits.</li>
+<li><a href="https://arxiv.org/html/2606.29571v1">Anisotropy Decides Cosine vs. Rank Metrics for Text Embeddings</a> — Parupudi, Jun 2026. The decisive paper for Q4; 19 encoders × 19 metrics × 7 datasets, with the geometry diagnostic and the negative result on normalisation. Fetched in full.</li>
+<li><a href="https://github.com/jasonmayes/VectorSearch.js">jasonmayes/VectorSearch.js</a> + <a href="https://raw.githubusercontent.com/jasonmayes/VectorSearch.js/main/src/CosineSimilarity.js"><code>src/CosineSimilarity.js</code></a> — <strong>direct answer to Q2</strong>, source-verified, including the absence of metadata filtering.</li>
+<li><a href="https://github.com/sharma-open-source/browservec">sharma-open-source/browservec</a> — measured device matrix, GPU/WASM fallback design, IVF/HNSW/quantisation tradeoffs, quantisation-is-not-a-speed-lever finding.</li>
+<li><a href="https://github.com/gfx-rs/wgpu/issues/945">wgpu issue #945 — Performance of GPUBufferUsage.STORAGE buffers</a> — the <strong>only measured CPU↔GPU transfer rate</strong> I found for browser-class hardware (~1 GB/s effective, with an 8.56 GB/s OpenCL comparison on the same machine).</li>
+<li><a href="https://arxiv.org/pdf/1702.01417.pdf">All-but-the-Top</a> and <a href="https://arxiv.org/pdf/1909.00512">Ethayarajh ECNLP 2019</a> — the origin and scope of the anisotropy literature.</li>
+<li><a href="https://jmlr.org/papers/v11/radovanovic10a.html">Radovanović et al., Hubs in Space, JMLR 2010</a> — hubness, kept separate from anisotropy.</li>
+<li><a href="https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances">FAISS MetricType and distances</a> — the normalisation equivalence, stated normatively.</li>
+<li><a href="https://suhasjs.github.io/files/diskann_neurips19.pdf">DiskANN (NeurIPS 2019)</a> — evidence that DiskANN&#39;s contribution is an SSD access pattern browsers cannot use.</li>
+<li><a href="https://github.com/gpuweb/gpuweb/wiki/Implementation-Status">gpuweb implementation status</a> + <a href="https://caniuse.com/webgpu">caniuse WebGPU</a> — the real support matrix, contradicting the web.dev blog.</li>
+<li><a href="https://github.com/ShravanSunder/hnswlib-wasm">hnswlib-wasm</a>, <a href="https://emscripten.org/docs/tools_reference/settings_reference.html">Emscripten memory settings</a> — IDBFS design and the 2 GB ceiling.</li>
+<li><a href="https://dev.to/thealpha93/i-built-a-vector-search-library-in-rustwasm-heres-what-i-learned-about-performance-browser-172c">thealpha93/VecLite write-up</a> — the flat-beats-HNSW-at-dim-1536 measurement and the honest ~3.9× WASM-vs-JS number.</li>
+<li><a href="https://stevenic.github.io/vectra/storage.html">Vectra docs</a> / <a href="https://www.npmjs.com/package/vectra">npm</a> — browser <code>IndexedDBStorage</code> and the metadata-filter API worth copying.</li>
+<li><a href="https://pglite.dev/extensions/">PGlite</a> + <a href="https://pglite.dev/docs/filesystems">filesystems</a> — the SQL-in-WASM alternative, with its own memory caveat.</li>
+<li><a href="https://github.com/tensorflow/tfjs/blob/master/tfjs-backend-webgpu/README.md">tensorflow/tfjs-backend-webgpu</a> — the low-risk WebGPU path, with <code>matMul</code>/<code>topk</code> kernels.</li>
+<li><a href="https://github.com/greggman/webgpu-benchmark/">greggman/webgpu-benchmark</a> — the tool to measure idb-vector&#39;s actual upload cost.</li>
+<li>IndexedDB read guidance: <a href="https://nolanlawson.com/2021/08/22/speeding-up-indexeddb-reads-and-writes/">Nolan Lawson</a>, <a href="https://patrickbrosset.com/articles/2024-11-19-even-faster-indexeddb-reads-with-getallrecords/">Patrick Brosset / getAllRecords</a>, and the page-storage recommendation quoted in Change 1.</li>
+</ul>
+<p><strong>Rejected / deprioritised</strong></p>
+<ul>
+<li>web.dev&#39;s <a href="https://web.dev/blog/webgpu-supported-major-browsers">&quot;WebGPU is now supported in major browsers&quot;</a> — headline overstates Firefox coverage (Windows only).</li>
+<li><a href="https://arxiv.org/html/2407.08623">&quot;Surpassing Cosine Similarity... DIEM&quot;</a> — <strong>withdrawn</strong> from ICLR 2026, and contradicted by Parupudi&#39;s measurement. Cited as an example of a contested claim only.</li>
+<li>Medium / dev.to &quot;why cosine fails&quot; explainers (Mizan, &quot;cosine similarity lies&quot;, rutvikacharya) — SEO-heavy restatements of the anisotropy literature with no measurements; superseded by 2606.29571.</li>
+<li>Second-hand HNSW/IVF comparison blogs (HLD Handbook, dreaming.press, llmdb.app, callsphere) — plausible but unsourced; used only for background framing, never for a number.</li>
+<li><code>arxiv 2606.29571</code>&#39;s own citation of a &quot;MathML/topic&quot; LLM summary of hubness — replaced with the primary JMLR paper.</li>
+<li>VecLite&#39;s &quot;~8 ms at 10k&quot; headline number — contradicted by its own benchmark table.</li>
+<li>Hobby HNSW-over-IDB repos (idbvec, tinkerbird, astro-vectordb, victor-db, deepfates/hnsw) — no benchmarks, not reviewed; landscape only.</li>
+<li><code>faiss.wasm</code>&#39;s claimed binary size — unverified search-summary figure.</li>
+<li><em>The Ring</em> (SIGMOD 2024) — graph-database join index, unrelated to vector ANN; listed to explain the &quot;annular/ring&quot; search miss.</li>
+</ul>
+<hr>
+<h2 id="next-steps">Next steps</h2>
+<p>In priority order. <strong>The first is the one that changes the recommendation:</strong></p>
+<ol>
+<li><strong>Measure the packed-read hypothesis (Change 1).</strong> Write a 51.2 MB <code>Float32Array</code> into a single
+IndexedDB record; time <code>getAll</code>/<code>get</code> of that one record. Compare against the measured ~666 ms to
+read 100k individual records. Also measure, in the same run, <strong>random single-record read latency vs
+sequential scan throughput</strong> — the missing number that decides whether HNSW-over-IndexedDB is viable
+at all, and the number no public source has. This is one browser session and it settles Q1.</li>
+<li><strong>Decompose the existing 942 ms into read / deserialise / score</strong>, by instrumenting the existing
+cursor and paged-<code>getAll</code> paths. If read+deserialise is not the dominant term, my Change 1 reasoning
+is wrong and the plan reverts to Change 3.</li>
+<li><strong>Re-run the baseline benchmark at 128 dims with a WASM-SIMD scorer</strong> on the in-memory array, to pin
+the realistic fallback win at ~4× (VecLite&#39;s measurement) rather than the 10–20× folk estimate.</li>
+<li><strong>Only then</strong> evaluate IVF at 100k×128 with a bucket <code>IDBIndex</code>, measuring <code>recall@k</code> against exact
+<code>min(k, eligibleCount)</code> at a few <code>nprobe</code> values. Do not implement HNSW first.</li>
+<li>If a real corpus is available (a fine-tuned embedder&#39;s output, not the LCG fixture), <strong>compute
+rogue-dimension dominance once</strong> and record it. If it is below ~0.01, the entire Q4 thread is closed
+for this library&#39;s users and the metric policy in item (0) is a documentation change only.</li>
+</ol>
+<hr>
+</article>
+</main>
+<footer><a href="#top">Back to top</a> · Generated from Markdown with <code>npm run build:research</code>. No client-side JavaScript, external fonts or runtime dependencies.</footer>
+</body>
+</html>
