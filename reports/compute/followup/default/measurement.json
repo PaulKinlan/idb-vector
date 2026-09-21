@@ -1,0 +1,549 @@
+{
+  "conditions": {
+    "commit": "116d84b86a7568dd46ef11010abc8cf0d3393a1f",
+    "diff": "",
+    "url": "http://127.0.0.1:34827/idb-vector/demo/compute/index.html",
+    "browserArgs": [],
+    "browser": {
+      "protocolVersion": "1.3",
+      "product": "Chrome/152.0.7977.82",
+      "revision": "@d04cdb24d67b081f6cf80200ffc5233f44b61109",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "jsVersion": "15.2.124.21"
+    },
+    "hardware": {
+      "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+      "logicalCpus": 32,
+      "ram": 98766901248,
+      "platform": "linux",
+      "release": "7.2.3-arch1-3"
+    },
+    "loadStart": [
+      5.71,
+      6.72,
+      6.16
+    ],
+    "started": "2026-09-21T22:20:55.123Z",
+    "loadEnd": [
+      5.75,
+      6.69,
+      6.16
+    ]
+  },
+  "report": {
+    "started": "2026-09-21T22:20:55.349Z",
+    "count": 100000,
+    "dim": 128,
+    "bytes": 51200000,
+    "corpus": "Synthetic LCG uniform [-1,1), seed 42, Float32",
+    "browser": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "hardwareConcurrency": 32,
+    "conditions": "Fresh database; warm OS caches possible; one write/read per backend, three queries, rotated engine order, no unreported warmup. Full CPU score readback and common JS top-k. No embeddings/model timing.",
+    "storage": {
+      "records": {
+        "writeMs": 5010.300000011921,
+        "readMs": 1158.0999999940395,
+        "roundTripExact": true,
+        "layout": "Array-valued records plus embedding IDBIndex, one transaction; cursor read includes packing to Float32"
+      },
+      "packed": {
+        "writeMs": 66.40000000596046,
+        "readMs": 33.39999997615814,
+        "roundTripExact": true,
+        "layout": "One Float32Array snapshot; no per-vector metadata index"
+      },
+      "opfs": {
+        "writeMs": 47.599999994039536,
+        "readMs": 10.700000017881393,
+        "roundTripExact": true,
+        "layout": "Raw Float32 file; async writable stream and File.arrayBuffer; no metadata index"
+      }
+    },
+    "engines": {
+      "wasm": {
+        "setupMs": 14.799999982118607,
+        "uploadMs": 10.599999994039536
+      },
+      "gpu": {
+        "unavailable": "requestAdapter returned null"
+      }
+    },
+    "queries": [
+      {
+        "query": "self ID7",
+        "results": {
+          "library": {
+            "ms": 935.5999999940395,
+            "top": [
+              {
+                "id": 7,
+                "score": 1.0000000000000002
+              },
+              {
+                "id": 51369,
+                "score": 0.37188115020397144
+              },
+              {
+                "id": 95290,
+                "score": 0.3717082156417695
+              },
+              {
+                "id": 13849,
+                "score": 0.35935562868736937
+              },
+              {
+                "id": 60178,
+                "score": 0.35675040973710986
+              },
+              {
+                "id": 93866,
+                "score": 0.3546573230085899
+              },
+              {
+                "id": 11750,
+                "score": 0.34520748330778833
+              },
+              {
+                "id": 19972,
+                "score": 0.3435833671368253
+              },
+              {
+                "id": 5139,
+                "score": 0.34189228100793106
+              },
+              {
+                "id": 37,
+                "score": 0.3368943894383084
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 2.220446049250313e-16,
+              "scoreErrorScope": "shared top-k only"
+            }
+          },
+          "cpu": {
+            "ms": 14.599999994039536,
+            "top": [
+              {
+                "id": 7,
+                "score": 1
+              },
+              {
+                "id": 51369,
+                "score": 0.3718811502039714
+              },
+              {
+                "id": 95290,
+                "score": 0.3717082156417695
+              },
+              {
+                "id": 13849,
+                "score": 0.3593556286873693
+              },
+              {
+                "id": 60178,
+                "score": 0.3567504097371098
+              },
+              {
+                "id": 93866,
+                "score": 0.3546573230085899
+              },
+              {
+                "id": 11750,
+                "score": 0.34520748330778833
+              },
+              {
+                "id": 19972,
+                "score": 0.34358336713682525
+              },
+              {
+                "id": 5139,
+                "score": 0.341892281007931
+              },
+              {
+                "id": 37,
+                "score": 0.3368943894383084
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 0,
+              "scoreErrorScope": "all corpus scores"
+            }
+          },
+          "wasm": {
+            "ms": 7.600000023841858,
+            "top": [
+              {
+                "id": 7,
+                "score": 1
+              },
+              {
+                "id": 51369,
+                "score": 0.3718811869621277
+              },
+              {
+                "id": 95290,
+                "score": 0.3717082440853119
+              },
+              {
+                "id": 13849,
+                "score": 0.3593556582927704
+              },
+              {
+                "id": 60178,
+                "score": 0.3567504286766052
+              },
+              {
+                "id": 93866,
+                "score": 0.3546573519706726
+              },
+              {
+                "id": 11750,
+                "score": 0.3452075123786926
+              },
+              {
+                "id": 19972,
+                "score": 0.343583345413208
+              },
+              {
+                "id": 5139,
+                "score": 0.3418923020362854
+              },
+              {
+                "id": 37,
+                "score": 0.33689436316490173
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 7.88323940570379e-8,
+              "scoreErrorScope": "all corpus scores"
+            }
+          }
+        }
+      },
+      {
+        "query": "independent seed 987",
+        "results": {
+          "cpu": {
+            "ms": 11.599999994039536,
+            "top": [
+              {
+                "id": 87030,
+                "score": 0.4297044507520554
+              },
+              {
+                "id": 95175,
+                "score": 0.42949571292658895
+              },
+              {
+                "id": 26419,
+                "score": 0.42663027828253713
+              },
+              {
+                "id": 13654,
+                "score": 0.33943148859989125
+              },
+              {
+                "id": 6761,
+                "score": 0.3326691780275978
+              },
+              {
+                "id": 44199,
+                "score": 0.33236795506246064
+              },
+              {
+                "id": 56226,
+                "score": 0.332094479728262
+              },
+              {
+                "id": 87644,
+                "score": 0.3318994273542284
+              },
+              {
+                "id": 52805,
+                "score": 0.33134284765575633
+              },
+              {
+                "id": 94812,
+                "score": 0.3249843730046185
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 0,
+              "scoreErrorScope": "all corpus scores"
+            }
+          },
+          "wasm": {
+            "ms": 2.9000000059604645,
+            "top": [
+              {
+                "id": 87030,
+                "score": 0.429704487323761
+              },
+              {
+                "id": 95175,
+                "score": 0.4294956624507904
+              },
+              {
+                "id": 26419,
+                "score": 0.42663025856018066
+              },
+              {
+                "id": 13654,
+                "score": 0.33943143486976624
+              },
+              {
+                "id": 6761,
+                "score": 0.3326691687107086
+              },
+              {
+                "id": 44199,
+                "score": 0.3323679268360138
+              },
+              {
+                "id": 56226,
+                "score": 0.3320944607257843
+              },
+              {
+                "id": 87644,
+                "score": 0.33189937472343445
+              },
+              {
+                "id": 52805,
+                "score": 0.33134278655052185
+              },
+              {
+                "id": 94812,
+                "score": 0.3249843716621399
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 7.082785696832516e-8,
+              "scoreErrorScope": "all corpus scores"
+            }
+          },
+          "library": {
+            "ms": 907,
+            "top": [
+              {
+                "id": 87030,
+                "score": 0.4297044507520554
+              },
+              {
+                "id": 95175,
+                "score": 0.42949571292658895
+              },
+              {
+                "id": 26419,
+                "score": 0.426630278282537
+              },
+              {
+                "id": 13654,
+                "score": 0.3394314885998912
+              },
+              {
+                "id": 6761,
+                "score": 0.33266917802759777
+              },
+              {
+                "id": 44199,
+                "score": 0.33236795506246064
+              },
+              {
+                "id": 56226,
+                "score": 0.33209447972826195
+              },
+              {
+                "id": 87644,
+                "score": 0.3318994273542284
+              },
+              {
+                "id": 52805,
+                "score": 0.33134284765575633
+              },
+              {
+                "id": 94812,
+                "score": 0.3249843730046185
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 1.1102230246251565e-16,
+              "scoreErrorScope": "shared top-k only"
+            }
+          }
+        }
+      },
+      {
+        "query": "independent seed 12345",
+        "results": {
+          "wasm": {
+            "ms": 3.5,
+            "top": [
+              {
+                "id": 58989,
+                "score": 0.35351449251174927
+              },
+              {
+                "id": 87894,
+                "score": 0.34604552388191223
+              },
+              {
+                "id": 94626,
+                "score": 0.3379543125629425
+              },
+              {
+                "id": 37738,
+                "score": 0.33668261766433716
+              },
+              {
+                "id": 31488,
+                "score": 0.3300217390060425
+              },
+              {
+                "id": 83864,
+                "score": 0.32722902297973633
+              },
+              {
+                "id": 10906,
+                "score": 0.3257521390914917
+              },
+              {
+                "id": 79964,
+                "score": 0.3251827359199524
+              },
+              {
+                "id": 86972,
+                "score": 0.32366496324539185
+              },
+              {
+                "id": 81075,
+                "score": 0.3192853331565857
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 7.702399346110056e-8,
+              "scoreErrorScope": "all corpus scores"
+            }
+          },
+          "library": {
+            "ms": 975.9000000059605,
+            "top": [
+              {
+                "id": 58989,
+                "score": 0.3535145077270712
+              },
+              {
+                "id": 87894,
+                "score": 0.34604554809468957
+              },
+              {
+                "id": 94626,
+                "score": 0.33795432270506504
+              },
+              {
+                "id": 37738,
+                "score": 0.3366826199820277
+              },
+              {
+                "id": 31488,
+                "score": 0.33002174741935875
+              },
+              {
+                "id": 83864,
+                "score": 0.3272290358616439
+              },
+              {
+                "id": 10906,
+                "score": 0.3257521207337791
+              },
+              {
+                "id": 79964,
+                "score": 0.325182765982704
+              },
+              {
+                "id": 86972,
+                "score": 0.32366497544525774
+              },
+              {
+                "id": 81075,
+                "score": 0.3192853151502174
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 5.551115123125783e-17,
+              "scoreErrorScope": "shared top-k only"
+            }
+          },
+          "cpu": {
+            "ms": 12.599999994039536,
+            "top": [
+              {
+                "id": 58989,
+                "score": 0.3535145077270712
+              },
+              {
+                "id": 87894,
+                "score": 0.3460455480946895
+              },
+              {
+                "id": 94626,
+                "score": 0.33795432270506504
+              },
+              {
+                "id": 37738,
+                "score": 0.3366826199820277
+              },
+              {
+                "id": 31488,
+                "score": 0.3300217474193588
+              },
+              {
+                "id": 83864,
+                "score": 0.3272290358616439
+              },
+              {
+                "id": 10906,
+                "score": 0.3257521207337791
+              },
+              {
+                "id": 79964,
+                "score": 0.32518276598270396
+              },
+              {
+                "id": 86972,
+                "score": 0.32366497544525774
+              },
+              {
+                "id": 81075,
+                "score": 0.3192853151502174
+              }
+            ],
+            "comparison": {
+              "orderedTopKMatch": true,
+              "overlap": 1,
+              "maxAbsoluteScoreError": 0,
+              "scoreErrorScope": "all corpus scores"
+            }
+          }
+        }
+      }
+    ],
+    "finished": "2026-09-21T22:21:04.604Z"
+  }
+}

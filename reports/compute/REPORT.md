@@ -127,6 +127,28 @@ The three seeded100k queries still match; universal top-k equivalence is disprov
 `npm test` also passed after this added check. Rebuilding cosine.wasm with clang22
 reproduces SHA256 `a0c8c33b448f77ed76498de4ce7a990a8a35505aa69703677dd19199a2eb7457`.
 
+## Rebased follow-up verification
+
+Reproduced on clean source **116d84b86a7568dd46ef11010abc8cf0d3393a1f**, rebased
+onto main **2dc4108** without conflicts. Chromium152 / Ryzen9955HX, fresh owned
+profiles and ephemeral local ports; same 100k×128 Float32 experiment and twelve-row
+near-tie fixture. One run per mode, not an independent model-family review.
+
+- [Default checks](followup/default/checks.json) / [conditions and measurement](followup/default/measurement.json):
+  SIMD reproduces the set/order divergence; GPU unavailable (`requestAdapter returned null`).
+  There are **no default-mode GPU timings**.
+- [Vulkan checks](followup/vulkan/checks.json) / [conditions and measurement](followup/vulkan/measurement.json):
+  AMD RDNA-2, `isFallbackAdapter:false`, same four explicit Vulkan flags as above.
+  Both SIMD and GPU reproduce overlap0.8 and error7.199996154838573e-11,
+  below the asserted2^-24 spacing. GPU query27.5/24.6/26.4ms, upload27.5ms;
+  SIMD6.8/3.0/2.6ms. These timings are from the **Vulkan run only**.
+
+All three seeded queries still have ordered top-10 agreement in each available
+path in both modes; all storage roundtrips are exact. `npm test` and both
+`node tests/compute.mjs` runs passed, including the negated-score mutation check.
+All seven preserved live asset hashes match their bound deployed commit2dc4108.
+No runtime, Pages staging, research generator, public API, or demo files changed.
+
 ## Live GitHub Pages acceptance
 
 Driven **https://paulkinlan.github.io/idb-vector/demo/compute/index.html** with real
