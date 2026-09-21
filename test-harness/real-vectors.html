@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Real-vector IndexedDB measurements</title>
+<style>
+  body { font: 17px/1.5 system-ui; max-width: 72rem; margin: auto; padding: 1.5rem; }
+  button { font: inherit; padding: .5rem 1rem; }
+  table { border-collapse: collapse; width: 100%; } th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #999; }
+  .scroll { overflow-x: auto; } code { overflow-wrap: anywhere; }
+</style>
+<h1>Real vectors, real IndexedDB</h1>
+<p>Research harness — runtime library unchanged. Forty held-out queries; independent exhaustive ground truth. Approximate recall is measured, not promised.</p>
+<p id="condition"></p>
+<button id="run">Build and measure</button>
+<p id="status" role="status">Ready. Writes and queries use this browser’s IndexedDB.</p>
+<div class="scroll"><table><thead><tr><th>Cells probed</th><th>p50 ms</th><th>p95 ms</th><th>Recall@10</th><th>Candidates</th></tr></thead><tbody id="results"></tbody></table></div>
+<p id="build"></p>
+<script type="module">
+  import { run } from '/test-harness/real-vectors.js';
+  const params = new URLSearchParams(location.search);
+  const corpus = params.get('corpus'), method = params.get('method');
+  document.querySelector('#condition').textContent = `${corpus} · ${method} · cosine · k=10`;
+  document.querySelector('#run').onclick = async event => {
+    event.target.disabled = true;
+    try {
+      window.measurement = await run(corpus, method, message => document.querySelector('#status').textContent = message);
+      for (const row of window.measurement.summary) {
+        const tr = document.createElement('tr');
+        for (const value of [row.nprobe ?? 'Exact scan', row.p50Ms.toFixed(2), row.p95Ms.toFixed(2), row.recallAt10.toFixed(3), row.meanCandidates.toFixed(0)]) {
+          const td = document.createElement('td'); td.textContent = value; tr.append(td);
+        }
+        document.querySelector('#results').append(tr);
+      }
+      document.querySelector('#build').textContent = `IDB build ${window.measurement.buildMs.toFixed(1)} ms; offline IVF training ${window.measurement.offlineTrainingMs.toFixed(1)} ms. Disk footprint captured separately by the Node driver.`;
+    } catch (error) {
+      window.measurementError = error.message;
+      document.querySelector('#status').textContent = `FAILED: ${error.message}`;
+    }
+  };
+</script>
+</html>

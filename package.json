@@ -11,7 +11,10 @@
     "test": "node tests/browser.mjs",
     "start": "serve",
     "demo": "node tools/demo-server.mjs",
-    "measure": "node tests/browser.mjs --measure"
+    "measure": "node tests/browser.mjs --measure",
+    "real:prepare": "python3 -m venv .cache/vector-python && .cache/vector-python/bin/pip install -r tools/real-vector-requirements.txt && .cache/vector-python/bin/python tools/prepare-real-vectors.py glove",
+    "real:embed": "node tools/embed-wikipedia.mjs --embed && .cache/vector-python/bin/python tools/prepare-real-vectors.py wiki",
+    "real:measure": "node tests/real-vectors.mjs"
   },
   "license": "Apache-2.0",
   "author": {

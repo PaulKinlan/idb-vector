@@ -93,6 +93,36 @@ trees, conditions, raw evidence, correctness findings and the Beads improvement 
 The demonstration uses disposable databases and can consume significant space at 100k
 vectors; see the analysis for cleanup and unverified boundaries.
 
+## Real-vector recall suite (research only)
+
+The separate suite compares the unchanged library's exact scan with an **experimental
+IVF index**, using GloVe word vectors with shipped neighbours and real Wikipedia API
+embeddings. Neither IVF nor preprocessing is a supported runtime API.
+
+```sh
+npm run real:prepare  # ~127 MB public GloVe download; Python venv + pinned NumPy/h5py
+npm run real:embed    # OPT-IN PAID OpenAI embeddings, reads OPENAI_API_KEY from environment
+npm run real:measure # cached data only: real Chromium, IndexedDB, raw JSON + screenshots
+```
+
+Preparation uses Python 3 and internet access; measurement uses Node 22+ and installed
+Chromium (`IDB_VECTOR_CHROME` overrides). The embedding command fetches public Wikipedia
+extracts, holds out 40 queries and embeds up to 10,040 passages with
+`text-embedding-3-small` at 256 dimensions. Estimated spend is capped at **$0.25 per
+prepared corpus** at the documented list price. Paid requests are cached; ambiguous
+failures retain a marker and are **not automatically retried**. Keys are never cached.
+No API calls happen during measurement. Keep `.cache/real-vectors` to replay the same
+vectors without spending again; deleting it discards that cache. Later Wikipedia/model
+responses can change, so compare the recorded corpus hashes before comparing runs.
+
+One command to replay prepared corpora: **`npm run real:measure`**. Outputs default to
+`/tmp/idb-vector-real-measurements.json` and adjacent screenshots; set `IDB_REAL_REPORT`
+to keep a run elsewhere. Public-only quick run after preparation:
+`IDB_REAL_CORPORA=glove25-10000 npm run real:measure`. The full run includes 10k, 100k and
+1,183,514 GloVe vectors plus 10k API embeddings, 40 queries per setting; allow several
+minutes and temporary disk space. Every approach owns a fresh profile and ephemeral
+server, and deletes only that profile on exit. This is not a cold-disk or mobile benchmark.
+
 ## Limitations and Considerations
 
 Vector IDB is a simple wrapper over IndexedDB and serves as a starting point for using IndexedDB as a vector database. It does not include advanced optimizations, pre-filtering of the query space, or extensive post-filtering capabilities. The goal of this project is to provide a simple solution for quick integration with IndexedDB, especially for applications that already have a complex IndexedDB setup.
