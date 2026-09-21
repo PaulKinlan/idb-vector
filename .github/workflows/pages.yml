@@ -1,4 +1,4 @@
-name: Publish Wikipedia demo
+name: Publish demo and research
 on:
   push:
     branches: [main]
@@ -18,11 +18,19 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:research
+      - run: git diff --exit-code -- research/index.html
       - uses: actions/configure-pages@v5
-      - name: Stage only public demo assets and unchanged library
+      - name: Stage public demo, library and research
         run: |
           mkdir -p site/utils
           cp -r demo site/demo
+          cp -r research site/research
           cp index.js site/index.js
           cp utils/sortedarray.js site/utils/sortedarray.js
           printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=./demo/"><a href="./demo/">Open the Wikipedia search demo</a>' > site/index.html

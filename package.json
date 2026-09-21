@@ -16,7 +16,9 @@
     "real:embed": "node tools/embed-wikipedia.mjs --embed && .cache/vector-python/bin/python tools/prepare-real-vectors.py wiki",
     "real:measure": "node tests/real-vectors.mjs",
     "demo:wikipedia": "node tools/wiki-demo-server.mjs",
-    "test:wikipedia": "node tests/wikipedia-demo.mjs"
+    "test:wikipedia": "node tests/wikipedia-demo.mjs",
+    "build:research": "node tools/build-research.mjs",
+    "test:research": "node tests/research.mjs"
   },
   "license": "Apache-2.0",
   "author": {
@@ -25,6 +27,7 @@
     "url": "https://paul.kinlan.me/"
   },
   "devDependencies": {
+    "marked": "17.0.4",
     "serve": "^14.2.0"
   }
 }

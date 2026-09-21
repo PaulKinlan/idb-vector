@@ -18,6 +18,24 @@ The open page works offline after loading; **reload still needs networking**.
 First load downloads about 35–39 MB, including the model and runtime.
 See [demo documentation](demo/README.md) for attribution, reproduction and limits.
 
+## Architecture research
+
+[Read the HTML report](https://paulkinlan.github.io/idb-vector/research/) on
+IndexedDB access patterns, HNSW, WebGPU and anisotropy. It preserves evidence
+labels, citations, contradictions and missing evidence; dated publication notes
+separate the original hypotheses from subsequent measurements.
+
+Edit `research/architecture.md`, then run `npm ci && npm run build:research`.
+The committed generator uses **marked 17.0.4** (a build-only development dependency);
+`research/index.html` is self-contained with no runtime JavaScript or dependencies.
+Publication notes and styles live in `tools/build-research.mjs`.
+The Pages workflow rebuilds the report and publishes `/research/` alongside `/demo/`.
+`npm run test:research` drives Chromium via the existing raw-CDP helper; add
+`-- --links` to check external citations and visit representative sources.
+After deployment, `RESEARCH_URL=https://paulkinlan.github.io/idb-vector/research/ npm run test:research`
+checks the public page. Screenshots and a JSON receipt go to `.cache/research-evidence/`
+(or `RESEARCH_EVIDENCE`).
+
 ## Usage
 
 To use Vector IDB, you need to import the `VectorDB` class from the `idb-vector` package.
