@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const corpora = (process.env.IDB_REAL_CORPORA || 'glove25-10000,glove25-100000,glove25-1183514,wiki-api-10000').split(',');
 const methods = process.env.IDB_REAL_METHODS?.split(',') || ['library', 'ivf'];
 assert.ok(methods.length && methods.every(m => ['library', 'ivf'].includes(m)));
-const allowed = new Map(['index.js', 'utils/sortedarray.js', 'test-harness/real-vectors.js', 'test-harness/real-vectors.html'].map(f => ['/' + f, path.join(root, f)]));
+const allowed = new Map(['index.js', 'utils/sortedarray.js', 'utils/packed-snapshot.js', 'utils/geometry.js', 'test-harness/real-vectors.js', 'test-harness/real-vectors.html'].map(f => ['/' + f, path.join(root, f)]));
 const manifests = [];
 for (const corpus of corpora) {
   assert.match(corpus, /^(glove25|wiki-api)-[0-9]+$/);

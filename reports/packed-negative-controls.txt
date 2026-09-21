@@ -1,0 +1,27 @@
+Negative control 1: utils/packed-snapshot.js block.data.set(vector, block.used) changed to Float32Array.from(vector). Exit 1, expected exact-byte comparison failure.
+file:///home/paulkinlan/worktrees/idb-packed/tests/lib/cdp.mjs:198
+      throw new Error(
+            ^
+
+Error: page threw: Error: exact bytes
+    at check (<anonymous>:4:67)
+    at <anonymous>:26:5
+    at page.evaluateWith (file:///home/paulkinlan/worktrees/idb-packed/tests/lib/cdp.mjs:198:13)
+    at async file:///home/paulkinlan/worktrees/idb-packed/tests/packed-snapshot.mjs:13:18
+
+Node.js v24.21.0
+
+Negative control 2: utils/geometry.js covariance off-diagonal set to zero. Exit 1, expected full-covariance whitening failure.
+file:///home/paulkinlan/worktrees/idb-packed/tests/lib/cdp.mjs:198
+      throw new Error(
+            ^
+
+Error: page threw: Error: full covariance whitening, not diagonal scaling
+    at check (<anonymous>:4:67)
+    at <anonymous>:66:5
+    at page.evaluateWith (file:///home/paulkinlan/worktrees/idb-packed/tests/lib/cdp.mjs:198:13)
+    at async file:///home/paulkinlan/worktrees/idb-packed/tests/packed-snapshot.mjs:13:18
+
+Node.js v24.21.0
+
+Both source files restored; npm run test:packed then passed on final source (hashes in packed-snapshot.json).

@@ -1,0 +1,281 @@
+{
+  "sourceHashes": {
+    "index.js": "9481979b01606c2266c4a5017e0f81b667f4694a4eac0c0e61ab74e4dcb6b26a",
+    "utils/packed-snapshot.js": "79a8acf0617e1fb16a17b43fef733b4721bbe5ccd7f4a193049be1bb88899e3c",
+    "utils/geometry.js": "260c36c4de4818189bd8073baf9984e50b859b19f3c3b780ccaf55749afe33b5",
+    "tests/packed-snapshot.mjs": "8cd7b1365bbc87ae97fbbe1640627d0a624663ce1b536c57eae579e5e1bf0c55",
+    "tools/demo-server.mjs": "b6d07a4f8707504de70c0ff7a6e2321812253ae0ad40a81ea925ee7117ecc4a4",
+    "demo/data/vectors-2000.f32": "d7ae23c9d4028d66aca7e070a5cb427562225af300076385c16eda76548f90e3"
+  },
+  "commit": "232b95c0215dab48d760bef6c2cf7e88186f4780",
+  "diff": ".github/workflows/pages.yml |  4 ++--\n README.md                   | 55 +++++++++++++++++++++++++++++++++++++++++++--\n index.js                    | 45 +++++++++++++++----------------------\n package.json                |  4 +++-\n tests/browser.mjs           |  5 +++--\n tests/real-vectors.mjs      |  2 +-\n tools/demo-server.mjs       |  2 +-\n tools/wiki-demo-server.mjs  |  2 +-\n 8 files changed, 82 insertions(+), 37 deletions(-)",
+  "observedAt": "2026-09-21T21:54:59.608Z",
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/152.0.7977.82",
+    "revision": "@d04cdb24d67b081f6cf80200ffc5233f44b61109",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "jsVersion": "15.2.124.21"
+  },
+  "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+  "load": [
+    9.87,
+    7.54,
+    4.49
+  ],
+  "condition": "Fresh headless Chromium profile; warm committed IndexedDB; three alternating query timings per corpus; query IDs42/43/44; k10; same records, exact Float64 byte comparison, not cold disk or isolated host. Snapshot build measured separately.",
+  "checks": "cache/refresh/external writes/budget eviction/unsupported keys/close/transaction aborts/whitening covariance/inverse/invalid inputs/low-D diagnostic",
+  "measured": [
+    {
+      "name": "Wikipedia all-MiniLM-L6-v2 2000x384 (committed f32 embeddings)",
+      "count": 2000,
+      "dimensions": 384,
+      "maxBytes": 7224576,
+      "allocatedBytes": 6291456,
+      "buildMs": 62.5,
+      "diagnostic": {
+        "count": 2000,
+        "dimensions": 384,
+        "dominance": 0.004195295734544831,
+        "isotropicShare": 0.0026041666666666665,
+        "relativeDominance": 1.6109935620652152,
+        "warning": null,
+        "limitation": "Coordinate variance misses correlated anisotropy; unchanged rankings do not prove isotropy. Threshold is a heuristic, not a retrieval-quality test."
+      },
+      "runs": [
+        {
+          "queryId": 42,
+          "baselineMs": 54.5,
+          "cachedMs": 4,
+          "mode": "snapshot",
+          "byteIdentical": true,
+          "keys": [
+            43,
+            711,
+            210,
+            544,
+            7,
+            1009,
+            878,
+            866,
+            1510,
+            341
+          ]
+        },
+        {
+          "queryId": 43,
+          "baselineMs": 50.5,
+          "cachedMs": 2.4000000059604645,
+          "mode": "snapshot",
+          "byteIdentical": true,
+          "keys": [
+            44,
+            712,
+            1046,
+            378,
+            545,
+            49,
+            550,
+            879,
+            1714,
+            211
+          ]
+        },
+        {
+          "queryId": 44,
+          "baselineMs": 48.69999998807907,
+          "cachedMs": 3,
+          "mode": "snapshot",
+          "byteIdentical": true,
+          "keys": [
+            45,
+            546,
+            379,
+            40,
+            713,
+            1548,
+            212,
+            714,
+            1877,
+            1382
+          ]
+        }
+      ]
+    },
+    {
+      "name": "seeded uniform 100000x128",
+      "count": 100000,
+      "dimensions": 128,
+      "maxBytes": 105048576,
+      "allocatedBytes": 104857600,
+      "buildMs": 1331.0999999940395,
+      "diagnostic": {
+        "count": 100000,
+        "dimensions": 128,
+        "dominance": 0.007823497864261293,
+        "isotropicShare": 0.0078125,
+        "relativeDominance": 1.0014077266254455,
+        "warning": null,
+        "limitation": "Coordinate variance misses correlated anisotropy; unchanged rankings do not prove isotropy. Threshold is a heuristic, not a retrieval-quality test."
+      },
+      "runs": [
+        {
+          "queryId": 42,
+          "baselineMs": 999.2999999821186,
+          "cachedMs": 41.099999994039536,
+          "mode": "snapshot",
+          "byteIdentical": true,
+          "keys": [
+            43,
+            20948,
+            27407,
+            20472,
+            57073,
+            20865,
+            29251,
+            76880,
+            69819,
+            64837
+          ]
+        },
+        {
+          "queryId": 43,
+          "baselineMs": 964.0999999940395,
+          "cachedMs": 32.69999998807907,
+          "mode": "snapshot",
+          "byteIdentical": true,
+          "keys": [
+            44,
+            93792,
+            53881,
+            56148,
+            43435,
+            78461,
+            90753,
+            3334,
+            76808,
+            82875
+          ]
+        },
+        {
+          "queryId": 44,
+          "baselineMs": 964.6000000238419,
+          "cachedMs": 65,
+          "mode": "snapshot",
+          "byteIdentical": true,
+          "keys": [
+            45,
+            14,
+            52405,
+            77926,
+            56291,
+            82397,
+            44703,
+            15865,
+            67343,
+            3574
+          ]
+        }
+      ]
+    }
+  ],
+  "whitening": {
+    "fitMs": 131.60000002384186,
+    "diagnostic": {
+      "count": 2000,
+      "dimensions": 384,
+      "dominance": 0.004195295734544831,
+      "isotropicShare": 0.0026041666666666665,
+      "relativeDominance": 1.6109935620652152,
+      "warning": null,
+      "limitation": "Coordinate variance misses correlated anisotropy; unchanged rankings do not prove isotropy. Threshold is a heuristic, not a retrieval-quality test."
+    },
+    "comparisons": [
+      {
+        "queryId": 42,
+        "originalKeys": [
+          43,
+          711,
+          210,
+          544,
+          7,
+          1009,
+          878,
+          866,
+          1510,
+          341
+        ],
+        "whitenedKeys": [
+          43,
+          711,
+          210,
+          878,
+          544,
+          7,
+          1379,
+          675,
+          1009,
+          1510
+        ],
+        "overlap": 8
+      },
+      {
+        "queryId": 43,
+        "originalKeys": [
+          44,
+          712,
+          1046,
+          378,
+          545,
+          49,
+          550,
+          879,
+          1714,
+          211
+        ],
+        "whitenedKeys": [
+          44,
+          712,
+          1046,
+          545,
+          378,
+          1714,
+          879,
+          49,
+          216,
+          1387
+        ],
+        "overlap": 8
+      },
+      {
+        "queryId": 44,
+        "originalKeys": [
+          45,
+          546,
+          379,
+          40,
+          713,
+          1548,
+          212,
+          714,
+          1877,
+          1382
+        ],
+        "whitenedKeys": [
+          45,
+          713,
+          546,
+          379,
+          212,
+          40,
+          1214,
+          1548,
+          714,
+          1559
+        ],
+        "overlap": 8
+      }
+    ],
+    "qualityClaim": "None: ranking changes are not labelled retrieval improvement; no held-out relevance labels."
+  }
+}

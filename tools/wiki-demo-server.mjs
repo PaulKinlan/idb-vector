@@ -7,7 +7,7 @@ export async function serve() {
     const path = new URL(req.url, 'http://localhost').pathname;
     // Exercise the same repository subpath used by GitHub Pages.
     const name = path.replace(/^\/idb-vector\//, '');
-    if (path === name || name.includes('..') || !/^(demo\/[\w./-]+|index\.js|utils\/sortedarray\.js)$/.test(name)) {
+    if (path === name || name.includes('..') || !/^(demo\/[\w./-]+|index\.js|utils\/(?:sortedarray|geometry|packed-snapshot)\.js)$/.test(name)) {
       res.writeHead(404).end(); return;
     }
     try {

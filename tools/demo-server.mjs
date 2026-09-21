@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 const root = new URL('../', import.meta.url);
-const files = new Set(['index.js', 'utils/sortedarray.js', 'test-harness/index.html',
+const files = new Set(['index.js', 'utils/sortedarray.js', 'utils/geometry.js', 'utils/packed-snapshot.js', 'demo/data/vectors-2000.f32', 'test-harness/index.html',
   'test-harness/demo.js', 'test-harness/experiment.js', 'reports/browser-analysis.md']);
 export async function serve() {
   const server = createServer(async (req, res) => {

@@ -1,4 +1,6 @@
 import { SortedArray } from "./utils/sortedarray.js";
+import { createPackedSnapshot } from "./utils/packed-snapshot.js";
+export { diagnose, fitWhitening } from "./utils/geometry.js";
 
 const DB_DEFAUlTS = {
   dbName: "vectorDB",
@@ -10,6 +12,14 @@ function cosineSimilarity(a, b) {
   const aMagnitude = Math.sqrt(a.reduce((sum, aVal) => sum + aVal * aVal, 0));
   const bMagnitude = Math.sqrt(b.reduce((sum, bVal) => sum + bVal * bVal, 0));
   return dotProduct / (aMagnitude * bMagnitude);
+}
+
+// A successful request can still be rolled back by its transaction.
+function committed(transaction, request) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve(request.result);
+    transaction.onabort = () => reject(transaction.error ?? new Error("Transaction aborted"));
+  });
 }
 
 async function create(options) {
@@ -83,15 +93,7 @@ class VectorDB {
     const store = transaction.objectStore(storeName);
 
     const request = store.add(object);
-    return new Promise((resolve, reject) => {
-      request.onsuccess = (event) => {
-        resolve(event.target.result);
-      };
-
-      request.onerror = (event) => {
-        reject(event.error);
-      } 
-    });
+    return committed(transaction, request);
   }
 
   async delete(key) {
@@ -108,15 +110,7 @@ class VectorDB {
 
     const request = store.delete(key);
 
-    return new Promise((resolve, reject) => {
-      request.onsuccess = (event) => {
-        resolve(event.target.result);
-      };
-
-      request.onerror = (event) => {
-        reject(event.error);
-      } 
-    });
+    return committed(transaction, request);
   }
 
   async update(key, object) {
@@ -141,15 +135,7 @@ class VectorDB {
 
     const request = store.put(object, key);
 
-    return new Promise((resolve, reject) => {
-      request.onsuccess = (event) => {
-        resolve(event.target.result);
-      };
-
-      request.onerror = (event) => {
-        reject(event.error);
-      } 
-    });
+    return committed(transaction, request);
   }
 
   // Return the most similar items up to [limit] items
@@ -192,6 +178,11 @@ class VectorDB {
         reject(event.target.error);
       };
     });
+  }
+
+  // Explicitly stale until refresh(); default query() remains authoritative.
+  async createSnapshot(options) {
+    return createPackedSnapshot(await this.#db, this.#objectStore, this.#vectorPath, options, cosineSimilarity);
   }
 
   get objectStore() {

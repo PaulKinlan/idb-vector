@@ -83,13 +83,14 @@ try {
         request.addEventListener('success', () => this.transaction.abort());
         return request;
       };
-      let acknowledged;
+      let acknowledged, writeError;
       try { acknowledged = await db.insert({ embedding: [1, 1] }); }
+      catch (error) { writeError = error.message; }
       finally { IDBObjectStore.prototype.add = original; }
       const transactionAborted = await abortWitness;
       const stillPresent = (await db.query([1, 1], { limit: 10 })).some(x => x.key === acknowledged);
       indexedDB.deleteDatabase(name); indexedDB.deleteDatabase(`${name}-nested`);
-      return { emptyOptionsCount, scores, nestedError, acknowledged, transactionAborted, stillPresent };
+      return { emptyOptionsCount, scores, nestedError, acknowledged, writeError, transactionAborted, stillPresent };
     });
     report.finished = new Date().toISOString(); report.loadEnd = os.loadavg();
     const output = process.env.IDB_VECTOR_REPORT || '/tmp/idb-vector-measurements.json';

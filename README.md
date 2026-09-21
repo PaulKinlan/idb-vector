@@ -90,6 +90,57 @@ console.log(
 
 The `limit` option allows you to specify the maximum number of results to return.
 
+## Optional packed snapshots (new API)
+
+Default `query()` still scans IndexedDB and sees writes from other connections.
+For repeated queries on a deliberately frozen corpus:
+
+```javascript
+// Supply your application's available packed-buffer budget; this is an example, not a limit.
+const snapshot = await db.createSnapshot({ maxBytes: 128 * 1024 * 1024 });
+console.log(snapshot.diagnostic); // coordinate-variance screen, with limitations
+const { mode, results } = await snapshot.query([1, 2, 3], { limit: 20 });
+// results contain {key, similarity}, NOT document objects; mode is "snapshot" or "live".
+await snapshot.refresh(); // explicitly include intervening writes/deletes
+snapshot.close(); // release packed buffers
+```
+
+Over budget, allocation failure or unsupported keys/vectors evicts the cache and uses
+the live cursor without truncating the corpus. Inspect `snapshot.reason` and `bytes`.
+The budget covers retained packed buffers, **not all browser heap or arbitrary source
+metadata**. Float64 preserves existing JS-number precision; vectors are not normalized
+on write. Writes resolve after transaction completion, not merely request success.
+See [format, resource bounds, evidence and caveats](reports/packed-snapshot.md).
+
+## Optional geometry diagnostic and whitening (new API)
+
+```javascript
+import { diagnose, fitWhitening } from "idb-vector";
+const vectors = [[10, 1], [20, 2], [30, 4], [40, 3]];
+console.log(diagnose(vectors)); // dominance, 1/d baseline, relative dominance, warning
+const whitening = fitWhitening(vectors); // explicit opt-in; originals are untouched
+const transformed = vectors.map(v => whitening.transform(v));
+const transformedQuery = whitening.transform([15, 2]); // use the SAME corpus fit
+const reconstructed = whitening.inverse(transformed[0]); // original, within roundoff
+// Insert transformed vectors into a SEPARATE VectorDB; compare against the original DB.
+```
+
+Whitening is **off by default** and intended for experimenting with crowded embeddings,
+not as a general upgrade. Removing top principal directions harmed well-spread encoders
+in the cited study (cosine correlation −0.014); that is not the same intervention as
+whitening and does not prove retrieval-quality gains or losses for your data. Keep the
+originals and compare labelled retrieval results with whitening on/off.
+
+The coordinate-variance warning is dimension-relative and heuristic; it cannot detect
+all correlated anisotropy or tell you whether whitening will help. Unchanged rankings
+do not prove isotropy. Full-covariance regularized Cholesky fitting is O(n d² + d³)
+time and O(d²) extra memory: use a worker for large corpora. `regularization` defaults
+to 1e-6 relative to mean variance and must be positive. No automatic fitting or mutation
+of stored vectors occurs. See [details and real-corpus comparison](reports/packed-snapshot.md).
+
+`npm run measure:packed` repeats the storage experiment; `npm run test:packed` drives
+snapshot behavior, exact scores, rollback and optional whitening in Chromium.
+
 ## Browser demo and measurements
 
 Run `npm run demo` (Node 22+) and open the loopback URL it prints. Create a synthetic
@@ -105,9 +156,9 @@ vectors; see the analysis for cleanup and unverified boundaries.
 
 ## Real-vector recall suite (research only)
 
-The separate suite compares the unchanged library's exact scan with an **experimental
+The separate suite compares the library's default exact scan with an **experimental
 IVF index**, using GloVe word vectors with shipped neighbours and real Wikipedia API
-embeddings. Neither IVF nor preprocessing is a supported runtime API.
+embeddings. IVF remains research-only; optional whitening is a separate supported utility as described above.
 
 ```sh
 npm run real:prepare  # ~127 MB public GloVe download; Python venv + pinned NumPy/h5py

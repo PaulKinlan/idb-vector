@@ -16,7 +16,9 @@
     "real:embed": "node tools/embed-wikipedia.mjs --embed && .cache/vector-python/bin/python tools/prepare-real-vectors.py wiki",
     "real:measure": "node tests/real-vectors.mjs",
     "demo:wikipedia": "node tools/wiki-demo-server.mjs",
-    "test:wikipedia": "node tests/wikipedia-demo.mjs"
+    "test:wikipedia": "node tests/wikipedia-demo.mjs",
+    "test:packed": "node tests/packed-snapshot.mjs",
+    "measure:packed": "node tests/packed-read.mjs"
   },
   "license": "Apache-2.0",
   "author": {
