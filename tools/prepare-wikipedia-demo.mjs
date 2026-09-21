@@ -2,9 +2,14 @@
 // Usage: node tools/prepare-wikipedia-demo.mjs path/to/passages.json
 import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 import { serve } from './wiki-demo-server.mjs';
 import { launch } from '../tests/lib/cdp.mjs';
-const input = await readFile(process.argv[2]);
+const inputArg = process.argv[2];
+if (!inputArg) throw new Error('Usage: node tools/prepare-wikipedia-demo.mjs path/to/passages.json');
+const inputPath = resolve(process.cwd(), inputArg);
+if (!inputPath.startsWith(resolve(process.cwd()) + '/')) throw new Error('Refusing to read outside the current working directory');
+const input = await readFile(inputPath);
 const source = JSON.parse(input);
 const passages = (Array.isArray(source) ? source : source.passages).filter(p => p.revision && p.pageid).slice(0, 2000);
 if (passages.length !== 2000 || passages.some(p => !p.text || !p.title || !p.revision || !p.pageid)) throw new Error('Need 2000 attributed passages with revision IDs');
