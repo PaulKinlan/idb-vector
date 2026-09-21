@@ -30,7 +30,7 @@ try {
   await page.click('#run');
   await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Search complete'));
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('#results tr')].every(row => row.children[1].textContent === '7')), true);
-  await page.screenshot('/tmp/idb-vector-after.png');
+  await page.screenshot('/tmp/idb-vector-after.png', { fullPage: true });
   for (const width of [360, 390, 430]) {
     await page.emulateViewport({ width, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

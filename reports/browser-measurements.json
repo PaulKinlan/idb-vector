@@ -1,0 +1,415 @@
+{
+  "libraryCommit": "e346cc45c59b5d83d00f2c392afd55fd7d7902d6",
+  "harnessCommit": "1662ae6fca82ca263b9c3a7c1c4192924c18ef09",
+  "trackedDiff": ".beads/interactions.jsonl | 1 +\n 1 file changed, 1 insertion(+)",
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/152.0.7977.82",
+    "revision": "@d04cdb24d67b081f6cf80200ffc5233f44b61109",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "jsVersion": "15.2.124.21"
+  },
+  "hardware": {
+    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "logicalCpus": 32,
+    "ramBytes": 98766901248,
+    "platform": "linux",
+    "release": "7.2.3-arch1-3"
+  },
+  "started": "2026-09-21T08:21:02.065Z",
+  "loadStart": [
+    1.72,
+    2.66,
+    3.42
+  ],
+  "conditions": "Headless Chromium, fresh temporary profile, same browser process, seeded uniform [-1,1) vectors, category=id%100, query ID42, k10, three order-rotated repetitions, writes complete before queries; not cold disk or idle host",
+  "measurements": [
+    {
+      "count": 1000,
+      "dimensions": 128,
+      "k": 10,
+      "seedMs": 92.40000000596046,
+      "candidateSeedMs": 22.900000005960464,
+      "runs": [
+        {
+          "repetition": 0,
+          "baselineMs": 13.299999982118607,
+          "batchMs": 10.400000005960464,
+          "filteredScanMs": 8.900000005960464,
+          "filteredIndexMs": 2,
+          "visitedScan": 1000,
+          "visitedIndex": 10,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            77,
+            111,
+            36,
+            678,
+            674,
+            27,
+            107,
+            913,
+            792
+          ],
+          "eligibleKeys": [
+            308,
+            208,
+            408,
+            808,
+            608,
+            8,
+            108,
+            708,
+            508,
+            908
+          ]
+        },
+        {
+          "repetition": 1,
+          "baselineMs": 14,
+          "batchMs": 8.599999994039536,
+          "filteredScanMs": 7.9000000059604645,
+          "filteredIndexMs": 0.20000001788139343,
+          "visitedScan": 1000,
+          "visitedIndex": 10,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            77,
+            111,
+            36,
+            678,
+            674,
+            27,
+            107,
+            913,
+            792
+          ],
+          "eligibleKeys": [
+            308,
+            208,
+            408,
+            808,
+            608,
+            8,
+            108,
+            708,
+            508,
+            908
+          ]
+        },
+        {
+          "repetition": 2,
+          "baselineMs": 49.69999998807907,
+          "batchMs": 9.300000011920929,
+          "filteredScanMs": 7.5,
+          "filteredIndexMs": 0.09999999403953552,
+          "visitedScan": 1000,
+          "visitedIndex": 10,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            77,
+            111,
+            36,
+            678,
+            674,
+            27,
+            107,
+            913,
+            792
+          ],
+          "eligibleKeys": [
+            308,
+            208,
+            408,
+            808,
+            608,
+            8,
+            108,
+            708,
+            508,
+            908
+          ]
+        }
+      ]
+    },
+    {
+      "count": 10000,
+      "dimensions": 128,
+      "k": 10,
+      "seedMs": 888,
+      "candidateSeedMs": 229.5,
+      "runs": [
+        {
+          "repetition": 0,
+          "baselineMs": 129.90000000596046,
+          "batchMs": 77.7000000178814,
+          "filteredScanMs": 68.7999999821186,
+          "filteredIndexMs": 0.9000000059604645,
+          "visitedScan": 10000,
+          "visitedIndex": 100,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            77,
+            2282,
+            8689,
+            6624,
+            9739,
+            5814,
+            8786,
+            2474,
+            8260
+          ],
+          "eligibleKeys": [
+            9008,
+            7208,
+            5708,
+            5008,
+            6508,
+            4208,
+            1908,
+            1008,
+            8708,
+            308
+          ]
+        },
+        {
+          "repetition": 1,
+          "baselineMs": 92,
+          "batchMs": 80,
+          "filteredScanMs": 71.80000001192093,
+          "filteredIndexMs": 1,
+          "visitedScan": 10000,
+          "visitedIndex": 100,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            77,
+            2282,
+            8689,
+            6624,
+            9739,
+            5814,
+            8786,
+            2474,
+            8260
+          ],
+          "eligibleKeys": [
+            9008,
+            7208,
+            5708,
+            5008,
+            6508,
+            4208,
+            1908,
+            1008,
+            8708,
+            308
+          ]
+        },
+        {
+          "repetition": 2,
+          "baselineMs": 91.09999999403954,
+          "batchMs": 75.60000002384186,
+          "filteredScanMs": 68,
+          "filteredIndexMs": 2.0999999940395355,
+          "visitedScan": 10000,
+          "visitedIndex": 100,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            77,
+            2282,
+            8689,
+            6624,
+            9739,
+            5814,
+            8786,
+            2474,
+            8260
+          ],
+          "eligibleKeys": [
+            9008,
+            7208,
+            5708,
+            5008,
+            6508,
+            4208,
+            1908,
+            1008,
+            8708,
+            308
+          ]
+        }
+      ]
+    },
+    {
+      "count": 100000,
+      "dimensions": 128,
+      "k": 10,
+      "seedMs": 9860.699999988079,
+      "candidateSeedMs": 2862,
+      "runs": [
+        {
+          "repetition": 0,
+          "baselineMs": 1024.9000000059605,
+          "batchMs": 802,
+          "filteredScanMs": 735.0999999940395,
+          "filteredIndexMs": 13.5,
+          "visitedScan": 100000,
+          "visitedIndex": 1000,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            20948,
+            27407,
+            20472,
+            57073,
+            20865,
+            29251,
+            76880,
+            69819,
+            64837
+          ],
+          "eligibleKeys": [
+            62608,
+            57008,
+            16408,
+            51708,
+            14308,
+            10208,
+            21408,
+            9008,
+            70108,
+            72908
+          ]
+        },
+        {
+          "repetition": 1,
+          "baselineMs": 941.5999999940395,
+          "batchMs": 796.3000000119209,
+          "filteredScanMs": 900.5,
+          "filteredIndexMs": 13.5,
+          "visitedScan": 100000,
+          "visitedIndex": 1000,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            20948,
+            27407,
+            20472,
+            57073,
+            20865,
+            29251,
+            76880,
+            69819,
+            64837
+          ],
+          "eligibleKeys": [
+            62608,
+            57008,
+            16408,
+            51708,
+            14308,
+            10208,
+            21408,
+            9008,
+            70108,
+            72908
+          ]
+        },
+        {
+          "repetition": 2,
+          "baselineMs": 906.5,
+          "batchMs": 764.0999999940395,
+          "filteredScanMs": 729.5,
+          "filteredIndexMs": 13.5,
+          "visitedScan": 100000,
+          "visitedIndex": 1000,
+          "exactKeysMatch": true,
+          "filteredKeysMatch": true,
+          "lateFilterCount": 0,
+          "eligibleCount": 10,
+          "lateFilterRecall": 0,
+          "topKeys": [
+            43,
+            20948,
+            27407,
+            20472,
+            57073,
+            20865,
+            29251,
+            76880,
+            69819,
+            64837
+          ],
+          "eligibleKeys": [
+            62608,
+            57008,
+            16408,
+            51708,
+            14308,
+            10208,
+            21408,
+            9008,
+            70108,
+            72908
+          ]
+        }
+      ]
+    }
+  ],
+  "findings": {
+    "emptyOptionsCount": 0,
+    "scores": [
+      "NaN",
+      "NaN",
+      "1"
+    ],
+    "nestedError": "nested.vector expected to be present 'object' being inserted",
+    "acknowledged": 4,
+    "transactionAborted": true,
+    "stillPresent": false
+  },
+  "finished": "2026-09-21T08:21:24.576Z",
+  "loadEnd": [
+    2.51,
+    2.79,
+    3.45
+  ]
+}

@@ -80,6 +80,19 @@ console.log(
 
 The `limit` option allows you to specify the maximum number of results to return.
 
+## Browser demo and measurements
+
+Run `npm run demo` (Node 22+) and open the loopback URL it prints. Create a synthetic
+vector dataset, choose a query vector and see nearest neighbours and timings. The
+experimental metadata-index and paged-scan comparisons do not change the library API.
+No model downloads, new dependencies or fixed ports are required.
+
+`npm test` drives the demo in installed Chromium; `npm run measure` reproduces the
+1k/10k/100k browser study. See [the analysis](reports/browser-analysis.md) for exact
+trees, conditions, raw evidence, correctness findings and the Beads improvement plan.
+The demonstration uses disposable databases and can consume significant space at 100k
+vectors; see the analysis for cleanup and unverified boundaries.
+
 ## Limitations and Considerations
 
 Vector IDB is a simple wrapper over IndexedDB and serves as a starting point for using IndexedDB as a vector database. It does not include advanced optimizations, pre-filtering of the query space, or extensive post-filtering capabilities. The goal of this project is to provide a simple solution for quick integration with IndexedDB, especially for applications that already have a complex IndexedDB setup.
