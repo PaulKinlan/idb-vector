@@ -1,0 +1,24 @@
+{
+  "model": "Xenova/all-MiniLM-L6-v2",
+  "revision": "751bff37182d3f1213fa05d7196b954e230abad9",
+  "runtime": "@xenova/transformers 2.17.2 / onnxruntime-web 1.14.0",
+  "dimensions": 384,
+  "pooling": "mean, L2 normalized, quantized ONNX, single-thread WASM",
+  "retrievedAt": "2026-09-21T11:11:46.431Z",
+  "sourceSha256": "23efd4a0051a32aa322a3569eaaffc53418621b55fc920cfc14aad794d58e853",
+  "selection": "First 2000 round-robin passages with recorded revision IDs from the embed-wikipedia.mjs public Wikipedia snapshot; entries missing revision attribution excluded. 250 is a prefix. Not all Wikipedia.",
+  "license": "Wikipedia text CC BY-SA 4.0; per-passage page IDs and revision IDs retained. Text is excerpted into 200–600-character spans.",
+  "preparedAt": "2026-09-21T11:13:34.115Z",
+  "artifacts": {
+    "250": {
+      "passageBytes": 155594,
+      "vectorBytes": 384000,
+      "vectorSha256": "141a1553ef0d786f4d0980431f205f84d0b1f52cbad1723e65b6ea3d30f1e5fa"
+    },
+    "2000": {
+      "passageBytes": 1187714,
+      "vectorBytes": 3072000,
+      "vectorSha256": "d7ae23c9d4028d66aca7e070a5cb427562225af300076385c16eda76548f90e3"
+    }
+  }
+}

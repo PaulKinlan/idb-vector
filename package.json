@@ -14,7 +14,9 @@
     "measure": "node tests/browser.mjs --measure",
     "real:prepare": "python3 -m venv .cache/vector-python && .cache/vector-python/bin/pip install -r tools/real-vector-requirements.txt && .cache/vector-python/bin/python tools/prepare-real-vectors.py glove",
     "real:embed": "node tools/embed-wikipedia.mjs --embed && .cache/vector-python/bin/python tools/prepare-real-vectors.py wiki",
-    "real:measure": "node tests/real-vectors.mjs"
+    "real:measure": "node tests/real-vectors.mjs",
+    "demo:wikipedia": "node tools/wiki-demo-server.mjs",
+    "test:wikipedia": "node tests/wikipedia-demo.mjs"
   },
   "license": "Apache-2.0",
   "author": {

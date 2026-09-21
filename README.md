@@ -8,6 +8,16 @@ IndexedDB as a Vector Database is a project that explores the concept of using I
 
 If you're unfamiliar with vector databases and their benefits, you can start by reading the article ["IndexedDB as a Vector Database"](https://paul.kinlan.me/idb-as-a-vector-database/).
 
+## Wikipedia search demo
+
+[Open the demo](https://paulkinlan.github.io/idb-vector/demo/): explicitly load
+250 or 2,000 real Wikipedia passages into IndexedDB, type a question, then turn
+the network off and search again. The local MiniLM encoder needs no API key;
+load, question-encoding and database-search timings are shown separately.
+The open page works offline after loading; **reload still needs networking**.
+First load downloads about 35–39 MB, including the model and runtime.
+See [demo documentation](demo/README.md) for attribution, reproduction and limits.
+
 ## Usage
 
 To use Vector IDB, you need to import the `VectorDB` class from the `idb-vector` package.

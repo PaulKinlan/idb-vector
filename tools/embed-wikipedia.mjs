@@ -20,6 +20,7 @@ if (!corpus) {
     // Whole-article extracts are limited to one/page even when exlimit requests more.
     // Follow MediaWiki continuation; silently dropping it would discard nine of ten articles.
     let continuation;
+    const revisions = new Map(); // prop=info may appear only on the first continuation page.
     do {
     if (continuation) for (const [key, value] of Object.entries(continuation)) url.searchParams.set(key, value);
     const response = await fetch(url, { headers: { 'User-Agent': 'idb-vector-research/1.0 (https://github.com/PaulKinlan/idb-vector)' }, signal: AbortSignal.timeout(60000) });
@@ -27,7 +28,10 @@ if (!corpus) {
     const body = await response.json();
     if (body.error) throw new Error(`Wikipedia refused: ${body.error.code}; no paid request sent`);
     for (const page of Object.values(body.query.pages)) {
+      if (page.lastrevid) revisions.set(page.pageid, page.lastrevid);
       if (!page.extract) continue;
+      const revision = revisions.get(page.pageid);
+      if (!revision) throw new Error(`Missing revision attribution for page ${page.pageid}; no paid request sent`);
       const chunks = [];
       for (const paragraph of page.extract.split(/\n+/).map(p => p.trim()).filter(p => p.length >= 200)) {
         // Nonoverlapping bounded spans, no synthetic padding or duplicate vectors to hit a size.
@@ -36,7 +40,7 @@ if (!corpus) {
           if (text.length >= 200) chunks.push(text);
         }
       }
-      articles.push({ title: page.title, pageid: page.pageid, revision: page.lastrevid,
+      articles.push({ title: page.title, pageid: page.pageid, revision,
         url: `https://en.wikipedia.org/?curid=${page.pageid}`, chunks });
     }
     continuation = body.continue;

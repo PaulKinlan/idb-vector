@@ -1,0 +1,82 @@
+[
+  {
+    "file": "data/passages-2000.json",
+    "bytes": 1187714,
+    "sha256": "62549c6b8a589ace6a13d16d4c5d95d1a0fbde47338c50f8bf0d6264907f54b6"
+  },
+  {
+    "file": "data/passages-250.json",
+    "bytes": 155594,
+    "sha256": "f40572e48c5636e928012f08c1e416c28e67a2c0fe1a0abf61c58af8fe4fcd26"
+  },
+  {
+    "file": "data/source.json",
+    "bytes": 1154,
+    "sha256": "40307f1d9e62ef2576bee6b7d02745854ef72bf6dfefa719134f2373de4c9e10"
+  },
+  {
+    "file": "data/vectors-2000.f32",
+    "bytes": 3072000,
+    "sha256": "d7ae23c9d4028d66aca7e070a5cb427562225af300076385c16eda76548f90e3"
+  },
+  {
+    "file": "data/vectors-250.f32",
+    "bytes": 384000,
+    "sha256": "141a1553ef0d786f4d0980431f205f84d0b1f52cbad1723e65b6ea3d30f1e5fa"
+  },
+  {
+    "file": "vendor/ONNXRUNTIME-LICENSE",
+    "bytes": 1073,
+    "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+  },
+  {
+    "file": "vendor/ONNXRUNTIME-NOTICES",
+    "bytes": 299762,
+    "sha256": "cc63920441c5681cfb1663caf1de1858349b517fc1bed9ca669a85bc526cd13e"
+  },
+  {
+    "file": "vendor/TRANSFORMERS-LICENSE",
+    "bytes": 11358,
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  {
+    "file": "vendor/ort-wasm-simd.wasm",
+    "bytes": 10014674,
+    "sha256": "9bd07bababc65f53d061f457233eeae501be7ceb8a2adb9eef52d87fe776d865"
+  },
+  {
+    "file": "vendor/transformers.min.js",
+    "bytes": 897938,
+    "sha256": "bcf7cf304e51f470ed59409622b9d6ffbad80dfcf5baf6a40c919e4b9c4ff812"
+  },
+  {
+    "file": "models/all-MiniLM-L6-v2/LICENSE",
+    "bytes": 11357,
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "file": "models/all-MiniLM-L6-v2/README.md",
+    "bytes": 1767,
+    "sha256": "63ea99bf681a2e9eda4f6a537d5ed8fda95d1677111656da37e9cfd080c3af02"
+  },
+  {
+    "file": "models/all-MiniLM-L6-v2/config.json",
+    "bytes": 650,
+    "sha256": "7135149f7cffa1a573466c6e4d8423ed73b62fd2332c575bf738a0d033f70df7"
+  },
+  {
+    "file": "models/all-MiniLM-L6-v2/tokenizer.json",
+    "bytes": 711661,
+    "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0"
+  },
+  {
+    "file": "models/all-MiniLM-L6-v2/tokenizer_config.json",
+    "bytes": 366,
+    "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3"
+  },
+  {
+    "file": "models/all-MiniLM-L6-v2/onnx/model_quantized.onnx",
+    "bytes": 22972370,
+    "sha256": "afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1"
+  }
+]
