@@ -1,1 +1,2 @@
 {"id":"int-ca10141c74fa39e94d1a8fec8467b242","kind":"field_change","created_at":"2026-09-21T08:16:25.347534631Z","actor":"Paul Kinlan","issue_id":"idb-vector-u4o","extra":{"field":"status","new_value":"in_progress","old_value":"open"}}
+{"id":"int-e7bb196e5581a6cb7eed732e50e7e0bd","kind":"field_change","created_at":"2026-09-21T08:27:01.112335118Z","actor":"Paul Kinlan","issue_id":"idb-vector-u4o","extra":{"field":"assignee","new_value":"","old_value":"astra-idb-vector"}}
