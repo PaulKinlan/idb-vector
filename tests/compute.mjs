@@ -69,9 +69,17 @@ try {
   assert.equal(checks.mutant.orderedTopKMatch, false);
   assert.equal(checks.match.orderedTopKMatch, true);
   assert.deepEqual(checks.ties, [0,1,2,3,4,5,6,7,8,9]);
+  assert.deepEqual(checks.nearTies.reference.map(x => x.id), [11,10,9,8,7,6,5,4,3,2]);
+  // Below 1, adjacent Float32 values are 2^-24 apart (above 1: 2^-23).
+  checks.nearTies.float32SpacingBelowOne = 2 ** -24;
   for (const path of ['wasm', 'gpu']) if (!checks.nearTies[path].unavailable) {
-    assert.equal(checks.nearTies[path].comparison.orderedTopKMatch, false);
-    assert.equal(checks.nearTies[path].comparison.overlap, 0.8);
+    const result = checks.nearTies[path];
+    assert.deepEqual(result.top.map(x => x.id), [0,1,2,3,4,5,6,7,8,9]);
+    assert.ok(result.top.every(x => x.score === 1));
+    assert.equal(result.comparison.orderedTopKMatch, false);
+    assert.equal(result.comparison.overlap, 0.8);
+    assert.ok(result.comparison.maxAbsoluteScoreError > 0);
+    assert.ok(result.comparison.maxAbsoluteScoreError < checks.nearTies.float32SpacingBelowOne);
   }
   await writeFile(`${output}/checks.json`, JSON.stringify(checks, null, 2));
   console.log(JSON.stringify({ output, gpu: report.engines.gpu, storage: report.storage, queries: report.queries.map(q => Object.fromEntries(Object.entries(q.results).map(([k,v]) => [k, v.ms]))) }, null, 2));

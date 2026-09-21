@@ -6,8 +6,9 @@ Demo-only experiment; `index.js`, public API and Wikipedia demo unchanged.
 Measured source **e40cede406fbe27a7a7cb29687c4d54e407d5010**, tracked diff empty.
 Raw inputs/conditions/results: [Vulkan run](vulkan/measurement.json),
 [default run](default/measurement.json). Screenshots captured, not visually reviewed.
-Local real-browser button drive passed; **Pages publication/live drive awaits review
-and main landing**. Expected path after landing: `/idb-vector/demo/compute/`.
+Local real-browser button drive passed; **Pages publication and the live drive
+subsequently completed**, recorded in [Live GitHub Pages acceptance](#live-github-pages-acceptance).
+Published path: `/idb-vector/demo/compute/`.
 
 ## Conditions applying to every number below
 
@@ -40,8 +41,12 @@ the library uses its own current top-k path. This is not a GPU-kernel-only bench
 overlap 1.0. Scores were NOT bit-identical: max absolute error over 300,000 scored
 pairs was **7.88324e-8 (WASM)** and **8.87295e-8 (GPU)** vs double-accumulator JS.
 Library shared-top-k score error ≤2.22045e-16; library does not expose all scores.
-The fixed synthetic sample has no observed boundary reorder. Near ties on other
-corpora remain a real precision risk, not a promise of universal equality.
+The fixed synthetic sample has no observed boundary reorder. This agreement is
+limited to those tested queries, not guaranteed in general: the [near-tie fixture](#additional-precision-falsification-same-runtime-after-review-candidate)
+from commit `fba3546` changes both ordering and the returned set under Float32
+rounding, despite score errors smaller than the Float32 spacing below 1.
+The absolute-error figures above alone do **not** establish a universal “<1 ULP”
+bound: Float32 spacing depends on score magnitude.
 
 Default headless Chrome, with no GPU-enabling flags, returned
 **`requestAdapter returned null`**. Same-source fallback run: current library
@@ -108,7 +113,11 @@ Twelve128D rows are `[1, (12-id)*1e-6, 0, …]`; query is `[1,0,…]`.
 Double-accumulator CPU returns IDs11→2; **both SIMD and GPU return IDs0→9** because
 all their Float32 scores round to1 and ties sort by ID. Ordered agreement is false,
 top-10 overlap **0.8**, and maximum absolute score difference is only
-**7.199996e-11**. Small score error does not imply identical neighbours.
+**7.199996e-11**. The Float32 spacing immediately below 1 is **2^-24 ≈5.960464e-8**
+(the spacing above 1 is 2^-23), so this fixture's error is less than one ULP even
+using the smaller spacing. IDs10/11 leave the returned set and IDs0/1 enter;
+this is **both reordered neighbours and different membership**, not just a tie-order
+change within the same set. Small score error does not imply identical neighbours.
 
 Preserved [runnable-check output](near-ties.json); the added fixture lives in
 `tests/compute.mjs`. Runtime is unchanged from e40cede. Test run uses the same
