@@ -53,6 +53,20 @@ try {
   assert.match(retained.timing, /250 passages/);
   report.failedOfflineReplacementRetainedData = true;
   await page.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  // Throw after clear + some writes are queued: synchronous errors must abort too.
+  await page.evaluate(() => {
+    window.originalAdd = IDBObjectStore.prototype.add;
+    let writes = 0;
+    IDBObjectStore.prototype.add = function (...args) {
+      if (this.name === 'vectors' && ++writes === 51) throw new DOMException('Injected write failure', 'DataCloneError');
+      return window.originalAdd.apply(this, args);
+    };
+  });
+  await page.click('#load');
+  await page.waitFor(() => document.querySelector('#status').textContent.includes('Injected write failure'));
+  await page.evaluate(() => { IDBObjectStore.prototype.add = window.originalAdd; });
+  assert.deepEqual((await query('How do plants turn sunlight into food?')).results, first.results, 'Synchronous write failure rolls back clear and partial writes');
+  report.synchronousWriteFailureRolledBack = true;
   await page.click('#load');
   await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready: 2,000'), { timeout: 180000 });
   report.measurements.push({ count: 2000, load: await text('load-timing'), online: await query('How do plants turn sunlight into food?') });

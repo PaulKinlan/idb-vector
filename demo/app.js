@@ -41,6 +41,7 @@ function loadTiming(meta) {
   $('load-timing').textContent = `Load ${meta.totalMs.toFixed(0)} ms total · download/model setup ${meta.setupMs.toFixed(0)} ms · database commit ${meta.writeMs.toFixed(0)} ms. ${meta.count} passages × 384 dimensions. ${meta.browser}`;
 }
 if (db) {
+  vectorDB = new VectorDB({ dbName, vectorPath: 'embedding' });
   try {
     const meta = await readMeta();
     if (meta) {
@@ -88,18 +89,24 @@ $('load').addEventListener('click', async () => {
       // One atomic replacement. A failed/aborted load preserves the previous corpus.
       const tx = db.transaction(['vectors', 'meta'], 'readwrite'), done = transactionDone(tx);
       const store = tx.objectStore('vectors');
-      store.clear();
-      $('progress').max = selected;
-      $('progress').value = 0;
-      for (let i = 0; i < selected; i++) {
-        const request = store.add({ ...passages[i], embedding: Array.from(vectors.subarray(i * 384, (i + 1) * 384)) });
-        if ((i + 1) % 50 === 0 || i + 1 === selected) request.onsuccess = () => {
-          $('progress').value = i + 1;
-          $('status').textContent = `Writing ${i + 1} / ${selected} vectors to IndexedDB; waiting for commit…`;
-        };
+      try {
+        store.clear();
+        $('progress').max = selected;
+        $('progress').value = 0;
+        for (let i = 0; i < selected; i++) {
+          const request = store.add({ ...passages[i], embedding: Array.from(vectors.subarray(i * 384, (i + 1) * 384)) });
+          if ((i + 1) % 50 === 0 || i + 1 === selected) request.onsuccess = () => {
+            $('progress').value = i + 1;
+            $('status').textContent = `Writing ${i + 1} / ${selected} vectors to IndexedDB; waiting for commit…`;
+          };
+        }
+        // Persist identity in the same transaction; timing is recorded after commit separately.
+        tx.objectStore('meta').put({ count: selected, totalMs: 0, setupMs, writeMs: 0, browser: navigator.userAgent }, 'loaded');
+      } catch (error) {
+        tx.abort();
+        await done.catch(() => {});
+        throw error;
       }
-      // Persist identity in the same transaction; timing is recorded after commit separately.
-      tx.objectStore('meta').put({ count: selected, totalMs: 0, setupMs, writeMs: 0, browser: navigator.userAgent }, 'loaded');
       await done;
       count = selected;
       const meta = { count, totalMs: performance.now() - started, setupMs, writeMs: performance.now() - writing, browser: navigator.userAgent };
@@ -109,12 +116,11 @@ $('load').addEventListener('click', async () => {
       loadTiming(meta);
       $('status').textContent = `Ready: ${count.toLocaleString()} passages committed. This open page can now search offline.`;
     }
-    vectorDB ||= new VectorDB({ dbName, vectorPath: 'embedding' });
     $('progress').max = count;
     $('progress').value = count;
     $('storage').textContent = `${count.toLocaleString()} passages and vectors now live in IndexedDB on this device. Try a new question with the network turned off.`;
   } catch (error) {
-    $('status').textContent = `Load failed: ${error.message}. Reconnect and retry; previously committed data is retained.`;
+    $('status').textContent = `Load failed: ${error.message}. Reconnect and retry; committed data remains available.`;
   } finally { controls(false); }
 });
 $('search').addEventListener('submit', async event => {
