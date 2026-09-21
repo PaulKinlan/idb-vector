@@ -54,3 +54,20 @@ This does not change the library runtime or evaluate the packed-read/ANN hypothe
 in `idb-vector-wfp`. It is a working small-corpus demo, not proof of million-vector
 capacity or semantic recall. The earlier 1.18M benchmark timeout remains an
 unresolved failure, not a demonstrated browser limit.
+
+## Storage follow-up (`a883317`)
+
+`wikipedia-demo-storage-check.txt` records the full passing drive with an injected
+synchronous `DataCloneError` at vector write 51, after clear and partial writes
+were queued. The test restores the real method, types/submits the original query
+again and compares its separately returned titles/scores with the pre-failure
+baseline. The existing corpus remains queryable, not merely present in metadata.
+The negative control removes `tx.abort()` in a separate copied tree and the same
+check fails on the changed result set: `wikipedia-demo-storage-mutant.txt`, exit 1.
+The earlier sign-negation control is retained in `wikipedia-demo-ranking-mutant.txt`.
+
+The inherited `2743029` real-vector harness also passed a bounded **10,000-row,
+25-dimensional GloVe** run, library + IVF (40 held-out queries per setting).
+Exact search and full-probe IVF both had recall 1; narrow probes trade recall for
+latency. `wikipedia-demo-real-vector-check.{txt,json}` preserves this separate run.
+It is not a Wikipedia-demo benchmark, million-row acceptance or a capacity limit.

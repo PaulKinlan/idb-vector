@@ -1,0 +1,133 @@
+{
+  "url": "http://127.0.0.1:46457/idb-vector/demo/index.html",
+  "at": "2026-09-21T11:18:55.606Z",
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/152.0.7977.82",
+    "revision": "@d04cdb24d67b081f6cf80200ffc5233f44b61109",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "jsVersion": "15.2.124.21"
+  },
+  "model": "Xenova/all-MiniLM-L6-v2 quantized, 384 dimensions",
+  "measurements": [
+    {
+      "count": 250,
+      "load": "Load 355 ms total · download/model setup 341 ms · database commit 15 ms. 250 passages × 384 dimensions. Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "online": {
+        "query": "How do plants turn sunlight into food?",
+        "timing": "Question encoding 18.3 ms · IndexedDB search 12.5 ms · total 30.8 ms. 250 passages × 384 dimensions · quantized MiniLM · Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+        "results": [
+          {
+            "title": "Photosynthesis",
+            "score": "Cosine similarity 0.6115 · cosine distance (1 − similarity) 0.3885"
+          },
+          {
+            "title": "Plant",
+            "score": "Cosine similarity 0.5678 · cosine distance (1 − similarity) 0.4322"
+          },
+          {
+            "title": "Fungus",
+            "score": "Cosine similarity 0.4352 · cosine distance (1 − similarity) 0.5648"
+          },
+          {
+            "title": "Solar System",
+            "score": "Cosine similarity 0.4198 · cosine distance (1 − similarity) 0.5802"
+          },
+          {
+            "title": "Solar power",
+            "score": "Cosine similarity 0.3920 · cosine distance (1 − similarity) 0.6080"
+          }
+        ]
+      },
+      "offline": {
+        "query": "How do plants turn sunlight into food?",
+        "timing": "Question encoding 6.8 ms · IndexedDB search 10.0 ms · total 16.8 ms. 250 passages × 384 dimensions · quantized MiniLM · Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+        "results": [
+          {
+            "title": "Photosynthesis",
+            "score": "Cosine similarity 0.6115 · cosine distance (1 − similarity) 0.3885"
+          },
+          {
+            "title": "Plant",
+            "score": "Cosine similarity 0.5678 · cosine distance (1 − similarity) 0.4322"
+          },
+          {
+            "title": "Fungus",
+            "score": "Cosine similarity 0.4352 · cosine distance (1 − similarity) 0.5648"
+          },
+          {
+            "title": "Solar System",
+            "score": "Cosine similarity 0.4198 · cosine distance (1 − similarity) 0.5802"
+          },
+          {
+            "title": "Solar power",
+            "score": "Cosine similarity 0.3920 · cosine distance (1 − similarity) 0.6080"
+          }
+        ]
+      },
+      "newOffline": {
+        "query": "What makes the ground shake during an earthquake?",
+        "timing": "Question encoding 6.6 ms · IndexedDB search 17.1 ms · total 23.7 ms. 250 passages × 384 dimensions · quantized MiniLM · Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+        "results": [
+          {
+            "title": "Earthquake",
+            "score": "Cosine similarity 0.6702 · cosine distance (1 − similarity) 0.3298"
+          },
+          {
+            "title": "Earthquake",
+            "score": "Cosine similarity 0.5860 · cosine distance (1 − similarity) 0.4140"
+          },
+          {
+            "title": "Earth",
+            "score": "Cosine similarity 0.4339 · cosine distance (1 − similarity) 0.5661"
+          },
+          {
+            "title": "Plate tectonics",
+            "score": "Cosine similarity 0.2995 · cosine distance (1 − similarity) 0.7005"
+          },
+          {
+            "title": "Geology",
+            "score": "Cosine similarity 0.2792 · cosine distance (1 − similarity) 0.7208"
+          }
+        ]
+      }
+    },
+    {
+      "count": 2000,
+      "load": "Load 133 ms total · download/model setup 21 ms · database commit 112 ms. 2000 passages × 384 dimensions. Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "online": {
+        "query": "How do plants turn sunlight into food?",
+        "timing": "Question encoding 5.9 ms · IndexedDB search 61.3 ms · total 67.2 ms. 2,000 passages × 384 dimensions · quantized MiniLM · Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+        "results": [
+          {
+            "title": "Food",
+            "score": "Cosine similarity 0.6186 · cosine distance (1 − similarity) 0.3814"
+          },
+          {
+            "title": "Photosynthesis",
+            "score": "Cosine similarity 0.6115 · cosine distance (1 − similarity) 0.3885"
+          },
+          {
+            "title": "Photosynthesis",
+            "score": "Cosine similarity 0.5925 · cosine distance (1 − similarity) 0.4075"
+          },
+          {
+            "title": "Photosynthesis",
+            "score": "Cosine similarity 0.5861 · cosine distance (1 − similarity) 0.4139"
+          },
+          {
+            "title": "Nutrition",
+            "score": "Cosine similarity 0.5726 · cosine distance (1 − similarity) 0.4274"
+          }
+        ]
+      }
+    }
+  ],
+  "failedOfflineReplacementRetainedData": true,
+  "synchronousWriteFailureRolledBack": true,
+  "restore": "Restore 215 ms (model setup + stored metadata). Original load: 133 ms; database commit 112 ms. 2,000 passages × 384 dimensions · quantized MiniLM · Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "origins": [
+    "http://127.0.0.1:46457"
+  ],
+  "passed": true
+}

@@ -1,0 +1,152 @@
+{
+  url: 'http://127.0.0.1:37241/idb-vector/demo/index.html',
+  at: '2026-09-21T11:19:27.262Z',
+  browser: {
+    protocolVersion: '1.3',
+    product: 'Chrome/152.0.7977.82',
+    revision: '@d04cdb24d67b081f6cf80200ffc5233f44b61109',
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36',
+    jsVersion: '15.2.124.21'
+  },
+  model: 'Xenova/all-MiniLM-L6-v2 quantized, 384 dimensions',
+  measurements: [
+    {
+      count: 250,
+      load: 'Load 374 ms total · download/model setup 359 ms · database commit 15 ms. 250 passages × 384 dimensions. Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36',
+      online: [Object],
+      offline: [Object],
+      newOffline: [Object]
+    }
+  ],
+  failedOfflineReplacementRetainedData: true,
+  error: 'AssertionError [ERR_ASSERTION]: Synchronous write failure rolls back clear and partial writes\n' +
+    '+ actual - expected\n' +
+    '\n' +
+    '  [\n' +
+    '    {\n' +
+    "+     score: 'Cosine similarity 0.3133 · cosine distance (1 − similarity) 0.6867',\n" +
+    "+     title: 'Agriculture'\n" +
+    "-     score: 'Cosine similarity 0.6115 · cosine distance (1 − similarity) 0.3885',\n" +
+    "-     title: 'Photosynthesis'\n" +
+    '    },\n' +
+    '    {\n' +
+    "+     score: 'Cosine similarity 0.2329 · cosine distance (1 − similarity) 0.7671',\n" +
+    "+     title: 'Ecology'\n" +
+    "-     score: 'Cosine similarity 0.5678 · cosine distance (1 − similarity) 0.4322',\n" +
+    "-     title: 'Plant'\n" +
+    '    },\n' +
+    '    {\n' +
+    "+     score: 'Cosine similarity 0.2019 · cosine distance (1 − similarity) 0.7981',\n" +
+    "+     title: 'Photography'\n" +
+    "-     score: 'Cosine similarity 0.4352 · cosine distance (1 − similarity) 0.5648',\n" +
+    "-     title: 'Fungus'\n" +
+    '    },\n' +
+    '    {\n' +
+    "+     score: 'Cosine similarity 0.1594 · cosine distance (1 − similarity) 0.8406',\n" +
+    "+     title: 'Biology'\n" +
+    "-     score: 'Cosine similarity 0.4198 · cosine distance (1 − similarity) 0.5802',\n" +
+    "-     title: 'Solar System'\n" +
+    '    },\n' +
+    '    {\n' +
+    "+     score: 'Cosine similarity 0.1282 · cosine distance (1 − similarity) 0.8718',\n" +
+    "+     title: 'Astronomy'\n" +
+    "-     score: 'Cosine similarity 0.3920 · cosine distance (1 − similarity) 0.6080',\n" +
+    "-     title: 'Solar power'\n" +
+    '    }\n' +
+    '  ]\n' +
+    '\n' +
+    '    at file:///tmp/idb-wiki-abort-mutant-vMwucI/tests/wikipedia-demo.mjs:68:10',
+  status: 'Load failed: Injected write failure. Reconnect and retry; committed data remains available.'
+}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Synchronous write failure rolls back clear and partial writes
++ actual - expected
+
+  [
+    {
++     score: 'Cosine similarity 0.3133 · cosine distance (1 − similarity) 0.6867',
++     title: 'Agriculture'
+-     score: 'Cosine similarity 0.6115 · cosine distance (1 − similarity) 0.3885',
+-     title: 'Photosynthesis'
+    },
+    {
++     score: 'Cosine similarity 0.2329 · cosine distance (1 − similarity) 0.7671',
++     title: 'Ecology'
+-     score: 'Cosine similarity 0.5678 · cosine distance (1 − similarity) 0.4322',
+-     title: 'Plant'
+    },
+    {
++     score: 'Cosine similarity 0.2019 · cosine distance (1 − similarity) 0.7981',
++     title: 'Photography'
+-     score: 'Cosine similarity 0.4352 · cosine distance (1 − similarity) 0.5648',
+-     title: 'Fungus'
+    },
+    {
++     score: 'Cosine similarity 0.1594 · cosine distance (1 − similarity) 0.8406',
++     title: 'Biology'
+-     score: 'Cosine similarity 0.4198 · cosine distance (1 − similarity) 0.5802',
+-     title: 'Solar System'
+    },
+    {
++     score: 'Cosine similarity 0.1282 · cosine distance (1 − similarity) 0.8718',
++     title: 'Astronomy'
+-     score: 'Cosine similarity 0.3920 · cosine distance (1 − similarity) 0.6080',
+-     title: 'Solar power'
+    }
+  ]
+
+    at file:///tmp/idb-wiki-abort-mutant-vMwucI/tests/wikipedia-demo.mjs:68:10 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: [
+    {
+      title: 'Agriculture',
+      score: 'Cosine similarity 0.3133 · cosine distance (1 − similarity) 0.6867'
+    },
+    {
+      title: 'Ecology',
+      score: 'Cosine similarity 0.2329 · cosine distance (1 − similarity) 0.7671'
+    },
+    {
+      title: 'Photography',
+      score: 'Cosine similarity 0.2019 · cosine distance (1 − similarity) 0.7981'
+    },
+    {
+      title: 'Biology',
+      score: 'Cosine similarity 0.1594 · cosine distance (1 − similarity) 0.8406'
+    },
+    {
+      title: 'Astronomy',
+      score: 'Cosine similarity 0.1282 · cosine distance (1 − similarity) 0.8718'
+    }
+  ],
+  expected: [
+    {
+      title: 'Photosynthesis',
+      score: 'Cosine similarity 0.6115 · cosine distance (1 − similarity) 0.3885'
+    },
+    {
+      title: 'Plant',
+      score: 'Cosine similarity 0.5678 · cosine distance (1 − similarity) 0.4322'
+    },
+    {
+      title: 'Fungus',
+      score: 'Cosine similarity 0.4352 · cosine distance (1 − similarity) 0.5648'
+    },
+    {
+      title: 'Solar System',
+      score: 'Cosine similarity 0.4198 · cosine distance (1 − similarity) 0.5802'
+    },
+    {
+      title: 'Solar power',
+      score: 'Cosine similarity 0.3920 · cosine distance (1 − similarity) 0.6080'
+    }
+  ],
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.21.0

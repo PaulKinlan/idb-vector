@@ -1,0 +1,31 @@
+{
+  url: 'http://127.0.0.1:33653/idb-vector/demo/index.html',
+  at: '2026-09-21T11:14:44.868Z',
+  browser: {
+    protocolVersion: '1.3',
+    product: 'Chrome/152.0.7977.82',
+    revision: '@d04cdb24d67b081f6cf80200ffc5233f44b61109',
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36',
+    jsVersion: '15.2.124.21'
+  },
+  model: 'Xenova/all-MiniLM-L6-v2 quantized, 384 dimensions',
+  measurements: [],
+  error: 'AssertionError [ERR_ASSERTION]: Meaningful unseen free-text query finds photosynthesis\n' +
+    '    at file:///tmp/idb-wiki-mutant-L1pdBI/tests/wikipedia-demo.mjs:29:10',
+  status: 'Ready: 250 passages committed. This open page can now search offline.'
+}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Meaningful unseen free-text query finds photosynthesis
+    at file:///tmp/idb-wiki-mutant-L1pdBI/tests/wikipedia-demo.mjs:29:10 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v24.21.0
