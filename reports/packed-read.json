@@ -1,0 +1,119 @@
+{
+  "sourceCommit": "5f77c819e36153e5ad31e0498eda4cc262da37ae",
+  "sourceDiff": "",
+  "observedAt": "2026-09-21T21:45:39.436Z",
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/152.0.7977.82",
+    "revision": "@d04cdb24d67b081f6cf80200ffc5233f44b61109",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "jsVersion": "15.2.124.21"
+  },
+  "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+  "load": [
+    5.74,
+    3.27,
+    2.13
+  ],
+  "condition": "Fresh headless Chromium profile; warm IDB after committed writes; seeded synthetic 100k x128, three order-rotated runs; 1000-row getAll pages; 256 serial random gets each using a fresh readonly transaction; arithmetic is cosine only (not top-k); not cold-disk or an isolated host. Float32 rounds original JS numbers; Float64 preserves them.",
+  "count": 100000,
+  "dimensions": 128,
+  "runs": [
+    {
+      "packed32": {
+        "ms": 36.5,
+        "bytes": 51200000,
+        "first": -0.5270889401435852,
+        "last": 0.34062492847442627
+      },
+      "packed64": {
+        "ms": 97.90000000596046,
+        "bytes": 102400000,
+        "first": -0.527088949456811,
+        "last": 0.34062494337558746
+      },
+      "records": {
+        "ms": 742.9000000059605,
+        "value": 444.6210911795497
+      },
+      "arithmetic": {
+        "ms": 8.900000005960464,
+        "value": -5.566909871811391
+      },
+      "random": {
+        "ms": 14.699999988079071,
+        "value": {
+          "p50Ms": 0.09999999403953552,
+          "p95Ms": 0.10000002384185791,
+          "totalMs": 13.900000035762787,
+          "reads": 256,
+          "checksum": 7.814387619495392
+        }
+      }
+    },
+    {
+      "packed64": {
+        "ms": 93.59999999403954,
+        "bytes": 102400000,
+        "first": -0.527088949456811,
+        "last": 0.34062494337558746
+      },
+      "records": {
+        "ms": 748.4000000059605,
+        "value": 444.6210911795497
+      },
+      "arithmetic": {
+        "ms": 7.4000000059604645,
+        "value": -5.566909871811391
+      },
+      "random": {
+        "ms": 10.200000017881393,
+        "value": {
+          "p50Ms": 0,
+          "p95Ms": 0.10000002384185791,
+          "totalMs": 9.800000011920929,
+          "reads": 256,
+          "checksum": 7.814387619495392
+        }
+      },
+      "packed32": {
+        "ms": 31.399999976158142,
+        "bytes": 51200000,
+        "first": -0.5270889401435852,
+        "last": 0.34062492847442627
+      }
+    },
+    {
+      "records": {
+        "ms": 730.1999999880791,
+        "value": 444.6210911795497
+      },
+      "arithmetic": {
+        "ms": 8.599999994039536,
+        "value": -5.566909871811391
+      },
+      "random": {
+        "ms": 9.700000017881393,
+        "value": {
+          "p50Ms": 0,
+          "p95Ms": 0.10000002384185791,
+          "totalMs": 9.500000029802322,
+          "reads": 256,
+          "checksum": 7.814387619495392
+        }
+      },
+      "packed32": {
+        "ms": 31.299999982118607,
+        "bytes": 51200000,
+        "first": -0.5270889401435852,
+        "last": 0.34062492847442627
+      },
+      "packed64": {
+        "ms": 92.19999998807907,
+        "bytes": 102400000,
+        "first": -0.527088949456811,
+        "last": 0.34062494337558746
+      }
+    }
+  ]
+}
