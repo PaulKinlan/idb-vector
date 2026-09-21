@@ -100,3 +100,20 @@ negated-score mutant rejected by the comparison instrument. `npm test` passed on
 968b3fc (before the later error-scope label/OPFS-failure tightening); no library edit.
 Rebuild using `sh tools/build-cosine-wasm.sh` (clang22, SIMD128 intrinsics, no libc).
 Screenshots are evidence captures, not a visual approval.
+
+## Additional precision falsification (same runtime, after review candidate)
+
+A deliberate near-tie corpus makes the precision caveat observable, not hypothetical.
+Twelve128D rows are `[1, (12-id)*1e-6, 0, …]`; query is `[1,0,…]`.
+Double-accumulator CPU returns IDs11→2; **both SIMD and GPU return IDs0→9** because
+all their Float32 scores round to1 and ties sort by ID. Ordered agreement is false,
+top-10 overlap **0.8**, and maximum absolute score difference is only
+**7.199996e-11**. Small score error does not imply identical neighbours.
+
+Preserved [runnable-check output](near-ties.json); the added fixture lives in
+`tests/compute.mjs`. Runtime is unchanged from e40cede. Test run uses the same
+Chrome152 / AMD RDNA2 Vulkan setup as above. This is an intentional numeric
+edge case, not a relevance benchmark or an excuse to silently claim exact answers.
+The three seeded100k queries still match; universal top-k equivalence is disproved.
+`npm test` also passed after this added check. Rebuilding cosine.wasm with clang22
+reproduces SHA256 `a0c8c33b448f77ed76498de4ce7a990a8a35505aa69703677dd19199a2eb7457`.

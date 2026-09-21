@@ -44,7 +44,7 @@ try {
   await page.screenshot(`${output}/mobile.png`);
   // A deliberate score mutation must be rejected by the exact comparison instrument.
   const checks = await page.evaluate(async () => {
-    const { corpus, cpuScores, topK, compare, wasmEngine } = await import('./engines.js');
+    const { corpus, cpuScores, topK, compare, wasmEngine, gpuEngine } = await import('./engines.js');
     const x = corpus(100, 32), q = x.slice(0, 32), scores = cpuScores(x, q), ref = topK(scores);
     const mutant = Float64Array.from(scores, s => -s);
     const w = await wasmEngine(x, 32);
@@ -53,11 +53,26 @@ try {
     const ties = new Float32Array(32 * 12); for (let i = 0; i < 12; i++) ties[i * 32] = i + 1;
     const tq = new Float32Array(32); tq[0] = 2;
     const tw = await wasmEngine(ties, 32);
-    return { mutant: compare(ref, topK(mutant), scores, mutant), match, ties: topK(tw.run(tq)).map(x => x.id) };
+    // Deliberately resolvable in double but not Float32: report the actual lost neighbours.
+    const near = new Float32Array(12 * 128), nq = new Float32Array(128); nq[0] = 1;
+    for (let id = 0; id < 12; id++) { near[id * 128] = 1; near[id * 128 + 1] = (12 - id) * 1e-6; }
+    const ns = cpuScores(near, nq), nr = topK(ns), nw = await wasmEngine(near, 128);
+    const nearTies = { reference: nr, wasm: { top: topK(nw.run(nq)), comparison: compare(nr, topK(nw.run(nq)), ns, nw.run(nq)) } };
+    let ng;
+    try {
+      ng = await gpuEngine(near, 128); const gs = await ng.run(nq);
+      nearTies.gpu = { top: topK(gs), comparison: compare(nr, topK(gs), ns, gs) };
+    } catch (error) { nearTies.gpu = { unavailable: error.message }; }
+    finally { ng?.close(); }
+    return { mutant: compare(ref, topK(mutant), scores, mutant), match, ties: topK(tw.run(tq)).map(x => x.id), nearTies };
   });
   assert.equal(checks.mutant.orderedTopKMatch, false);
   assert.equal(checks.match.orderedTopKMatch, true);
   assert.deepEqual(checks.ties, [0,1,2,3,4,5,6,7,8,9]);
+  for (const path of ['wasm', 'gpu']) if (!checks.nearTies[path].unavailable) {
+    assert.equal(checks.nearTies[path].comparison.orderedTopKMatch, false);
+    assert.equal(checks.nearTies[path].comparison.overlap, 0.8);
+  }
   await writeFile(`${output}/checks.json`, JSON.stringify(checks, null, 2));
   console.log(JSON.stringify({ output, gpu: report.engines.gpu, storage: report.storage, queries: report.queries.map(q => Object.fromEntries(Object.entries(q.results).map(([k,v]) => [k, v.ms]))) }, null, 2));
 } finally { await page.close(); if (local) await new Promise(resolve => local.server.close(resolve)); }
