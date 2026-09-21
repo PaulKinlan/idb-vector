@@ -24,7 +24,7 @@ const BROWSERS = [
   "/usr/bin/google-chrome",
 ].filter(Boolean);
 
-export async function launch({ width = 1000, height = 800, profile = null, fakeMedia = false } = {}) {
+export async function launch({ width = 1000, height = 800, profile = null, fakeMedia = false, browserArgs = ["--disable-gpu"] } = {}) {
   const binary = BROWSERS.find((b) => existsSync(b));
   if (!binary) throw new Error("no Chromium/Chrome binary found; set IDB_VECTOR_CHROME");
 
@@ -37,7 +37,7 @@ export async function launch({ width = 1000, height = 800, profile = null, fakeM
     [
       "--headless=new",
       ...(fakeMedia ? ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] : []),
-      "--disable-gpu",
+      ...browserArgs,
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-dev-shm-usage",
