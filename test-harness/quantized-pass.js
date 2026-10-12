@@ -297,11 +297,14 @@ export function candidateCeiling(candidateIds, oracleTop, k = 10) {
 }
 
 // ---- Full scans over compact codes producing one ordered candidate list per query ----
-export function sq8Scan(vectors, count, dims, sq8, norms, query, keep) {
+// Predicate-before-candidate: `mask` is applied per row id BEFORE scoring, so the pass only
+// scores eligible rows. Passing no mask ranks the whole corpus (predicate-after semantics).
+export function sq8Scan(vectors, count, dims, sq8, norms, query, keep, mask = null) {
   const { w, offset } = sq8QueryWeights(query, sq8);
   const { codes } = sq8;
   const top = [];
   for (let i = 0; i < count; i++) {
+    if (mask && !mask[i]) continue;
     let dot = offset;
     const base = i * dims;
     for (let d = 0; d < dims; d++) dot += w[d] * codes[base + d];
@@ -318,12 +321,13 @@ export function sq8Scan(vectors, count, dims, sq8, norms, query, keep) {
   return top;
 }
 
-export function signScan(sign, count, dims, query, keep) {
+export function signScan(sign, count, dims, query, keep, mask = null) {
   const { codes, stride } = sign;
   const packed = new Uint8Array(stride);
   for (let d = 0; d < dims; d++) if (query[d] > 0) packed[d >> 3] |= 1 << (d & 7);
   const top = [];
   for (let i = 0; i < count; i++) {
+    if (mask && !mask[i]) continue;
     const score = signCosineEstimateAt(codes, i * stride, packed, stride, dims);
     if (top.length < keep) {
       top.push({ index: i, score });
@@ -403,47 +407,50 @@ export function runExperiment({ name, kind, vectors, count, dims, queries, bucke
 
   // Oracles first (untimed): exact top-10 over the same set candidates are drawn from.
   const oracle = queries.map(query => exactTopK(vectors, count, dims, query, 10, mask));
-  results.oracle = { recall: 1 };
+  results.oracle = { recall: 1, oracleRows: predicate ? eligibleCount : count };
 
   const methodNames = ['exact', 'sq8', 'sign', 'bucket'];
+  // Filtered corpora also measure the naive ordering: choose candidates over the WHOLE corpus,
+  // then drop ineligible ids. Comparing that with the masked passes is the semantics result.
+  if (predicate) methodNames.push('sq8-postfilter', 'sign-postfilter');
   const perMethod = Object.fromEntries(methodNames.map(name => [name, { ms: [], rerankMs: [], candidateMs: [], recall: [], candidateRecall: [] }]));
+
+  // Each candidate pass as a function of (query, useMask) -> ordered ids, so the masked and
+  // unmasked (predicate-after) semantics share one implementation.
+  const passes = {
+    sq8: (query, useMask) => sq8Scan(vectors, count, dims, sq8, norms, query, keep, useMask ? mask : null).map(row => row.index),
+    sign: (query, useMask) => signScan(sign, count, dims, query, keep, useMask ? mask : null).map(row => row.index),
+    bucket: (query, useMask) => bucketCandidates(trained, index, query, keep, useMask ? mask : null, dims),
+  };
+
   for (let rep = 0; rep < repetitions; rep++) {
     for (let offset = 0; offset < methodNames.length; offset++) {
       const method = methodNames[(offset + rep) % methodNames.length];
       for (let q = 0; q < queries.length; q++) {
         const query = queries[q];
-        let timed;
         if (method === 'exact') {
-          timed = time(() => exactTopK(vectors, count, dims, query, 10, mask));
+          const timed = time(() => exactTopK(vectors, count, dims, query, 10, mask));
           perMethod.exact.ms.push(timed.ms);
           perMethod.exact.recall.push(1);
-        } else if (method === 'sq8') {
-          const scan = time(() => sq8Scan(vectors, count, dims, sq8, norms, query, keep));
-          const candidateIds = scan.value.map(row => row.index);
-          const rerank = time(() => rerankTopK(vectors, dims, norms, candidateIds, query, 10));
-          perMethod.sq8.candidateMs.push(scan.ms); perMethod.sq8.rerankMs.push(rerank.ms); perMethod.sq8.ms.push(scan.ms + rerank.ms);
-          perMethod.sq8.recall.push(recallAtK(rerank.value, oracle[q]));
-          perMethod.sq8.candidateRecall.push(candidateCeiling(candidateIds, oracle[q]));
-        } else if (method === 'sign') {
-          const scan = time(() => signScan(sign, count, dims, query, keep));
-          const candidateIds = scan.value.map(row => row.index);
-          const rerank = time(() => rerankTopK(vectors, dims, norms, candidateIds, query, 10));
-          perMethod.sign.candidateMs.push(scan.ms); perMethod.sign.rerankMs.push(rerank.ms); perMethod.sign.ms.push(scan.ms + rerank.ms);
-          perMethod.sign.recall.push(recallAtK(rerank.value, oracle[q]));
-          perMethod.sign.candidateRecall.push(candidateCeiling(candidateIds, oracle[q]));
-        } else {
-          const select = time(() => bucketCandidates(trained, index, query, keep, mask, dims));
-          const rerank = time(() => rerankTopK(vectors, dims, norms, select.value, query, 10));
-          perMethod.bucket.candidateMs.push(select.ms); perMethod.bucket.rerankMs.push(rerank.ms); perMethod.bucket.ms.push(select.ms + rerank.ms);
-          perMethod.bucket.recall.push(recallAtK(rerank.value, oracle[q]));
-          perMethod.bucket.candidateRecall.push(candidateCeiling(select.value, oracle[q]));
+          continue;
         }
+        const postfilter = method.endsWith('-postfilter');
+        const base = postfilter ? method.slice(0, -'-postfilter'.length) : method;
+        const scan = time(() => passes[base](query, !postfilter));
+        const candidateIds = postfilter ? scan.value.filter(id => mask[id]) : scan.value;
+        const rerank = time(() => rerankTopK(vectors, dims, norms, candidateIds, query, 10));
+        const slot = perMethod[method];
+        slot.candidateMs.push(scan.ms); slot.rerankMs.push(rerank.ms); slot.ms.push(scan.ms + rerank.ms);
+        slot.recall.push(recallAtK(rerank.value, oracle[q]));
+        slot.candidateRecall.push(candidateCeiling(candidateIds, oracle[q]));
       }
     }
   }
   for (const [method, samples] of Object.entries(perMethod)) {
     results.methods[method] = {
       medianMs: median(samples.ms),
+      // First timed call of the method: cold for that method's JIT and caches, not a cold-disk claim.
+      firstCallMs: samples.ms[0],
       medianCandidateMs: samples.candidateMs.length ? median(samples.candidateMs) : null,
       medianRerankMs: samples.rerankMs.length ? median(samples.rerankMs) : null,
       meanRecallAt10: samples.recall.reduce((a, b) => a + b, 0) / samples.recall.length,
@@ -451,33 +458,57 @@ export function runExperiment({ name, kind, vectors, count, dims, queries, bucke
       perBudget: {},
     };
   }
-  // One scan produces the full ordered list; smaller budgets are prefixes.
-  const sampleQuery = queries[0];
-  const sq8List = sq8Scan(vectors, count, dims, sq8, norms, sampleQuery, keep).map(row => row.index);
-  const signList = signScan(sign, count, dims, sampleQuery, keep).map(row => row.index);
-  const bucketList = bucketCandidates(trained, index, sampleQuery, keep, mask, dims);
-  const oracle0 = oracle[0];
+  // Budget sweep: one ordered ranking per query, each budget a prefix of it, then the MEAN
+  // recall/ceiling over every query (a single sample query is not a recall measurement).
+  const budgetLists = Object.fromEntries(methodNames.filter(name => name !== 'exact').map(name => [name, []]));
+  for (let q = 0; q < queries.length; q++) {
+    for (const method of Object.keys(budgetLists)) {
+      const postfilter = method.endsWith('-postfilter');
+      const base = postfilter ? method.slice(0, -'-postfilter'.length) : method;
+      const ids = passes[base](queries[q], !postfilter);
+      budgetLists[method].push(postfilter ? ids.filter(id => mask[id]) : ids);
+    }
+  }
   for (const budget of budgets) {
-    for (const [method, list] of [['sq8', sq8List], ['sign', signList], ['bucket', bucketList]]) {
-      const subset = list.slice(0, budget);
-      const reranked = rerankTopK(vectors, dims, norms, subset, sampleQuery, 10);
+    for (const [method, perQuery] of Object.entries(budgetLists)) {
+      let recall = 0, ceiling = 0;
+      for (let q = 0; q < queries.length; q++) {
+        const subset = perQuery[q].slice(0, budget);
+        recall += recallAtK(rerankTopK(vectors, dims, norms, subset, queries[q], 10), oracle[q]);
+        ceiling += candidateCeiling(subset, oracle[q]);
+      }
       results.methods[method].perBudget[budget] = {
-        recallAt10: recallAtK(reranked, oracle0),
-        candidateCeilingAt10: candidateCeiling(subset, oracle0),
+        recallAt10: recall / queries.length,
+        candidateCeilingAt10: ceiling / queries.length,
       };
     }
   }
 
   if (measureUpdates) {
-    const gauss = gaussianMaker(99);
-    const row = Math.floor(gauss() * 0.5 + 0.5) % count;
-    const sq8Update = time(() => { for (let i = 0; i < 100; i++) encodeSq8Row(vectors, (row + i) % count, dims, sq8); });
-    const signUpdate = time(() => { for (let i = 0; i < 100; i++) encodeSignRow(vectors, (row + i) % count, dims, sign.stride); });
-    const bucketUpdate = time(() => { for (let i = 0; i < 100; i++) assignRow(vectors, (row + i) % count, dims, trained); });
+    // Random row spread, not the first rows: a cache-hot prefix would flatter the per-row cost.
+    const pick = mulberry32(99);
+    const rows = Array.from({ length: 100 }, () => Math.floor(pick() * count));
+    const sq8Update = time(() => { for (const row of rows) encodeSq8Row(vectors, row, dims, sq8); });
+    const signUpdate = time(() => { for (const row of rows) encodeSignRow(vectors, row, dims, sign.stride); });
+    const bucketUpdate = time(() => { for (const row of rows) assignRow(vectors, row, dims, trained); });
     results.updateMicrosPerRow = {
       sq8: (sq8Update.ms / 100) * 1000,
       sign: (signUpdate.ms / 100) * 1000,
       bucket: (bucketUpdate.ms / 100) * 1000,
+    };
+    // Delete: row codes are cleared in place (dims bytes) and the id must leave its bucket
+    // list. The list edit is measured on a scratch copy of a real bucket; a tombstone is
+    // O(1) instead, but then the query path must skip dead ids for the revision it pins.
+    const scratch = Int32Array.from(index.lists[index.assignments[rows[0]]]);
+    const shift = Math.floor(scratch.length / 2);
+    const sq8Clear = time(() => { for (const row of rows) sq8.codes.fill(0, row * dims, (row + 1) * dims); });
+    const signClear = time(() => { for (const row of rows) sign.codes.fill(0, row * sign.stride, (row + 1) * sign.stride); });
+    const listShift = time(() => { for (let n = 0; n < 100; n++) { scratch.copyWithin(shift, shift + 1); scratch[scratch.length - 1] = -1; } });
+    results.deleteMicrosPerRow = {
+      sq8CodeClear: (sq8Clear.ms / 100) * 1000,
+      signCodeClear: (signClear.ms / 100) * 1000,
+      bucketListShift: (listShift.ms / 100) * 1000,
+      bucketListLength: scratch.length,
     };
   }
   return results;

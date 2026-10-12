@@ -148,3 +148,80 @@ test('perturbed real queries stay near their source rows', () => {
     assert.ok(rerankTopK(vectors, 8, norms, [40 + q], queries[q], 1)[0].similarity > 0.9);
   }
 });
+
+test('masked compact scans reach only eligible rows and match the masked oracle', () => {
+  const { vectors, queries } = adversarialCorpus(600, 24, 17, 3);
+  const norms = precomputeNorms(vectors, 600, 24);
+  const sq8 = encodeSq8(vectors, 600, 24);
+  const sign = encodeSign(vectors, 600, 24);
+  const mask = eligibleMask(600, id => id % 8 === 3);
+  for (const query of queries) {
+    const oracle = exactTopK(vectors, 600, 24, query, 10, mask);
+    // 1-bit codes at 24 dimensions are expected to be lossy (that is a measured result, not a
+    // bug), so the floors differ per method; the point here is eligibility, not recall quality.
+    for (const [name, ids, floor] of [
+      ['sq8', sq8Scan(vectors, 600, 24, sq8, norms, query, 40, mask).map(row => row.index), 0.9],
+      ['sign', signScan(sign, 600, 24, query, 40, mask).map(row => row.index), 0.5],
+    ]) {
+      assert.ok(ids.every(id => mask[id]), `${name} returned an ineligible row`);
+      assert.ok(ids.length > 0);
+      assert.ok(candidateCeiling(ids, oracle) >= floor, `${name} missed eligible neighbours`);
+    }
+    // Without the mask the same pass reaches ineligible rows: this is the semantics difference.
+    assert.ok(sq8Scan(vectors, 600, 24, sq8, norms, query, 40).map(row => row.index).some(id => !mask[id]));
+  }
+});
+
+test('predicate-before-candidate keeps the eligible neighbours that predicate-after loses', () => {
+  const { vectors, queries } = uniformCorpus(2000, 32, 5, 6);
+  const result = runExperiment({
+    name: 'filtered-unit', kind: 'uniform', vectors, count: 2000, dims: 32, queries,
+    bucketK: 32, bucketIters: 2, bucketSample: 2000, budgets: [50, 200], repetitions: 1,
+    predicate: id => id % 100 === 7,
+  });
+  assert.equal(result.predicate.eligible, 20);
+  // Masked: every eligible row is available to the candidate pass, so recall can reach 1.
+  assert.equal(result.methods.sq8.meanCandidateCeiling, 1);
+  assert.ok(result.methods.sq8.meanRecallAt10 >= 0.9, `masked sq8 recall ${result.methods.sq8.meanRecallAt10}`);
+  // Unmasked: the pass ranks 2,000 rows and the 1%-selective predicate is applied afterwards,
+  // which is what a side-store without a predicate-before contract does.
+  assert.ok(result.methods['sq8-postfilter'].meanCandidateCeiling <= 0.3, 'postfilter ceiling');
+  assert.ok(result.methods['sq8-postfilter'].meanRecallAt10 <= result.methods.sq8.meanRecallAt10);
+  for (const budget of [50, 200]) {
+    for (const method of ['sq8', 'sign', 'bucket', 'sq8-postfilter', 'sign-postfilter']) {
+      const entry = result.methods[method].perBudget[budget];
+      assert.ok(entry.candidateCeilingAt10 >= entry.recallAt10 - 1e-12, `${method}@${budget}`);
+    }
+  }
+});
+
+test('a side-store that does not apply deletions for its revision loses recall', () => {
+  const { vectors, queries } = adversarialCorpus(800, 32, 29, 4);
+  const live = eligibleMask(800, id => id % 4 !== 0);
+  const norms = precomputeNorms(vectors, 800, 32);
+  const sq8 = encodeSq8(vectors, 800, 32);
+  let stale = 0, current = 0;
+  for (const [q, query] of queries.entries()) {
+    const oracle = exactTopK(vectors, 800, 32, query, 10, live);
+    const staleIds = sq8Scan(vectors, 800, 32, sq8, norms, query, 200, null).map(row => row.index);
+    const liveIds = sq8Scan(vectors, 800, 32, sq8, norms, query, 200, live).map(row => row.index);
+    assert.ok(staleIds.some(id => !live[id]), 'stale pass should still serve deleted ids');
+    stale += recallAtK(rerankTopK(vectors, 32, norms, staleIds, query, 10), oracle);
+    current += recallAtK(rerankTopK(vectors, 32, norms, liveIds, query, 10), oracle);
+  }
+  const staleMean = stale / queries.length, currentMean = current / queries.length;
+  assert.ok(currentMean >= 0.95, `current recall ${currentMean}`);
+  assert.ok(staleMean < currentMean, `stale ${staleMean} should trail current ${currentMean}`);
+});
+
+test('cold-call and delete costs are recorded alongside the medians', () => {
+  const { vectors, queries } = uniformCorpus(250, 8, 77, 2);
+  const result = runExperiment({ name: 'costs-unit', kind: 'uniform', vectors, count: 250, dims: 8, queries, bucketK: 8, bucketIters: 2, bucketSample: 250, budgets: [20, 50], repetitions: 1 });
+  for (const method of ['exact', 'sq8', 'sign', 'bucket']) {
+    assert.ok(result.methods[method].firstCallMs >= 0, `${method} firstCallMs`);
+  }
+  assert.ok(result.deleteMicrosPerRow.bucketListShift >= 0);
+  assert.ok(result.deleteMicrosPerRow.bucketListLength > 0);
+  assert.ok(result.deleteMicrosPerRow.sq8CodeClear >= 0);
+  assert.equal(result.oracle.oracleRows, 250);
+});
