@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { launch } from '../tests/lib/cdp.mjs';
 import { serve } from './wiki-demo-server.mjs';
@@ -118,6 +120,10 @@ const report = {
   metrics: Object.fromEntries(Object.keys(methods).map(name => [name, summarize(name)])),
   rows,
 };
-await writeFile(new URL('reports/preprocessing-relevance.json', root), JSON.stringify(report, null, 2) + '\n');
+// The report goes to a temp file by default: reports/preprocessing-relevance.json is TRACKED, and writing it here
+// advances its nsec ctime, which fleet-check's worktree digest reads as a mid-run tree mutation (STALE).
+// Regenerate the tracked report deliberately with PREPROCESSING_RELEVANCE_REPORT=reports/preprocessing-relevance.json.
+const reportPath = process.env.PREPROCESSING_RELEVANCE_REPORT || join(os.tmpdir(), 'idb-preprocessing-relevance.json');
+await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify({ queryCount: report.queryCount, trainPassages: report.trainPassages,
   eligiblePassages: report.eligiblePassages, metrics: report.metrics }));
