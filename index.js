@@ -61,6 +61,66 @@ function assertLimit(limit) {
   return limit;
 }
 
+// --- candidate selection -----------------------------------------------------------------------
+// `query()` ranks every record. `queryCandidates()` ranks a candidate set chosen by the CALLER's
+// own IndexedDB schema (an index name and/or an IDBKeyRange) plus an optional JS predicate. The
+// library never creates, migrates or upgrades that schema: a missing index is an error that names
+// the available indexes, never a silent full scan. A candidate spec that cannot narrow the read
+// discloses `fullScanRequired`, because "fewer results than asked" must not be read as "no more
+// matches" when the corpus was restricted.
+const CANDIDATE_OPTION_KEYS = ["limit", "index", "range", "predicate"];
+const NO_CANDIDATES = { index: null, range: null, predicate: null };
+
+function normalizeCandidateOptions(options) {
+  if (options === undefined || options === null) return { limit: 10, candidates: { ...NO_CANDIDATES } };
+  if (!isRecord(options)) {
+    throw new TypeError(`queryCandidates() options must be an object such as { index: "category", range: IDBKeyRange.only(7) }; got ${describe(options)}`);
+  }
+  for (const key of Object.keys(options)) {
+    if (CANDIDATE_OPTION_KEYS.includes(key) === false) {
+      throw new TypeError(`queryCandidates() option ${describe(key)} is not supported; supported options are ${CANDIDATE_OPTION_KEYS.join(", ")}`);
+    }
+  }
+  const { limit = 10, index = null, range = null, predicate = null } = options;
+  assertLimit(limit);
+  if (index !== null && (typeof index !== "string" || index.length === 0)) {
+    throw new TypeError(`queryCandidates() index must be a non-empty string naming one index on the object store; got ${describe(index)}`);
+  }
+  if (range !== null && range instanceof IDBKeyRange === false) {
+    throw new TypeError(`queryCandidates() range must be an IDBKeyRange built with IDBKeyRange.only/bound/lowerBound/upperBound; got ${describe(range)}`);
+  }
+  if (predicate !== null && typeof predicate !== "function") {
+    throw new TypeError(`queryCandidates() predicate must be a function of one record returning a boolean; got ${describe(predicate)}`);
+  }
+  return { limit, candidates: { index, range, predicate } };
+}
+
+// Resolves a candidate spec against the caller's store. The store-dependent check lives here
+// because index names can only be read from a store handle.
+function selectCandidates(store, { index, range, predicate }, storeName) {
+  if (index !== null && store.indexNames.contains(index) === false) {
+    const available = Array.from(store.indexNames);
+    throw new TypeError(`queryCandidates() index ${describe(index)} is not on object store '${storeName}'; available indexes: ${available.length ? available.join(", ") : "none"}. Create it in your own upgrade transaction: this library never migrates an application schema.`);
+  }
+  // A multiEntry index visits one record once per matching array element, so the same record would
+  // be ranked several times and consume several of the `limit` slots. Refuse it rather than return
+  // a silently duplicated ranking.
+  if (index !== null && store.index(index).multiEntry) {
+    throw new TypeError(`queryCandidates() index ${describe(index)} is a multiEntry index, which visits one record once per matching entry and would rank the same record more than once; use a single-valued index, or select with the predicate option over the store instead`);
+  }
+  const mode = index !== null ? "index" : range !== null ? "store-range" : "full-scan";
+  return {
+    index,
+    range,
+    predicate,
+    mode,
+    fullScanRequired: mode === "full-scan",
+    reason: mode !== "full-scan" ? null : predicate !== null
+      ? "predicate without an index or key range: every record in the store is read"
+      : "no index or key range: every record in the store is read",
+  };
+}
+
 // A stored vector can only be recognised as invalid once scoring is not finite, so the happy scan
 // path pays nothing for this diagnosis; it runs once, on the record that failed.
 function storedVectorError(vectorPath, key, vector, queryVectorLength) {
@@ -86,6 +146,37 @@ function storedVectorError(vectorPath, key, vector, queryVectorLength) {
   return new TypeError(`${where} overflows cosine similarity: every coordinate is finite but the score is not. Scale that vector to a sane magnitude or delete it, then query again.`);
 }
 
+// A caller-owned object store can use an IN-LINE key (`keyPath`). IndexedDB then rejects a key
+// argument to put(): the record carries its own key. The value the caller names must be the one
+// the record holds, or update() would silently write a different record than the caller asked for.
+function keyPathValue(record, keyPath) {
+  const paths = Array.isArray(keyPath) ? keyPath : [keyPath];
+  const values = paths.map(path => path.split(".").reduce(
+    (value, name) => (value === null || value === undefined ? undefined : value[name]), record));
+  return Array.isArray(keyPath) ? values : values[0];
+}
+
+function sameKey(a, b) {
+  try {
+    return indexedDB.cmp(a, b) === 0;
+  } catch {
+    return false;
+  }
+}
+
+function updateRequest(store, key, object) {
+  const keyPath = store.keyPath;
+  if (keyPath === null) return store.put(object, key);
+  const carried = keyPathValue(object, keyPath);
+  if (carried === undefined) {
+    throw new TypeError(`update() record has no value at this store's in-line keyPath ${JSON.stringify(keyPath)}; the store takes the key from the record itself`);
+  }
+  if (sameKey(carried, key) === false) {
+    throw new TypeError(`update() key ${JSON.stringify(key)} does not match the value this store's in-line keyPath ${JSON.stringify(keyPath)} carries (${JSON.stringify(carried)}); the store writes the key the record carries`);
+  }
+  return store.put(object);
+}
+
 function cosineSimilarity(a, b) {
   const dotProduct = a.reduce((sum, aVal, idx) => sum + aVal * b[idx], 0);
   const aMagnitude = Math.sqrt(a.reduce((sum, aVal) => sum + aVal * aVal, 0));
@@ -109,7 +200,10 @@ async function create(options) {
     ...options,
   };
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(dbName, 1);
+    // No explicit version: an existing application schema is opened AT ITS OWN VERSION and never
+    // upgraded by this library. A database that does not exist yet is created at version 1, where
+    // this store and index are added. Opening at version 1 would throw VersionError instead.
+    const request = indexedDB.open(dbName);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
@@ -121,6 +215,13 @@ async function create(options) {
       const db = event.target.result;
       // A newer schema cannot be opened while this instance holds its connection.
       db.addEventListener("versionchange", () => db.close());
+      if (db.objectStoreNames.contains(objectStore) === false) {
+        const stores = Array.from(db.objectStoreNames);
+        db.close();
+        reject(new Error(`objectStore '${objectStore}' is not in database '${dbName}' (version ${db.version}; stores: ${stores.length ? stores.join(", ") : "none"}). This library never adds a store to an existing schema: create it in your own upgrade transaction, or use a fresh dbName.`));
+        return;
+      }
+      resolve(db);
       resolve(db);
     };
 
@@ -233,7 +334,7 @@ class VectorDB {
     const transaction = db.transaction([storeName], "readwrite");
     const store = transaction.objectStore(storeName);
 
-    const request = store.put(object, key);
+    const request = updateRequest(store, key, object);
 
     return committed(transaction, request);
   }
@@ -248,27 +349,63 @@ class VectorDB {
 
     assertVector(queryVector, "query() vector");
 
-    const queryVectorLength = queryVector.length;
+    return (await this.#rank(queryVector, limit, NO_CANDIDATES)).results;
+  }
 
+  // Exact ranking over a candidate set the caller selects from THEIR schema, with disclosure of
+  // what was read. See README.md, "Candidate queries".
+  async queryCandidates(queryVector, options) {
+    const { limit, candidates } = normalizeCandidateOptions(options);
+
+    assertVector(queryVector, "queryCandidates() vector");
+
+    return this.#rank(queryVector, limit, candidates);
+  }
+
+  // `candidates` names the record source: `{ index: null, range: null, predicate: null }` is the
+  // full exact scan that query() uses. Returns `{ results, info }`; query() drops `info`.
+  async #rank(queryVector, limit, candidates) {
     const db = await this.#connection();
     const storeName = this.#objectStore;
     const vectorPath = this.#vectorPath;
+    const queryVectorLength = queryVector.length;
 
     const transaction = db.transaction([storeName], "readonly");
-    const objectStore = transaction.objectStore(storeName);
-    const request = objectStore.openCursor();
+    const store = transaction.objectStore(storeName);
+    const selection = selectCandidates(store, candidates, storeName);
+    const source = selection.index === null ? store : store.index(selection.index);
+    const request = source.openCursor(selection.range);
 
     const similarities = new SortedArray(limit, "similarity");
+    const info = {
+      mode: selection.mode,
+      index: selection.index,
+      range: selection.range === null ? null : {
+        lower: selection.range.lower ?? null,
+        upper: selection.range.upper ?? null,
+        lowerOpen: selection.range.lowerOpen,
+        upperOpen: selection.range.upperOpen,
+      },
+      predicate: selection.predicate !== null,
+      recordsRead: 0,
+      recordsScored: 0,
+      fullScanRequired: selection.fullScanRequired,
+      reason: selection.reason,
+      limit,
+    };
 
     return new Promise((resolve, reject) => {
       request.onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor === null) {
           // sorted already.
-          resolve(similarities.slice(0, limit));
+          resolve({ results: similarities.slice(0, limit), info });
           return;
         }
 
+        info.recordsRead += 1;
+        // An index cursor's `key` is the index key; the record key is `primaryKey`.
+        const key = selection.index === null ? cursor.key : cursor.primaryKey;
         const record = cursor.value;
         // A record with no vector at vectorPath is not part of the corpus; the same rule an
         // IndexedDB index applies to a missing key path. A record that HAS one must be valid:
@@ -278,21 +415,38 @@ class VectorDB {
           return;
         }
 
+        // Eligibility is decided BEFORE ranking, so a predicate cannot silently lose a match that
+        // a later top-k truncation would have hidden.
+        if (selection.predicate !== null) {
+          let eligible;
+          try {
+            eligible = selection.predicate(record);
+          } catch (error) {
+            reject(new Error(`queryCandidates() predicate threw for key ${JSON.stringify(key)}: ${error.message}`));
+            return;
+          }
+          if (!eligible) {
+            cursor.continue();
+            return;
+          }
+        }
+
         // Length is checked before scoring: `cosineSimilarity` iterates the query vector, so a
         // LONGER stored vector would otherwise be truncated silently instead of rejected.
         const vector = record[vectorPath];
         if (!Array.isArray(vector) || vector.length !== queryVectorLength) {
-          reject(storedVectorError(vectorPath, cursor.key, vector, queryVectorLength));
+          reject(storedVectorError(vectorPath, key, vector, queryVectorLength));
           return;
         }
 
         const similarity = cosineSimilarity(queryVector, vector);
         if (!Number.isFinite(similarity)) {
-          reject(storedVectorError(vectorPath, cursor.key, vector, queryVectorLength));
+          reject(storedVectorError(vectorPath, key, vector, queryVectorLength));
           return;
         }
 
-        similarities.insert({ object: record, key: cursor.key, similarity });
+        info.recordsScored += 1;
+        similarities.insert({ object: record, key, similarity });
         cursor.continue();
       };
 
