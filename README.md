@@ -309,7 +309,10 @@ code side-store is then measured end to end as a single query — codes read, co
 originals fetched by key, exact rerank — in
 [the side-store query measurement](reports/side-store-query.md)
 (`node tools/evaluate-side-store-query.mjs`, `IDB_KUC9_SMOKE=1` for a seconds-long version), which
-is also research only.
+is also research only. It concludes that the code store is worth having for the unfiltered
+read-per-query path (2.0–2.8× faster and 3.9× fewer bytes read than a packed Float32 snapshot per
+query) and that it must **not** be used for a selectively filtered query, where fetching the
+eligible originals by key and ranking them exactly is no slower and needs no code store.
 The demonstration uses disposable databases and can consume significant space at 100k
 vectors; see the analysis for cleanup and unverified boundaries.
 
