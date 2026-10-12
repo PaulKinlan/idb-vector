@@ -7,6 +7,85 @@ const DB_DEFAUlTS = {
   objectStore: "vectors"
 };
 
+// Argument validation. Contract, documented in README.md:
+//   * vectorPath names ONE top-level property. Dotted strings and IDB key-path arrays are refused
+//     at construction because this library reads `record[vectorPath]` literally; silently creating
+//     an index for a path it cannot read is worse than refusing the name.
+//   * a vector is a non-empty Array of finite numbers with at least one nonzero coordinate, because
+//     cosine similarity against a zero vector is NaN and would rank ahead of real matches.
+//   * limit is a positive safe integer, and missing options mean limit 10 (not "no limit").
+function describe(value) {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) return `an Array of length ${value.length}`;
+  if (value === null) return "null";
+  if (typeof value === "object") return "an object";
+  return String(value);
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertVectorPath(vectorPath) {
+  if (typeof vectorPath !== "string" || vectorPath.length === 0) {
+    throw new TypeError(`vectorPath must be a non-empty string naming one top-level property; got ${describe(vectorPath)}`);
+  }
+  if (vectorPath.includes(".")) {
+    throw new TypeError(`vectorPath must name one top-level property; ${describe(vectorPath)} contains '.', which this library does not treat as a key path. Store the vector under a top-level property (for example vectorPath: "vector") or use the objectStore escape hatch directly.`);
+  }
+}
+
+function assertVector(value, label) {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} must be an Array of finite numbers; got ${describe(value)}`);
+  }
+  if (value.length === 0) {
+    throw new TypeError(`${label} must not be empty; a vector needs at least one coordinate`);
+  }
+  for (let index = 0; index < value.length; index++) {
+    const coordinate = value[index];
+    if (typeof coordinate !== "number" || !Number.isFinite(coordinate)) {
+      throw new TypeError(`${label} coordinate ${index} must be a finite number; got ${describe(coordinate)}`);
+    }
+  }
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] !== 0) return value;
+  }
+  throw new TypeError(`${label} must not be all zeros; cosine similarity against a zero vector is undefined (NaN)`);
+}
+
+function assertLimit(limit) {
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw new RangeError(`limit must be a positive integer; got ${describe(limit)}`);
+  }
+  return limit;
+}
+
+// A stored vector can only be recognised as invalid once scoring is not finite, so the happy scan
+// path pays nothing for this diagnosis; it runs once, on the record that failed.
+function storedVectorError(vectorPath, key, vector, queryVectorLength) {
+  const where = `stored vectorPath '${vectorPath}' for key ${JSON.stringify(key)}`;
+  const fix = "Delete or re-insert that record, then query again.";
+  if (!Array.isArray(vector)) {
+    return new TypeError(`${where} must be an Array of finite numbers; got ${describe(vector)}. ${fix}`);
+  }
+  if (vector.length === 0) {
+    return new TypeError(`${where} is empty; a vector needs at least one coordinate. ${fix}`);
+  }
+  if (vector.length !== queryVectorLength) {
+    return new TypeError(`${where} has ${vector.length} coordinates but the query vector has ${queryVectorLength}; every vector in one object store must share one dimension. Re-insert it with ${queryVectorLength} coordinates, or delete it, then query again.`);
+  }
+  for (let index = 0; index < vector.length; index++) {
+    if (typeof vector[index] !== "number" || !Number.isFinite(vector[index])) {
+      return new TypeError(`${where} coordinate ${index} is ${describe(vector[index])}, not a finite number; it produces a NaN similarity that would rank ahead of real matches. ${fix}`);
+    }
+  }
+  if (vector.every(coordinate => coordinate === 0)) {
+    return new TypeError(`${where} is all zeros; cosine similarity against a zero vector is undefined (NaN). ${fix}`);
+  }
+  return new TypeError(`${where} overflows cosine similarity: every coordinate is finite but the score is not. Scale that vector to a sane magnitude or delete it, then query again.`);
+}
+
 function cosineSimilarity(a, b) {
   const dotProduct = a.reduce((sum, aVal, idx) => sum + aVal * b[idx], 0);
   const aMagnitude = Math.sqrt(a.reduce((sum, aVal) => sum + aVal * aVal, 0));
@@ -72,9 +151,7 @@ class VectorDB {
       throw new Error("objectStore is required");
     }
 
-    if (!vectorPath) {
-      throw new Error("vectorPath is required");
-    }
+    assertVectorPath(vectorPath);
 
     this.#objectStore = objectStore;
     this.#vectorPath = vectorPath;
@@ -97,13 +174,15 @@ class VectorDB {
 
   async insert(object) {
 
-    if (this.#vectorPath in object == false) {
-      throw new Error(`${this.#vectorPath} expected to be present 'object' being inserted`);
+    if (!isRecord(object)) {
+      throw new TypeError(`insert() expects a record object containing the vectorPath property '${this.#vectorPath}'; got ${describe(object)}`);
     }
 
-    if (Array.isArray(object[this.#vectorPath]) == false) {
-      throw new Error(`${this.#vectorPath} on 'object' is expected to be an Array`);
+    if (Object.hasOwn(object, this.#vectorPath) === false) {
+      throw new TypeError(`insert() record has no '${this.#vectorPath}' property (vectorPath); add the vector before inserting`);
     }
+
+    assertVector(object[this.#vectorPath], `insert() '${this.#vectorPath}' vector`);
 
     const db = await this.#connection();
     const storeName = this.#objectStore;
@@ -138,13 +217,15 @@ class VectorDB {
       throw new Error(`Unable to update object without a key`)
     }
 
-    if (this.#vectorPath in object == false) {
-      throw new Error(`${this.#vectorPath} expected to be present 'object' being updated`);
+    if (!isRecord(object)) {
+      throw new TypeError(`update() expects a record object containing the vectorPath property '${this.#vectorPath}'; got ${describe(object)}`);
     }
 
-    if (Array.isArray(object[this.#vectorPath]) == false) {
-      throw new Error(`${this.#vectorPath} on 'object' is expected to be an Array`);
+    if (Object.hasOwn(object, this.#vectorPath) === false) {
+      throw new TypeError(`update() record has no '${this.#vectorPath}' property (vectorPath); add the vector before updating`);
     }
+
+    assertVector(object[this.#vectorPath], `update() '${this.#vectorPath}' vector`);
 
     const db = await this.#connection();
     const storeName = this.#objectStore;
@@ -157,9 +238,15 @@ class VectorDB {
     return committed(transaction, request);
   }
 
-  // Return the most similar items up to [limit] items
-  async query(queryVector, options = { limit: 10 }) {
-    const { limit } = options;
+  // Return the most similar items up to [limit] items (default 10).
+  async query(queryVector, options) {
+    if (options !== undefined && options !== null && !isRecord(options)) {
+      throw new TypeError(`query() options must be an object such as { limit: 10 }; got ${describe(options)}`);
+    }
+
+    const limit = assertLimit(options?.limit === undefined ? 10 : options.limit);
+
+    assertVector(queryVector, "query() vector");
 
     const queryVectorLength = queryVector.length;
 
@@ -176,21 +263,37 @@ class VectorDB {
     return new Promise((resolve, reject) => {
       request.onsuccess = (event) => {
         const cursor = event.target.result;
-        if (cursor) {
-          const vectorValue = cursor.value[vectorPath];
-          if (vectorValue.length == queryVectorLength) {
-            // Only add the vector to the results set if the vector is the same length as query.
-            const similarity = cosineSimilarity(
-              queryVector,
-              vectorValue
-            );
-            similarities.insert({ object: cursor.value, key: cursor.key, similarity });
-          }
-          cursor.continue();
-        } else {
+        if (cursor === null) {
           // sorted already.
           resolve(similarities.slice(0, limit));
+          return;
         }
+
+        const record = cursor.value;
+        // A record with no vector at vectorPath is not part of the corpus; the same rule an
+        // IndexedDB index applies to a missing key path. A record that HAS one must be valid:
+        // skipping it silently is how invalid vectors used to poison the ranking.
+        if (!isRecord(record) || Object.hasOwn(record, vectorPath) === false) {
+          cursor.continue();
+          return;
+        }
+
+        // Length is checked before scoring: `cosineSimilarity` iterates the query vector, so a
+        // LONGER stored vector would otherwise be truncated silently instead of rejected.
+        const vector = record[vectorPath];
+        if (!Array.isArray(vector) || vector.length !== queryVectorLength) {
+          reject(storedVectorError(vectorPath, cursor.key, vector, queryVectorLength));
+          return;
+        }
+
+        const similarity = cosineSimilarity(queryVector, vector);
+        if (!Number.isFinite(similarity)) {
+          reject(storedVectorError(vectorPath, cursor.key, vector, queryVectorLength));
+          return;
+        }
+
+        similarities.insert({ object: record, key: cursor.key, similarity });
+        cursor.continue();
       };
 
       request.onerror = (event) => {

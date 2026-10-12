@@ -67,12 +67,16 @@ try {
       const db = new VectorDB({ dbName: name, vectorPath: 'embedding' });
       await db.insert({ embedding: [1, 0] });
       const emptyOptionsCount = (await db.query([1, 0], {})).length;
-      await db.insert({ embedding: [0, 0] });
-      await db.insert({ embedding: [Infinity, 0] });
+      // The baseline run accepted these; the contract now refuses them before any transaction.
+      const rejectedWrites = [];
+      for (const embedding of [[0, 0], [Infinity, 0], [], [1, NaN]]) {
+        try { await db.insert({ embedding }); rejectedWrites.push(`${embedding}: accepted`); }
+        catch (error) { rejectedWrites.push(`${embedding}: ${error.message}`); }
+      }
       const scores = (await db.query([1, 0])).map(x => String(x.similarity));
-      const nested = new VectorDB({ dbName: `${name}-nested`, vectorPath: 'nested.vector' });
       let nestedError;
-      try { await nested.insert({ nested: { vector: [1, 0] } }); } catch (error) { nestedError = error.message; }
+      try { new VectorDB({ dbName: `${name}-nested`, vectorPath: 'nested.vector' }); nestedError = 'accepted'; }
+      catch (error) { nestedError = error.message; }
       // Observe promise resolution despite a real aborted transaction.
       const original = IDBObjectStore.prototype.add;
       let aborted;
@@ -89,8 +93,8 @@ try {
       finally { IDBObjectStore.prototype.add = original; }
       const transactionAborted = await abortWitness;
       const stillPresent = (await db.query([1, 1], { limit: 10 })).some(x => x.key === acknowledged);
-      indexedDB.deleteDatabase(name); indexedDB.deleteDatabase(`${name}-nested`);
-      return { emptyOptionsCount, scores, nestedError, acknowledged, writeError, transactionAborted, stillPresent };
+      indexedDB.deleteDatabase(name);
+      return { emptyOptionsCount, scores, rejectedWrites, nestedError, acknowledged, writeError, transactionAborted, stillPresent };
     });
     report.finished = new Date().toISOString(); report.loadEnd = os.loadavg();
     const output = process.env.IDB_VECTOR_REPORT || '/tmp/idb-vector-measurements.json';
