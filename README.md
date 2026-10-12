@@ -54,7 +54,7 @@ const db = new VectorDB({
 });
 ```
 
-The `vectorPath` parameter specifies the property path in the JSON documents where the vector is stored. The vector should be represented as an array.
+The `vectorPath` parameter names **one top-level property** of the stored records, and the value at that property must be an array. A dotted name such as `"nested.vector"` is refused at construction with a `TypeError`, because this library reads `record[vectorPath]` literally: it does not resolve an IndexedDB key path. Flatten the field before inserting (`{ vector: [...] }`), or write through the `objectStore` escape hatch yourself.
 
 ### Inserting Data
 
@@ -107,6 +107,31 @@ console.log(
 ```
 
 The `limit` option allows you to specify the maximum number of results to return.
+
+### Contract and validation
+
+`insert()`, `update()` and `query()` refuse invalid input **before** opening a transaction, so a
+refused call writes nothing. Invalid arguments reject with a `TypeError` (a bad vector, path or
+options shape) or a `RangeError` (a `limit` that is not a positive integer), and every message names
+the value at fault.
+
+- **Vectors** must be an `Array` (not a typed array) with at least one coordinate, every coordinate
+a finite number, and at least one coordinate nonzero. Empty, zero, `NaN` and `Infinity` vectors are
+refused: cosine similarity against a zero vector is `NaN`, and a stored `NaN` score used to rank
+ahead of real matches.
+- **`limit`** must be a positive integer. Omitting it — or passing `{}`, as in
+`query([1, 0], {})` — means `limit: 10`, never "no limit".
+- **Dimensions.** Every vector in one object store must have the same length as the vectors you query
+it with. A record whose vector is present but has another length (or is otherwise invalid) makes
+`query()` **reject and name that record's key**; it is never silently skipped. Fix the record or
+`delete()` it, then query again.
+- **Missing vectors** are treated differently from invalid ones: a record with no value at
+`vectorPath` is not part of the corpus at all, which is the rule an IndexedDB index applies to a
+missing key path.
+
+Records written by another connection — or by an older version of this package — are held to the same
+contract at query time, and a query that meets one reports the offending key instead of returning a
+ranking built from it.
 
 ## Optional packed snapshots (new API)
 
