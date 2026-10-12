@@ -1,0 +1,939 @@
+{
+  "observedAt": "2026-10-12T14:32:28.475Z",
+  "commit": "9e439edeb665f46e74327ad32225242a3fdc6626",
+  "diff": "",
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/155.0.8059.39",
+    "revision": "@3ff7ac5a9224be9156d7f8703a06e22890aafd34",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+    "jsVersion": "15.5.35.20"
+  },
+  "cpu": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
+  "load": [
+    2.06,
+    1.42,
+    0.79
+  ],
+  "conditions": "Two legs. (1) Resident arithmetic: fresh headless Chromium page; all corpora generated in-page from seeded generators (real MiniLM corpus fetched from the served repo copy); candidate codes built in memory simulating a compact side-store; rerank reads resident originals, NOT IndexedDB records; exact baseline computes norms inline like the library scan; warm medians over 10 queries, 3 order-rotated repetitions (1 for the filtered leg); first-call medians are also recorded per method; single process, no p95 or cold-disk claim. Filtered corpora run each compact pass twice: restricted to eligible rows (predicate before candidate) and over the whole corpus with the predicate applied afterwards. (2) Side-store read leg: packed and individual-record reads from IndexedDB, described in its own section.",
+  "referenceBaselines": {
+    "exactScan100k128Ms": 941.6,
+    "batchedRead100k128Ms": 796.3,
+    "metadataIndex1pctMs": 13.5,
+    "note": "Chrome 152 / Ryzen 9 9955HX from reports/browser-analysis.md; this run is Chrome on this VM, so compare ratios, not absolute numbers."
+  },
+  "nodeCrosscheck": {
+    "name": "node-crosscheck-500-16",
+    "exactRecall": 1,
+    "sq8Recall": 1
+  },
+  "measurements": [
+    {
+      "name": "uniform-100k-128",
+      "kind": "uniform",
+      "count": 100000,
+      "dims": 128,
+      "budgets": [
+        100,
+        300,
+        1000
+      ],
+      "queries": 10,
+      "methods": {
+        "exact": {
+          "medianMs": 28.200000001117587,
+          "firstCallMs": 27.5,
+          "medianCandidateMs": null,
+          "medianRerankMs": null,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": null,
+          "perBudget": {}
+        },
+        "sq8": {
+          "medianMs": 36.20000000111759,
+          "firstCallMs": 86.79999999888241,
+          "medianCandidateMs": 35.5,
+          "medianRerankMs": 0.6999999992549419,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "sign": {
+          "medianMs": 13.299999998882413,
+          "firstCallMs": 27.59999999962747,
+          "medianCandidateMs": 12.600000001490116,
+          "medianRerankMs": 0.6999999992549419,
+          "meanRecallAt10": 0.7699999999999998,
+          "meanCandidateCeiling": 0.7699999999999998,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.39999999999999997,
+              "candidateCeilingAt10": 0.39999999999999997
+            },
+            "300": {
+              "recallAt10": 0.6300000000000001,
+              "candidateCeilingAt10": 0.6300000000000001
+            },
+            "1000": {
+              "recallAt10": 0.7700000000000001,
+              "candidateCeilingAt10": 0.7700000000000001
+            }
+          }
+        },
+        "bucket": {
+          "medianMs": 0.7000000011175871,
+          "firstCallMs": 4.600000001490116,
+          "medianCandidateMs": 0.19999999925494194,
+          "medianRerankMs": 0.599999999627471,
+          "meanRecallAt10": 0.04,
+          "meanCandidateCeiling": 0.04,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0,
+              "candidateCeilingAt10": 0
+            },
+            "300": {
+              "recallAt10": 0.02,
+              "candidateCeilingAt10": 0.02
+            },
+            "1000": {
+              "recallAt10": 0.04,
+              "candidateCeilingAt10": 0.04
+            }
+          }
+        }
+      },
+      "build": {
+        "sq8Ms": 502.09999999962747,
+        "signMs": 167.40000000037253,
+        "bucketsMs": 17370.599999999627
+      },
+      "memoryBytes": {
+        "originals": 51200000,
+        "sq8": 12801024,
+        "sign": 1600000,
+        "buckets": 1331072
+      },
+      "oracle": {
+        "recall": 1,
+        "oracleRows": 100000
+      },
+      "updateMicrosPerRow": {
+        "sq8": 323.0000000074506,
+        "sign": 6.999999992549419,
+        "bucket": 143.00000000745058
+      },
+      "deleteMicrosPerRow": {
+        "sq8CodeClear": 0.9999999962747098,
+        "signCodeClear": 1.0000000149011612,
+        "bucketListShift": 0,
+        "bucketListLength": 383
+      }
+    },
+    {
+      "name": "adversarial-100k-128",
+      "kind": "adversarial",
+      "count": 100000,
+      "dims": 128,
+      "budgets": [
+        100,
+        300,
+        1000
+      ],
+      "queries": 10,
+      "methods": {
+        "exact": {
+          "medianMs": 49.69999999925494,
+          "firstCallMs": 59.19999999925494,
+          "medianCandidateMs": null,
+          "medianRerankMs": null,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": null,
+          "perBudget": {}
+        },
+        "sq8": {
+          "medianMs": 56.79999999888241,
+          "firstCallMs": 96.19999999925494,
+          "medianCandidateMs": 56.09999999962747,
+          "medianRerankMs": 0.7000000011175871,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "sign": {
+          "medianMs": 12.700000001117587,
+          "firstCallMs": 78.40000000037253,
+          "medianCandidateMs": 11.899999998509884,
+          "medianRerankMs": 0.7000000011175871,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "bucket": {
+          "medianMs": 0.8000000007450581,
+          "firstCallMs": 3.5,
+          "medianCandidateMs": 0.2000000011175871,
+          "medianRerankMs": 0.599999999627471,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.15,
+              "candidateCeilingAt10": 0.15
+            },
+            "300": {
+              "recallAt10": 0.49000000000000005,
+              "candidateCeilingAt10": 0.49000000000000005
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        }
+      },
+      "build": {
+        "sq8Ms": 935.9000000003725,
+        "signMs": 368.09999999962747,
+        "bucketsMs": 25256.200000001118
+      },
+      "memoryBytes": {
+        "originals": 51200000,
+        "sq8": 12801024,
+        "sign": 1600000,
+        "buckets": 1331072
+      },
+      "oracle": {
+        "recall": 1,
+        "oracleRows": 100000
+      },
+      "updateMicrosPerRow": {
+        "sq8": 8.00000000745058,
+        "sign": 0.9999999962747098,
+        "bucket": 449.0000000037253
+      },
+      "deleteMicrosPerRow": {
+        "sq8CodeClear": 0.9999999962747098,
+        "signCodeClear": 1.0000000149011612,
+        "bucketListShift": 0,
+        "bucketListLength": 560
+      }
+    },
+    {
+      "name": "real-minilm-2000-384",
+      "kind": "real",
+      "count": 2000,
+      "dims": 384,
+      "budgets": [
+        100,
+        300,
+        1000
+      ],
+      "queries": 10,
+      "methods": {
+        "exact": {
+          "medianMs": 1.5,
+          "firstCallMs": 2.399999998509884,
+          "medianCandidateMs": null,
+          "medianRerankMs": null,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": null,
+          "perBudget": {}
+        },
+        "sq8": {
+          "medianMs": 3.900000000372529,
+          "firstCallMs": 5.5,
+          "medianCandidateMs": 3.099999999627471,
+          "medianRerankMs": 0.8000000007450581,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "sign": {
+          "medianMs": 2.300000000745058,
+          "firstCallMs": 3.800000000745058,
+          "medianCandidateMs": 1.5,
+          "medianRerankMs": 0.8000000007450581,
+          "meanRecallAt10": 0.98,
+          "meanCandidateCeiling": 0.98,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.6,
+              "candidateCeilingAt10": 0.6
+            },
+            "300": {
+              "recallAt10": 0.8099999999999999,
+              "candidateCeilingAt10": 0.8099999999999999
+            },
+            "1000": {
+              "recallAt10": 0.9800000000000001,
+              "candidateCeilingAt10": 0.9800000000000001
+            }
+          }
+        },
+        "bucket": {
+          "medianMs": 1,
+          "firstCallMs": 2.099999999627471,
+          "medianCandidateMs": 0.2999999988824129,
+          "medianRerankMs": 0.7999999988824129,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.65,
+              "candidateCeilingAt10": 0.65
+            },
+            "300": {
+              "recallAt10": 0.85,
+              "candidateCeilingAt10": 0.85
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        }
+      },
+      "build": {
+        "sq8Ms": 85.40000000037253,
+        "signMs": 76.29999999888241,
+        "bucketsMs": 7252.4000000003725
+      },
+      "memoryBytes": {
+        "originals": 3072000,
+        "sq8": 771072,
+        "sign": 96000,
+        "buckets": 417216
+      },
+      "oracle": {
+        "recall": 1,
+        "oracleRows": 2000
+      },
+      "updateMicrosPerRow": {
+        "sq8": 5,
+        "sign": 5.99999999627471,
+        "bucket": 287.99999998882413
+      },
+      "deleteMicrosPerRow": {
+        "sq8CodeClear": 1.0000000149011612,
+        "signCodeClear": 0,
+        "bucketListShift": 0.9999999962747098,
+        "bucketListLength": 14
+      }
+    },
+    {
+      "name": "uniform-100k-384",
+      "kind": "uniform",
+      "count": 100000,
+      "dims": 384,
+      "budgets": [
+        100,
+        300,
+        1000
+      ],
+      "queries": 10,
+      "methods": {
+        "exact": {
+          "medianMs": 86.80000000074506,
+          "firstCallMs": 100.10000000149012,
+          "medianCandidateMs": null,
+          "medianRerankMs": null,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": null,
+          "perBudget": {}
+        },
+        "sq8": {
+          "medianMs": 83.90000000037253,
+          "firstCallMs": 119.09999999962747,
+          "medianCandidateMs": 82,
+          "medianRerankMs": 1.200000001117587,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "sign": {
+          "medianMs": 20.09999999962747,
+          "firstCallMs": 25.800000000745058,
+          "medianCandidateMs": 18.899999998509884,
+          "medianRerankMs": 1.299999998882413,
+          "meanRecallAt10": 0.9199999999999999,
+          "meanCandidateCeiling": 0.9199999999999999,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.4200000000000001,
+              "candidateCeilingAt10": 0.4200000000000001
+            },
+            "300": {
+              "recallAt10": 0.6599999999999999,
+              "candidateCeilingAt10": 0.6599999999999999
+            },
+            "1000": {
+              "recallAt10": 0.9200000000000002,
+              "candidateCeilingAt10": 0.9200000000000002
+            }
+          }
+        },
+        "bucket": {
+          "medianMs": 1.5,
+          "firstCallMs": 4.200000001117587,
+          "medianCandidateMs": 0.30000000074505806,
+          "medianRerankMs": 1.199999999254942,
+          "meanRecallAt10": 0.04,
+          "meanCandidateCeiling": 0.04,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0,
+              "candidateCeilingAt10": 0
+            },
+            "300": {
+              "recallAt10": 0.01,
+              "candidateCeilingAt10": 0.01
+            },
+            "1000": {
+              "recallAt10": 0.04,
+              "candidateCeilingAt10": 0.04
+            }
+          }
+        }
+      },
+      "build": {
+        "sq8Ms": 5150.700000001118,
+        "signMs": 912.8999999985099,
+        "bucketsMs": 42541.300000000745
+      },
+      "memoryBytes": {
+        "originals": 153600000,
+        "sq8": 38403072,
+        "sign": 4800000,
+        "buckets": 1593216
+      },
+      "oracle": {
+        "recall": 1,
+        "oracleRows": 100000
+      },
+      "updateMicrosPerRow": {
+        "sq8": 10,
+        "sign": 3.9999999850988393,
+        "bucket": 248.00000000745058
+      },
+      "deleteMicrosPerRow": {
+        "sq8CodeClear": 0,
+        "signCodeClear": 0.9999999962747098,
+        "bucketListShift": 0,
+        "bucketListLength": 407
+      }
+    },
+    {
+      "name": "uniform-20k-1536",
+      "kind": "uniform",
+      "count": 20000,
+      "dims": 1536,
+      "budgets": [
+        100,
+        300,
+        1000
+      ],
+      "queries": 10,
+      "methods": {
+        "exact": {
+          "medianMs": 63.5,
+          "firstCallMs": 67.20000000111759,
+          "medianCandidateMs": null,
+          "medianRerankMs": null,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": null,
+          "perBudget": {}
+        },
+        "sq8": {
+          "medianMs": 70,
+          "firstCallMs": 89,
+          "medianCandidateMs": 66.59999999962747,
+          "medianRerankMs": 3.300000000745058,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "sign": {
+          "medianMs": 16.5,
+          "firstCallMs": 19.300000000745058,
+          "medianCandidateMs": 13.099999999627471,
+          "medianRerankMs": 3.399999998509884,
+          "meanRecallAt10": 0.9500000000000001,
+          "meanCandidateCeiling": 0.9500000000000001,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.58,
+              "candidateCeilingAt10": 0.58
+            },
+            "300": {
+              "recallAt10": 0.76,
+              "candidateCeilingAt10": 0.76
+            },
+            "1000": {
+              "recallAt10": 0.9500000000000002,
+              "candidateCeilingAt10": 0.9500000000000002
+            }
+          }
+        },
+        "bucket": {
+          "medianMs": 3.600000001490116,
+          "firstCallMs": 4.599999999627471,
+          "medianCandidateMs": 0.2000000011175871,
+          "medianRerankMs": 3.400000000372529,
+          "meanRecallAt10": 0.09000000000000001,
+          "meanCandidateCeiling": 0.09000000000000001,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0,
+              "candidateCeilingAt10": 0
+            },
+            "300": {
+              "recallAt10": 0.01,
+              "candidateCeilingAt10": 0.01
+            },
+            "1000": {
+              "recallAt10": 0.09,
+              "candidateCeilingAt10": 0.09
+            }
+          }
+        }
+      },
+      "build": {
+        "sq8Ms": 1185.9000000003725,
+        "signMs": 402.8999999985099,
+        "bucketsMs": 12063.900000000373
+      },
+      "memoryBytes": {
+        "originals": 122880000,
+        "sq8": 30732288,
+        "sign": 3840000,
+        "buckets": 633216
+      },
+      "oracle": {
+        "recall": 1,
+        "oracleRows": 20000
+      },
+      "updateMicrosPerRow": {
+        "sq8": 30,
+        "sign": 12.000000011175871,
+        "bucket": 237.99999998882413
+      },
+      "deleteMicrosPerRow": {
+        "sq8CodeClear": 0.9999999962747098,
+        "signCodeClear": 1.0000000149011612,
+        "bucketListShift": 0,
+        "bucketListLength": 302
+      }
+    },
+    {
+      "name": "adversarial-20k-1536",
+      "kind": "adversarial",
+      "count": 20000,
+      "dims": 1536,
+      "budgets": [
+        100,
+        300,
+        1000
+      ],
+      "queries": 10,
+      "methods": {
+        "exact": {
+          "medianMs": 64.29999999888241,
+          "firstCallMs": 65.29999999888241,
+          "medianCandidateMs": null,
+          "medianRerankMs": null,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": null,
+          "perBudget": {}
+        },
+        "sq8": {
+          "medianMs": 65.59999999962747,
+          "firstCallMs": 86.59999999962747,
+          "medianCandidateMs": 62.40000000037253,
+          "medianRerankMs": 3.299999998882413,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "sign": {
+          "medianMs": 18.199999999254942,
+          "firstCallMs": 18.800000000745058,
+          "medianCandidateMs": 14.400000000372529,
+          "medianRerankMs": 3.600000001490116,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "bucket": {
+          "medianMs": 3.599999999627471,
+          "firstCallMs": 3.599999999627471,
+          "medianCandidateMs": 0.2000000011175871,
+          "medianRerankMs": 3.300000000745058,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.31,
+              "candidateCeilingAt10": 0.31
+            },
+            "300": {
+              "recallAt10": 0.72,
+              "candidateCeilingAt10": 0.72
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        }
+      },
+      "build": {
+        "sq8Ms": 1186.800000000745,
+        "signMs": 246.90000000037253,
+        "bucketsMs": 11835
+      },
+      "memoryBytes": {
+        "originals": 122880000,
+        "sq8": 30732288,
+        "sign": 3840000,
+        "buckets": 633216
+      },
+      "oracle": {
+        "recall": 1,
+        "oracleRows": 20000
+      },
+      "updateMicrosPerRow": {
+        "sq8": 35.99999999627471,
+        "sign": 15,
+        "bucket": 249.0000000037253
+      },
+      "deleteMicrosPerRow": {
+        "sq8CodeClear": 0.9999999962747098,
+        "signCodeClear": 1.0000000149011612,
+        "bucketListShift": 0,
+        "bucketListLength": 412
+      }
+    },
+    {
+      "name": "uniform-100k-128-filtered",
+      "kind": "uniform",
+      "count": 100000,
+      "dims": 128,
+      "budgets": [
+        100,
+        300,
+        1000
+      ],
+      "queries": 10,
+      "methods": {
+        "exact": {
+          "medianMs": 0.8000000007450581,
+          "firstCallMs": 0.900000000372529,
+          "medianCandidateMs": null,
+          "medianRerankMs": null,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": null,
+          "perBudget": {}
+        },
+        "sq8": {
+          "medianMs": 1.599999999627471,
+          "firstCallMs": 5.800000000745058,
+          "medianCandidateMs": 1.299999998882413,
+          "medianRerankMs": 0.30000000074505806,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "sign": {
+          "medianMs": 1.199999999254942,
+          "firstCallMs": 3,
+          "medianCandidateMs": 0.900000000372529,
+          "medianRerankMs": 0.30000000074505806,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.8700000000000001,
+              "candidateCeilingAt10": 0.8700000000000001
+            },
+            "300": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "bucket": {
+          "medianMs": 0.900000000372529,
+          "firstCallMs": 1,
+          "medianCandidateMs": 0.599999999627471,
+          "medianRerankMs": 0.30000000074505806,
+          "meanRecallAt10": 1,
+          "meanCandidateCeiling": 1,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.24,
+              "candidateCeilingAt10": 0.24
+            },
+            "300": {
+              "recallAt10": 0.47000000000000003,
+              "candidateCeilingAt10": 0.47000000000000003
+            },
+            "1000": {
+              "recallAt10": 1,
+              "candidateCeilingAt10": 1
+            }
+          }
+        },
+        "sq8-postfilter": {
+          "medianMs": 32.69999999925494,
+          "firstCallMs": 38,
+          "medianCandidateMs": 32.69999999925494,
+          "medianRerankMs": 0,
+          "meanRecallAt10": 0.8699999999999999,
+          "meanCandidateCeiling": 0.8699999999999999,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.8699999999999999,
+              "candidateCeilingAt10": 0.8699999999999999
+            },
+            "300": {
+              "recallAt10": 0.8699999999999999,
+              "candidateCeilingAt10": 0.8699999999999999
+            },
+            "1000": {
+              "recallAt10": 0.8699999999999999,
+              "candidateCeilingAt10": 0.8699999999999999
+            }
+          }
+        },
+        "sign-postfilter": {
+          "medianMs": 10.099999999627471,
+          "firstCallMs": 9.900000000372529,
+          "medianCandidateMs": 10.099999999627471,
+          "medianRerankMs": 0,
+          "meanRecallAt10": 0.35,
+          "meanCandidateCeiling": 0.35,
+          "perBudget": {
+            "100": {
+              "recallAt10": 0.35,
+              "candidateCeilingAt10": 0.35
+            },
+            "300": {
+              "recallAt10": 0.35,
+              "candidateCeilingAt10": 0.35
+            },
+            "1000": {
+              "recallAt10": 0.35,
+              "candidateCeilingAt10": 0.35
+            }
+          }
+        }
+      },
+      "build": {
+        "sq8Ms": 468.09999999962747,
+        "signMs": 102.19999999925494,
+        "bucketsMs": 14449.60000000149
+      },
+      "memoryBytes": {
+        "originals": 51200000,
+        "sq8": 12801024,
+        "sign": 1600000,
+        "buckets": 1331072
+      },
+      "predicate": {
+        "eligible": 1000,
+        "selectivity": 0.01
+      },
+      "oracle": {
+        "recall": 1,
+        "oracleRows": 1000
+      },
+      "updateMicrosPerRow": {
+        "sq8": 5,
+        "sign": 0.9999999962747098,
+        "bucket": 78.00000000745058
+      },
+      "deleteMicrosPerRow": {
+        "sq8CodeClear": 0.9999999962747098,
+        "signCodeClear": 0,
+        "bucketListShift": 0.9999999962747098,
+        "bucketListLength": 383
+      }
+    }
+  ],
+  "sideStore": {
+    "count": 100000,
+    "dims": 128,
+    "conditions": "Each representation written as one packed record into its own fresh database, read back five times (first read = cold deserialisation, warm page cache) after committed writes; individual originals written as 100,000 Float64Array records, then 1,000 serial random gets.",
+    "reads": {
+      "f32": {
+        "bytes": 51200000,
+        "coldMs": 205.7000000011176,
+        "warmMedianMs": 299.80000000074506,
+        "warmMs": [
+          193.7999999988824,
+          187.40000000037253,
+          299.80000000074506,
+          414.2999999988824,
+          347.40000000037253
+        ]
+      },
+      "sq8": {
+        "bytes": 12800000,
+        "coldMs": 24.90000000037253,
+        "warmMedianMs": 31.59999999962747,
+        "warmMs": [
+          27.40000000037253,
+          31.59999999962747,
+          64.30000000074506,
+          72.59999999962747,
+          30.800000000745058
+        ]
+      },
+      "sign": {
+        "bytes": 1600000,
+        "coldMs": 5.399999998509884,
+        "warmMedianMs": 4.400000000372529,
+        "warmMs": [
+          4,
+          4.699999999254942,
+          4.400000000372529,
+          4.299999998882413,
+          5.300000000745058
+        ]
+      }
+    },
+    "rerankFetch": {
+      "keys": 1000,
+      "totalMs": 470.3999999985099,
+      "meanMsPerGet": 0.4703999999985099
+    }
+  },
+  "pipeline": {
+    "exactPackedF32ReadPlusScanMs": 328.00000000186265,
+    "sq8ScanThen1000OriginalGetsMs": 537.4999999981374,
+    "sq8ScanWithOriginalsAlsoPackedMs": 367.59999999962747,
+    "note": "Composed from legs measured on this run, not one end-to-end query: packed read + resident arithmetic + the fetch the rerank needs. A candidate pass still has to obtain original vectors for exact rerank, either as individual record gets or as a second full packed read."
+  }
+}

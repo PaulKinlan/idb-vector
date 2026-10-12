@@ -323,6 +323,10 @@ which is kept out of `npm test` because it writes 40,000 records.
 `npm run measure` reproduces the 1k/10k/100k browser study. See
 [the analysis](reports/browser-analysis.md) for exact
 trees, conditions, raw evidence, correctness findings and the Beads improvement plan.
+Compact candidate passes (int8, 1-bit sign, coarse cosine buckets) and the IndexedDB read leg a
+side-store would add are measured against that same exact oracle in
+[the compact-pass analysis](reports/quantized-candidate-pass.md), reproducible with
+`node tools/evaluate-quantized-pass.mjs`; none of them is implemented in the library.
 The demonstration uses disposable databases and can consume significant space at 100k
 vectors; see the analysis for cleanup and unverified boundaries.
 
