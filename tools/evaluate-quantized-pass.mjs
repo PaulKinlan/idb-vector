@@ -70,7 +70,7 @@ try {
       results.push(m.runExperiment({
         name: spec.name, kind: spec.kind, vectors, count: spec.count, dims: spec.dims, queries,
         bucketK: spec.bucketK, bucketSample: spec.bucketSample ?? 10000,
-        budgets: [100, 300, 1000], repetitions: spec.repetitions ?? 3, predicate,
+        budgets: spec.budgets ?? [100, 300, 1000], repetitions: spec.repetitions ?? 3, predicate,
       }));
       // Free the biggest structures before building the next corpus.
       vectors = null; queries = null;
@@ -97,7 +97,13 @@ try {
     assert.ok(result.deleteMicrosPerRow.bucketListLength > 0, `${result.name} delete cost`);
     assert.ok(result.oracle.oracleRows === result.count || result.predicate, `${result.name} oracle rows`);
   }
-  const filtered = measurements.find(row => row.name.endsWith('-filtered'));
+  // Selected by the predicate, not by the name: the smoke corpus is called 'smoke-filtered-2k-32',
+  // which the previous endsWith('-filtered') selector silently missed, skipping every filtered
+  // assertion in smoke mode without saying so (idb-vector-1tx).
+  const filtered = measurements.find(row => row.predicate);
+  if (specs.some(spec => spec.predicate)) {
+    assert.ok(filtered, 'a spec declared a predicate but no filtered measurement was checked');
+  }
   if (filtered) {
     assert.ok(filtered.predicate.selectivity > 0 && filtered.predicate.selectivity < 0.02);
     // Predicate-before-candidate, measured on the 1%-selective corpus: a pass restricted to the
