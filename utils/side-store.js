@@ -59,7 +59,10 @@ export function buildCodeRecord(records, options = {}) {
   // First pass: record keys, compute norms, find per-dimension min and max
   for (let i = 0; i < count; i++) {
     const rec = records[i];
-    const key = rec[keyPath] ?? rec.key ?? rec.id ?? i;
+    const key = rec[keyPath] ?? rec.key ?? rec.id;
+    if (key === undefined) {
+      throw new Error(`Record at index ${i} has no identifiable primary key for keyPath "${keyPath}"`);
+    }
     keys[i] = key;
 
     const vec = rec[vectorPath] ?? rec.vector;
@@ -167,8 +170,18 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
 
 // Exact Float64 cosine rerank over fetched original records.
 // Verifies 0 dead rows on the current pinned revision, and verifies that fetched
-// original records match the pinned revision when they carry a revision property (criterion 4).
-export function rerankCandidates(fetchedRecords, vectorPath, queryVector, limit = 10, threshold = null, expectedRevision = null, revisionPath = 'revision') {
+// original records carry a matching revision property (criterion 4, idb-vector-hdo).
+// Preserves real primary keys via candidateKeys (idb-vector-8bv).
+export function rerankCandidates(
+  fetchedRecords,
+  vectorPath,
+  queryVector,
+  limit = 10,
+  threshold = null,
+  expectedRevision = null,
+  revisionPath = 'revision',
+  candidateKeys = null,
+) {
   let queryNormSq = 0;
   for (let d = 0; d < queryVector.length; d++) {
     queryNormSq += queryVector[d] * queryVector[d];
@@ -184,13 +197,24 @@ export function rerankCandidates(fetchedRecords, vectorPath, queryVector, limit 
       throw new Error(`Candidate record at index ${i} is missing or deleted; 0 dead rows acceptable on the current revision`);
     }
 
-    const key = record.id ?? record.key ?? i;
+    const key = candidateKeys ? candidateKeys[i] : (record.id ?? record.key);
+    if (key === undefined) {
+      throw new Error(`Candidate record at index ${i} has no identifiable primary key`);
+    }
 
-    // Revision check: the record carries a revision; a query pins one and must refuse a record from another revision (acceptance criterion 4)
+    // Revision check: the record carries a revision; a query pins one and must refuse a record
+    // whose revision cannot be verified or is mismatched (acceptance criterion 4, idb-vector-hdo)
     if (expectedRevision !== null && expectedRevision !== undefined) {
       const recordRev = record[revisionPath];
-      if (recordRev !== undefined && recordRev !== expectedRevision) {
-        throw new Error(`Record ${JSON.stringify(key)} has revision ${recordRev}, but query pinned revision ${expectedRevision}`);
+      if (recordRev === undefined || recordRev === null) {
+        throw new Error(
+          `Record ${JSON.stringify(key)} has no "${revisionPath}" property; revision cannot be verified for pinned revision ${expectedRevision}`
+        );
+      }
+      if (recordRev !== expectedRevision) {
+        throw new Error(
+          `Record ${JSON.stringify(key)} has revision ${recordRev}, but query pinned revision ${expectedRevision}`
+        );
       }
     }
 

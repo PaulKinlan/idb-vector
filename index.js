@@ -527,7 +527,8 @@ class VectorDB {
       sideStore = "codes",
       revision = 1,
       key = "code_record",
-      keyPath = "id",
+      keyPath = null,
+      revisionPath = "revision",
     } = options;
 
     if (!Number.isSafeInteger(revision) || revision < 0) {
@@ -540,10 +541,14 @@ class VectorDB {
 
     const records = [];
     const t0 = performance.now();
+    let effectiveKeyPath = keyPath;
 
     await new Promise((resolve, reject) => {
       const tx = db.transaction([sourceStoreName], "readonly");
       const store = tx.objectStore(sourceStoreName);
+      if (!effectiveKeyPath) {
+        effectiveKeyPath = store.keyPath ?? "id";
+      }
       const req = store.openCursor();
       req.onsuccess = (e) => {
         const cursor = e.target.result;
@@ -553,8 +558,25 @@ class VectorDB {
         }
         if (cursor.value && Object.hasOwn(cursor.value, vectorPath)) {
           const record = cursor.value;
-          if (record[keyPath] === undefined && cursor.primaryKey !== undefined) {
-            records.push({ ...record, [keyPath]: cursor.primaryKey });
+          const pKey = cursor.primaryKey;
+
+          // Revision stamping requirement: fail safe before building codes (idb-vector-hdo)
+          const recRev = record[revisionPath];
+          if (recRev === undefined || recRev === null) {
+            reject(new TypeError(
+              `Record ${JSON.stringify(pKey)} has no "${revisionPath}" property (revisionPath). Revision pinning requires all records to carry a matching revision property before building codes (expected revision ${revision}).`
+            ));
+            return;
+          }
+          if (recRev !== revision) {
+            reject(new Error(
+              `Record ${JSON.stringify(pKey)} has revision ${recRev}, expected ${revision}.`
+            ));
+            return;
+          }
+
+          if (record[effectiveKeyPath] === undefined && pKey !== undefined) {
+            records.push({ ...record, [effectiveKeyPath]: pKey });
           } else {
             records.push(record);
           }
@@ -567,7 +589,7 @@ class VectorDB {
     const codeRecord = buildCodeRecord(records, {
       revision,
       vectorPath,
-      keyPath,
+      keyPath: effectiveKeyPath,
     });
 
     await new Promise((resolve, reject) => {
@@ -600,6 +622,7 @@ class VectorDB {
       predicate = null,
       eligibleKeys = null,
       revisionPath = "revision",
+      fallback = false,
       codeRecord: suppliedRecord = null,
     } = options;
 
@@ -624,77 +647,99 @@ class VectorDB {
     const sourceStoreName = this.#objectStore;
     const vectorPath = this.#vectorPath;
 
-    // 1. Read code record from side-store (unless supplied)
-    let codeRecord = suppliedRecord;
-    if (!codeRecord) {
-      codeRecord = await new Promise((resolve, reject) => {
-        const tx = db.transaction([sideStore], "readonly");
-        const store = tx.objectStore(sideStore);
-        const req = store.get(key);
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
+    try {
+      // 1. Read code record from side-store (unless supplied)
+      let codeRecord = suppliedRecord;
+      if (!codeRecord) {
+        codeRecord = await new Promise((resolve, reject) => {
+          const tx = db.transaction([sideStore], "readonly");
+          const store = tx.objectStore(sideStore);
+          const req = store.get(key);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      if (!codeRecord) {
+        throw new Error(`side-store record not found at key ${JSON.stringify(key)} in object store "${sideStore}"`);
+      }
+
+      // 2. Revision pinning check: refuse records from another revision
+      if (codeRecord.revision !== revision) {
+        throw new Error(`side-store revision mismatch: query pinned revision ${revision}, but side-store record has revision ${codeRecord.revision}`);
+      }
+
+      // 3. Scan candidates using compact int8 codes (predicate-before-candidate if eligibleKeys supplied)
+      const candidates = scanSideStore(codeRecord, queryVector, candidateBudget, eligibleKeys);
+      const candidateKeys = candidates.map(c => c.key);
+
+      // 4. Fetch the top-N originals BY KEY in ONE transaction
+      const fetchedRecords = await new Promise((resolve, reject) => {
+        const tx = db.transaction([sourceStoreName], "readonly");
+        const store = tx.objectStore(sourceStoreName);
+        const count = candidateKeys.length;
+        if (count === 0) {
+          resolve([]);
+          return;
+        }
+        const results = new Array(count);
+        let settled = 0;
+        for (let i = 0; i < count; i++) {
+          const req = store.get(candidateKeys[i]);
+          req.onsuccess = () => {
+            results[i] = req.result;
+            settled++;
+            if (settled === count) resolve(results);
+          };
+          req.onerror = () => reject(req.error);
+        }
       });
-    }
 
-    if (!codeRecord) {
-      throw new Error(`side-store record not found at key ${JSON.stringify(key)} in object store "${sideStore}"`);
-    }
+      // 5. Exact Float64 rerank of fetched originals
+      // Checks that 0 dead rows exist and that fetched originals match the pinned revision (idb-vector-hdo)
+      // Uses real candidate primary keys rather than array indices (idb-vector-8bv)
+      const results = rerankCandidates(
+        fetchedRecords,
+        vectorPath,
+        queryVector,
+        limit,
+        threshold,
+        revision,
+        revisionPath,
+        candidateKeys,
+      );
 
-    // 2. Revision pinning check: refuse records from another revision
-    if (codeRecord.revision !== revision) {
-      throw new Error(`side-store revision mismatch: query pinned revision ${revision}, but side-store record has revision ${codeRecord.revision}`);
-    }
+      const info = {
+        mode: "side-store",
+        revision,
+        candidateBudget,
+        recordsRead: codeRecord.count,
+        candidatesScored: candidates.length,
+        recordsFetched: fetchedRecords.length,
+        limit,
+        threshold,
+      };
 
-    // 3. Scan candidates using compact int8 codes (predicate-before-candidate if eligibleKeys supplied)
-    const candidates = scanSideStore(codeRecord, queryVector, candidateBudget, eligibleKeys);
-    const candidateKeys = candidates.map(c => c.key);
-
-    // 4. Fetch the top-N originals BY KEY in ONE transaction
-    const fetchedRecords = await new Promise((resolve, reject) => {
-      const tx = db.transaction([sourceStoreName], "readonly");
-      const store = tx.objectStore(sourceStoreName);
-      const count = candidateKeys.length;
-      if (count === 0) {
-        resolve([]);
-        return;
-      }
-      const results = new Array(count);
-      let settled = 0;
-      for (let i = 0; i < count; i++) {
-        const req = store.get(candidateKeys[i]);
-        req.onsuccess = () => {
-          results[i] = req.result;
-          settled++;
-          if (settled === count) resolve(results);
+      return { results, info };
+    } catch (err) {
+      if (fallback) {
+        const queryOpts = { limit };
+        if (threshold !== null && threshold !== undefined) {
+          queryOpts.threshold = threshold;
+        }
+        const fallbackResults = await this.query(queryVector, queryOpts);
+        return {
+          results: fallbackResults,
+          info: {
+            mode: "exact-fallback",
+            fallbackReason: err.message,
+            limit,
+            threshold,
+          },
         };
-        req.onerror = () => reject(req.error);
       }
-    });
-
-    // 5. Exact Float64 rerank of fetched originals
-    // Checks that 0 dead rows exist and that fetched originals match the pinned revision
-    const results = rerankCandidates(
-      fetchedRecords,
-      vectorPath,
-      queryVector,
-      limit,
-      threshold,
-      revision,
-      revisionPath,
-    );
-
-    const info = {
-      mode: "side-store",
-      revision,
-      candidateBudget,
-      recordsRead: codeRecord.count,
-      candidatesScored: candidates.length,
-      recordsFetched: fetchedRecords.length,
-      limit,
-      threshold,
-    };
-
-    return { results, info };
+      throw err;
+    }
   }
 
   async createSideStore(options = {}) {

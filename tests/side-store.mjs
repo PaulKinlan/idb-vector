@@ -61,9 +61,9 @@ try {
 
       const queryVector = makeVec(999);
 
-      // Insert records in batches
+      // Insert records in batches with revision: 1
       for (let i = 1; i <= COUNT; i++) {
-        await db.insert({ id: i, category: i % 2 === 0 ? 'even' : 'odd', embedding: makeVec(i) });
+        await db.insert({ id: i, revision: 1, category: i % 2 === 0 ? 'even' : 'odd', embedding: makeVec(i) });
       }
 
       // 1. Build side-store
@@ -186,7 +186,59 @@ try {
       check(deadRowError.message.includes('0 dead rows acceptable on the current revision'),
         `error explains 0 dead rows requirement: ${deadRowError.message}`);
 
+      // 9. Safe exact fallback when fallback: true is passed
+      const fallbackQuery = await db.querySideStore(queryVector, {
+        sideStore: 'codes',
+        revision: 1,
+        candidateBudget: 100,
+        limit: 10,
+        fallback: true,
+      });
+      check(fallbackQuery.info.mode === 'exact-fallback', 'fallback returns exact-fallback mode');
+      check(fallbackQuery.results.length === 10, 'fallback returns 10 exact results');
+
       await db.close();
+
+      // 10. Custom keyPath and unversioned refusal test (idb-vector-8bv and idb-vector-hdo)
+      const customDbName = `side-store-custom-${crypto.randomUUID()}`;
+      databasesToClean.push(customDbName);
+      const customRaw = await openRaw(customDbName, 1, (e) => {
+        e.target.result.createObjectStore('custom', { keyPath: 'uuid' });
+        e.target.result.createObjectStore('codes');
+      });
+      customRaw.close();
+
+      const customDb = new VectorDB({ dbName: customDbName, objectStore: 'custom', vectorPath: 'embedding' });
+      await customDb.insert({ uuid: 'row-alpha', embedding: [1, 0] }); // unversioned!
+
+      let unversionedBuildError = null;
+      try {
+        await customDb.buildSideStore({ sideStore: 'codes', revision: 1 });
+      } catch (err) {
+        unversionedBuildError = err;
+      }
+      check(unversionedBuildError !== null, 'buildSideStore throws TypeError on unversioned originals');
+      check(unversionedBuildError instanceof TypeError, `error is TypeError: ${unversionedBuildError?.constructor?.name}`);
+      check(unversionedBuildError.message.includes('Revision pinning requires all records to carry a matching revision property'),
+        `error explains revision requirement: ${unversionedBuildError.message}`);
+
+      // Now insert with revision: 1 and custom string keys
+      await customDb.update('row-alpha', { uuid: 'row-alpha', revision: 1, embedding: [1, 0] });
+      await customDb.insert({ uuid: 'row-beta', revision: 1, embedding: [0, 1] });
+      await customDb.buildSideStore({ sideStore: 'codes', revision: 1 });
+
+      const customQuery = await customDb.querySideStore([1, 0], {
+        sideStore: 'codes',
+        revision: 1,
+        candidateBudget: 2,
+        limit: 2,
+      });
+
+      check(customQuery.results.length === 2, 'custom query returns 2 results');
+      check(customQuery.results[0].key === 'row-alpha', `result 0 key is "row-alpha" (real primary key, not array index): got ${customQuery.results[0].key}`);
+      check(customQuery.results[1].key === 'row-beta', `result 1 key is "row-beta" (real primary key, not array index): got ${customQuery.results[1].key}`);
+
+      await customDb.close();
 
       return {
         checks: checks.length,
