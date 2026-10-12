@@ -17,8 +17,10 @@ function cosineSimilarity(a, b) {
 // A successful request can still be rolled back by its transaction.
 function committed(transaction, request) {
   return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve(request.result);
-    transaction.onabort = () => reject(transaction.error ?? new Error("Transaction aborted"));
+    transaction.addEventListener("complete", () => resolve(request.result), { once: true });
+    transaction.addEventListener("abort", () => reject(
+      transaction.error ?? request.error ?? new DOMException("Transaction aborted", "AbortError")
+    ), { once: true });
   });
 }
 
@@ -37,7 +39,10 @@ async function create(options) {
     };
 
     request.onsuccess = (event) => {
-      resolve(event.target.result);
+      const db = event.target.result;
+      // A newer schema cannot be opened while this instance holds its connection.
+      db.addEventListener("versionchange", () => db.close());
+      resolve(db);
     };
 
     request.onerror = (event) => {
@@ -50,6 +55,7 @@ class VectorDB {
   #objectStore;
   #vectorPath;
   #db;
+  #closed = false;
 
   constructor(options) {
     const { dbName, objectStore, vectorPath } = {
@@ -76,6 +82,19 @@ class VectorDB {
     this.#db = create(options);
   }
 
+  // Release this instance's connection, including when open() is still pending.
+  async close() {
+    this.#closed = true;
+    (await this.#db).close();
+  }
+
+  async #connection() {
+    if (this.#closed) throw new DOMException("VectorDB is closed", "InvalidStateError");
+    const db = await this.#db;
+    if (this.#closed) throw new DOMException("VectorDB is closed", "InvalidStateError");
+    return db;
+  }
+
   async insert(object) {
 
     if (this.#vectorPath in object == false) {
@@ -86,7 +105,7 @@ class VectorDB {
       throw new Error(`${this.#vectorPath} on 'object' is expected to be an Array`);
     }
 
-    const db = await this.#db;
+    const db = await this.#connection();
     const storeName = this.#objectStore;
 
     const transaction = db.transaction([storeName], "readwrite");
@@ -102,7 +121,7 @@ class VectorDB {
       throw new Error(`Unable to delete object without a key`)
     }
 
-    const db = await this.#db;
+    const db = await this.#connection();
     const storeName = this.#objectStore;
 
     const transaction = db.transaction([storeName], "readwrite");
@@ -127,7 +146,7 @@ class VectorDB {
       throw new Error(`${this.#vectorPath} on 'object' is expected to be an Array`);
     }
 
-    const db = await this.#db;
+    const db = await this.#connection();
     const storeName = this.#objectStore;
 
     const transaction = db.transaction([storeName], "readwrite");
@@ -144,7 +163,7 @@ class VectorDB {
 
     const queryVectorLength = queryVector.length;
 
-    const db = await this.#db;
+    const db = await this.#connection();
     const storeName = this.#objectStore;
     const vectorPath = this.#vectorPath;
 
@@ -182,7 +201,7 @@ class VectorDB {
 
   // Explicitly stale until refresh(); default query() remains authoritative.
   async createSnapshot(options) {
-    return createPackedSnapshot(await this.#db, this.#objectStore, this.#vectorPath, options, cosineSimilarity);
+    return createPackedSnapshot(await this.#connection(), this.#objectStore, this.#vectorPath, options, cosineSimilarity);
   }
 
   get objectStore() {
