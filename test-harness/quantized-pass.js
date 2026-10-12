@@ -436,8 +436,13 @@ export function runExperiment({ name, kind, vectors, count, dims, queries, bucke
         }
         const postfilter = method.endsWith('-postfilter');
         const base = postfilter ? method.slice(0, -'-postfilter'.length) : method;
-        const scan = time(() => passes[base](query, !postfilter));
-        const candidateIds = postfilter ? scan.value.filter(id => mask[id]) : scan.value;
+        // The eligibility filter for postfilter runs inside the timed block: it is part of the
+        // candidate pass, so it must not fall between the scan and rerank timers.
+        const scan = time(() => {
+          const ids = passes[base](query, !postfilter);
+          return postfilter ? ids.filter(id => mask[id]) : ids;
+        });
+        const candidateIds = scan.value;
         const rerank = time(() => rerankTopK(vectors, dims, norms, candidateIds, query, 10));
         const slot = perMethod[method];
         slot.candidateMs.push(scan.ms); slot.rerankMs.push(rerank.ms); slot.ms.push(scan.ms + rerank.ms);

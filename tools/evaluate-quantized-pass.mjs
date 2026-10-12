@@ -69,7 +69,7 @@ try {
     for (const method of ['sq8', 'sign', 'bucket', 'sq8-postfilter', 'sign-postfilter']) {
       if (!result.methods[method]) continue;
       assert.ok(result.methods[method].medianMs > 0, `${result.name} ${method} latency`);
-      assert.ok(result.methods[method].meanRecallAt10 >= 0);
+      assert.ok(result.methods[method].meanRecallAt10 >= 0 && result.methods[method].meanRecallAt10 <= 1, `${result.name} ${method} recall range`);
       assert.ok(result.methods[method].firstCallMs >= 0, `${result.name} ${method} cold call`);
       for (const budget of [100, 300, 1000]) {
         const entry = result.methods[method].perBudget[budget];

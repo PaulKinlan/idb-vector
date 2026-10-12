@@ -104,26 +104,30 @@ Float64Array(128), the library's current storage shape) are written to a fourth 
 | packed Float32 originals | 51.2 MB | 205.7 | 299.8 (187.4–414.3) |
 | packed int8 codes | 12.8 MB | 24.9 | 31.6 (27.4–72.6) |
 | packed 1-bit sign codes | 1.6 MB | 5.4 | 4.4 (4.0–5.3) |
-| 1,000 serial gets of individual originals | — | — | 470.4 total (0.47 per get) |
+| 1,000 serial gets of individual originals (unpipelined upper bound) | — | — | 470.4 total (0.47 per get) |
 
 Reading int8 codes is 9.5× cheaper than reading the packed Float32 originals and 1-bit codes
 68× cheaper; the read leg does scale with bytes. But a candidate pass still has to obtain the
 original vectors for the exact rerank, and 1,000 individual gets cost 470.4 ms — more than the
-whole packed Float32 read.
+whole packed Float32 read. Those 1,000 gets are 1,000 serial one-shot transactions (0.47 ms
+each, unpipelined), which is the **upper bound** for that fetch: one transaction over a batched
+`getAll` is cheaper per row (the 100,000-row batched walk in
+[browser-analysis.md](browser-analysis.md) reads at ~8 µs per row), so 470.4 ms bounds the rerank
+fetch from above and the ~114 ms composition below is its optimistic end.
 
 **Composed pipeline, 100k × 128** (measured legs added, not one query):
 
 | path | ms |
 |---|---:|
 | readable packed Float32 + exact scan | 328.0 |
-| int8 codes read + int8 scan + 1,000 original gets + rerank | 537.5 |
+| int8 codes read + int8 scan + 1,000 original gets (upper bound) + rerank | 537.5 |
 | int8 codes read + packed Float32 originals read + int8 scan + rerank | 367.6 |
 | reference: current live scan, 100k individual object records (Chrome 155, this VM) | 6,255.9 |
 
 ([packed-read-2026-10-12.md](packed-read-2026-10-12.md) measured the individual-record scan; that
 is a different query path, cited as the existing published number rather than re-measured here.)
-At a **bounded** rerank the picture changes: with 100 candidates (100 gets, ~47 ms) the composed
-int8 path is 31.6 + 35.5 + 47 ≈ **114 ms**. int8 recall@10 at budget 100 was 1.000 on all seven
+At a **bounded** rerank the picture changes: with 100 candidates (100 gets, ~47 ms, the same
+unpipelined upper bound) the composed int8 path is 31.6 + 35.5 + 47 ≈ **114 ms**. int8 recall@10 at budget 100 was 1.000 on all seven
 corpora, so that composition is the one plausible benefit this work supports — and it is a
 composition, so it needs an end-to-end measurement before anyone builds on it.
 
