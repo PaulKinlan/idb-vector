@@ -1,0 +1,201 @@
+{
+  "observedAt": "2026-10-12T21:42:09.395Z",
+  "commit": "3005c4c7bf7fa4f661e00878634a83f890019e0a",
+  "diff": "",
+  "browser": {
+    "protocolVersion": "1.3",
+    "product": "Chrome/155.0.8059.39",
+    "revision": "@3ff7ac5a9224be9156d7f8703a06e22890aafd34",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+    "jsVersion": "15.5.35.20"
+  },
+  "cpu": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
+  "load": [
+    8.68,
+    7.17,
+    5.33
+  ],
+  "conditions": "One timed query per (corpus, query, budget): read the code record and eligibility mask, scan the int8 codes, fetch the top-N originals by key in a single readonly transaction, rerank exactly in Float64. Originals are stored as 100,000 individual { id, embedding } records (Float64Array), the codes as one packed record; both in one fresh database per corpus, writes completed before any timing. Oracles are computed from the resident vectors. Cold is the first query of the first repetition, warm medians cover the rest; 3 order-rotated repetitions (2 for the 384-dimension corpus).",
+  "nodeCrosscheck": {
+    "buildCodeRecordRevision": 1,
+    "fetchedRerankLength": 10
+  },
+  "results": [
+    {
+      "name": "uniform-100k-128",
+      "count": 100000,
+      "dims": 128,
+      "seeds": 42,
+      "budgets": [
+        100,
+        300
+      ],
+      "queries": 10,
+      "repetitions": 3,
+      "writeMs": 28977.69999999553,
+      "bytes": {
+        "rows": 102400000,
+        "packedF32": 51200000,
+        "codes": 13201024,
+        "mask": 100000
+      },
+      "sideStore": {
+        "codesReadMsMedian": 75.39999999850988,
+        "scanMsMedian": 48.899999998509884,
+        "fetchMsMedian": {
+          "100": 10.599999994039536,
+          "300": 25.399999998509884
+        },
+        "rerankMsMedian": {
+          "100": 0,
+          "300": 0.10000000149011612
+        },
+        "endToEndMsMedian": {
+          "100": 126.20000000298023,
+          "300": 166.29999999701977
+        },
+        "coldMs": {
+          "100": 193.39999999850988,
+          "300": 248
+        },
+        "singleQueryMs": 141.90000000596046,
+        "recallAt10Mean": {
+          "100": 1,
+          "300": 1
+        },
+        "candidateCeilingMean": {
+          "100": 1,
+          "300": 1
+        }
+      },
+      "packedExact": {
+        "readMsMedian": 281.69999999552965,
+        "scanMsMedian": 58.600000001490116,
+        "endToEndMsMedian": 340.29999999701977
+      },
+      "batchedExact": {
+        "queries": 1,
+        "endToEndMs": 3101.10000000149
+      },
+      "fetchedRowsVerified": [
+        {
+          "id": 84984,
+          "dimensions": 128,
+          "sameAsResident": true
+        },
+        {
+          "id": 84984,
+          "dimensions": 128,
+          "sameAsResident": true
+        },
+        {
+          "id": 51563,
+          "dimensions": 128,
+          "sameAsResident": true
+        },
+        {
+          "id": 51563,
+          "dimensions": 128,
+          "sameAsResident": true
+        }
+      ],
+      "predicate": {
+        "eligibleRows": 1000,
+        "selectivity": 0.01,
+        "scanMsMedian": 2,
+        "fetchMsMedian": 27.600000001490116,
+        "endToEndMsMedian": 87,
+        "recallAt10Mean": 1,
+        "candidateCeilingMean": 1,
+        "budget": 300
+      },
+      "revision": {
+        "deletedRows": 25000,
+        "currentRevision": 2,
+        "currentRecallAt10Mean": 1,
+        "staleRecallAt10Mean": 1,
+        "missingRecordsInCurrentFetch": 0,
+        "missingRecordsInStaleFetch": 772
+      }
+    },
+    {
+      "name": "uniform-100k-384",
+      "count": 100000,
+      "dims": 384,
+      "seeds": 43,
+      "budgets": [
+        100,
+        300
+      ],
+      "queries": 10,
+      "repetitions": 2,
+      "writeMs": 48171.10000000149,
+      "bytes": {
+        "rows": 307200000,
+        "packedF32": 153600000,
+        "codes": 38803072,
+        "mask": 100000
+      },
+      "sideStore": {
+        "codesReadMsMedian": 327.5,
+        "scanMsMedian": 192.20000000298023,
+        "fetchMsMedian": {
+          "100": 38.70000000298023,
+          "300": 101.5
+        },
+        "rerankMsMedian": {
+          "100": 0.10000000149011612,
+          "300": 0.30000000447034836
+        },
+        "endToEndMsMedian": {
+          "100": 586.0999999940395,
+          "300": 661.8000000044703
+        },
+        "coldMs": {
+          "100": 1386.3000000044703,
+          "300": 1148.5
+        },
+        "singleQueryMs": 2212.10000000149,
+        "recallAt10Mean": {
+          "100": 1,
+          "300": 1
+        },
+        "candidateCeilingMean": {
+          "100": 1,
+          "300": 1
+        }
+      },
+      "packedExact": {
+        "readMsMedian": 1369,
+        "scanMsMedian": 159.39999999850988,
+        "endToEndMsMedian": 1528.3999999985099
+      },
+      "batchedExact": {
+        "queries": 1,
+        "endToEndMs": 8965.69999999553
+      },
+      "fetchedRowsVerified": [
+        {
+          "id": 14740,
+          "dimensions": 384,
+          "sameAsResident": true
+        },
+        {
+          "id": 14740,
+          "dimensions": 384,
+          "sameAsResident": true
+        },
+        {
+          "id": 3995,
+          "dimensions": 384,
+          "sameAsResident": true
+        },
+        {
+          "id": 3995,
+          "dimensions": 384,
+          "sameAsResident": true
+        }
+      ]
+    }
+  ]
+}

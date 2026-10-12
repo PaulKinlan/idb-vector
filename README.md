@@ -304,7 +304,12 @@ trees, conditions, raw evidence, correctness findings and the Beads improvement 
 Compact candidate passes (int8, 1-bit sign, coarse cosine buckets) and the IndexedDB read leg a
 side-store would add are measured against that same exact oracle in
 [the compact-pass analysis](reports/quantized-candidate-pass.md), reproducible with
-`node tools/evaluate-quantized-pass.mjs`; none of them is implemented in the library.
+`node tools/evaluate-quantized-pass.mjs`; none of them is implemented in the library. The int8
+code side-store is then measured end to end as a single query — codes read, codes scanned, top-N
+originals fetched by key, exact rerank — in
+[the side-store query measurement](reports/side-store-query.md)
+(`node tools/evaluate-side-store-query.mjs`, `IDB_KUC9_SMOKE=1` for a seconds-long version), which
+is also research only.
 The demonstration uses disposable databases and can consume significant space at 100k
 vectors; see the analysis for cleanup and unverified boundaries.
 
