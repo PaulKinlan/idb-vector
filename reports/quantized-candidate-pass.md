@@ -204,7 +204,7 @@ snapshot and scanning exactly, and against 6,255.9 ms for the current live indiv
 on this VM; int8 recall@10 at budget 100 was 1.000 on every corpus here. It must still be measured
 as one query — codes written to IndexedDB, read, scanned, originals fetched, reranked, timed as a
 whole — at 100k × 128 and 100k × 384, and it must not replace exact rerank. Tracked as
-`idb-vector-kuc.8`.
+`idb-vector-kuc.9`.
 
 Storage a side-store would add to 100k × 128: 12.8 MB of int8 codes beside the 51.2 MB of
 originals (25%), plus a per-row code update of 5–323 µs and a revision stamp so a query cannot mix
