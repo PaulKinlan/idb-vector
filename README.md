@@ -178,6 +178,28 @@ refused: it visits one record once per matching entry, which would rank that rec
 below the store size is the point of an index. An index or range restricts the corpus, so fewer
 than `limit` results only means "fewer matches" when `fullScanRequired` is `true`.
 
+### Eligibility, thresholds and what a candidate query promises
+
+A candidate query answers one question exactly: **the top-k of the records its candidate spec
+selected**, by cosine similarity. That is not the same claim as "the top-k of the store".
+
+- `threshold` (a cosine similarity in `[-1, 1]`, default none) keeps only records whose similarity
+is `>= threshold`. It is applied **before** truncation to `limit`, so a result set shorter than
+`limit` always means the eligible set itself holds fewer than `limit` records, never that a
+better-scoring eligible record was dropped. A value outside `[-1, 1]` is refused instead of
+silently returning nothing, and an invalid one rejects with `TypeError`/`RangeError`.
+- `info.recordsScored` is that eligible count: the records that passed the predicate and the
+threshold and were ranked. `results.length` is `min(limit, recordsScored)`.
+- `info.recordsRead === 0` means the candidate spec read nothing at all; `recordsRead > 0` with
+`recordsScored === 0` means candidates existed and **none** of them was eligible. Those are
+different answers and are reported separately.
+- **Exactness scope.** With `fullScanRequired: true` every record in the store was a candidate, so
+the result is the exact global eligible top-k. With `mode: "index"` or `mode: "store-range"` the
+result is exact only **within the records that spec read**: a record with no value at the indexed
+field, or outside the key range, is not a candidate, and the library cannot know whether a
+different predicate would have accepted it. Exact reranking of a pruned candidate set is not exact
+global retrieval, and this library does not label it as such.
+
 ## Optional packed snapshots (new API)
 
 Default `query()` still scans IndexedDB and sees writes from other connections.
