@@ -343,7 +343,6 @@ try {
           fetchMsMedian: Object.fromEntries(spec.budgets.map(n => [n, median(perBudget[n].fetch)])),
           rerankMsMedian: Object.fromEntries(spec.budgets.map(n => [n, median(perBudget[n].rerank)])),
           endToEndMsMedian: Object.fromEntries(spec.budgets.map(n => [n, median(perBudget[n].endToEnd)])),
-          coldMs: Object.fromEntries(spec.budgets.map(n => [n, perBudget[n].endToEnd[0]])),
           warmOnlyEndToEndMsMedian: Object.fromEntries(spec.budgets.map(n => [n, median(perBudget[n].endToEnd.slice(1))])),
           perLeg: {
             codesRead: firstRead(legs.codesRead),
@@ -375,7 +374,7 @@ try {
         let storedMaskBytesDiffering = 0;
         for (let id = 0; id < count; id++) if ((storedMask[id] ? 1 : 0) !== (mask[id] ? 1 : 0)) storedMaskBytesDiffering++;
         const legsPredicate = { maskRead: [], scan: [], fetch: [], rerank: [], endToEnd: [], whole: [], recall: [], ceiling: [], withinMask: [] };
-        const legsExactEligible = { maskRead: [], fetch: [], rerank: [], endToEnd: [], whole: [], recall: [], withinMask: [] };
+        const legsExactEligible = { eligibleIdRead: [], fetch: [], rerank: [], endToEnd: [], whole: [], recall: [], withinMask: [] };
         const legsPackedMasked = { read: [], maskRead: [], scan: [], endToEnd: [], whole: [], recall: [], withinMask: [] };
         for (let rep = 0; rep < spec.repetitions; rep++) for (const query of queries) {
           const q = queries.indexOf(query);
@@ -400,16 +399,19 @@ try {
           legsPredicate.whole.push(sideWhole.ms);
           // (ii) exact over the eligible originals: read the stored mask, take the eligible ids from
           // THAT value, fetch all of them in one transaction, rank exactly in Float64.
-          const exactMask = await time(readStoredMask);
-          const exactEligible = [];
-          for (let id = 0; id < count; id++) if (exactMask.value[id]) exactEligible.push(id);
-          const exactFetch = await time(() => fetchByIds(exactEligible));
+          const exactMask = await time(async () => {
+            const mk = await readStoredMask();
+            const eligible = [];
+            for (let id = 0; id < count; id++) if (mk[id]) eligible.push(id);
+            return { mk, eligible };
+          });
+          const exactFetch = await time(() => fetchByIds(exactMask.value.eligible));
           const exactRerank = await time(() => rerankFetched(exactFetch.value, query, 10, dims));
-          legsExactEligible.maskRead.push(exactMask.ms);
+          legsExactEligible.eligibleIdRead.push(exactMask.ms);
           legsExactEligible.fetch.push(exactFetch.ms); legsExactEligible.rerank.push(exactRerank.ms);
           legsExactEligible.endToEnd.push(exactMask.ms + exactFetch.ms + exactRerank.ms);
           legsExactEligible.recall.push(m.recallAtK(exactRerank.value, oracleEligible[q]));
-          legsExactEligible.withinMask.push(exactRerank.value.every(row => exactMask.value[row.index] === 1));
+          legsExactEligible.withinMask.push(exactRerank.value.every(row => exactMask.value.mk[row.index] === 1));
           const exactWhole = await time(async () => {
             const mk = await readStoredMask();
             const eligible = [];
@@ -508,11 +510,13 @@ try {
           },
           exactEligibleByKey: {
             fetchMsMedian: median(legsExactEligible.fetch), rerankMsMedian: median(legsExactEligible.rerank),
+            eligibleIdReadMsMedian: median(legsExactEligible.eligibleIdRead),
             endToEndMsMedian: median(legsExactEligible.endToEnd),
             warmOnlyEndToEndMsMedian: median(legsExactEligible.endToEnd.slice(1)),
             wholeBlock: warmRepeats(legsExactEligible.whole),
             perLeg: {
-              maskRead: firstRead(legsExactEligible.maskRead), fetch: firstRead(legsExactEligible.fetch),
+              eligibleIdRead: firstRead(legsExactEligible.eligibleIdRead),
+              fetch: firstRead(legsExactEligible.fetch),
               rerank: firstRead(legsExactEligible.rerank),
             },
             recallAt10Mean: mean(legsExactEligible.recall),
