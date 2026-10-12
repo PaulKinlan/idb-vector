@@ -261,24 +261,25 @@ An **opt-in, caller-owned side-store** speeds up non-resident workloads where re
 - **Exact ranking contract:** Int8 codes order candidates only. Final scores are always computed via an exact Float64 rerank of fetched original records; the API never returns approximate scores.
 - **Exact key identity:** Results carry the store's exact IndexedDB primary key (`cursor.primaryKey`), matching out-of-line stores, custom `keyPath`, or auto-incrementing keys.
 - **Bounded single-transaction fetch:** Fetches the top-N candidate originals (default `candidateBudget <= 300`) in a single readonly IndexedDB transaction (0.085-0.106 ms per get batched vs 0.47 ms serial).
-- **Revision pinning & fail-safe:** Every original record must carry a `revision` property matching the pinned revision (`buildSideStore` throws if any record lacks it). If an original record is missing, deleted, or its revision mismatches during query, `querySideStore` either falls back to an exact scan (when `fallback: true`) or throws an error (0 dead rows acceptable on current revision).
+- **Store-wide epoch pinning & fail-safe:** A side-store records the corpus-wide epoch when built via a mandatory `getEpoch` provider. At query time, `querySideStore` strictly verifies the pinned epoch against the live store via `getEpoch`, rejecting with an error on store advancement, mismatch, or missing provider (ADR 0001 Invariants 7 & 8).
 - **Pre-filtering via `eligibleKeys`:** Arbitrary JS function predicates are forbidden on `querySideStore()` to prevent late-filter truncation (ADR 0001). Pre-filter candidates by passing an Array or Set of `eligibleKeys`, which filters candidates *before* the candidate budget is enforced.
 - **Unfiltered workloads only:** For selective filtered queries (e.g. 1% predicate), scanning the small eligible set of originals directly via `queryCandidates()` is faster (67.4 ms vs 72.3 ms with codes); do not use the side-store for selective filtered queries.
 - **Write and update costs:** A side-store adds storage (1 byte/dim per row + metadata) and an update cost (5-323 µs per row code re-quantization measured), in addition to the persistence of originals as individual records (which costs 29-48 s per 100k rows in IndexedDB).
 
 ```javascript
 // 1. Build the side-store into a caller-created object store (e.g. "codes")
-// Requires source records to carry the matching revision property
-const stats = await db.buildSideStore({ sideStore: "codes", revision: 1 });
+// Requires a mandatory getEpoch provider for corpus-wide epoch pinning (ADR 0001)
+const getEpoch = async (db) => 1; // or read your application's corpus epoch
+const stats = await db.buildSideStore({ sideStore: "codes", getEpoch });
 console.log(`Built ${stats.count} codes (${(stats.bytes / 1024).toFixed(1)} KB) in ${stats.writeMs.toFixed(1)} ms`);
 
 // 2. Query with bounded exact rerank
 const { results, info } = await db.querySideStore(queryVector, {
   sideStore: "codes",
-  revision: 1,
+  epoch: 1,
+  getEpoch,
   candidateBudget: 150, // default <= 300
   limit: 10,
-  fallback: true, // safe exact fallback if revision mismatches
 });
 // results contain { key, object, similarity } with exact Float64 scores from reranked originals
 ```

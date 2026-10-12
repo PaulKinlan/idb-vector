@@ -577,7 +577,7 @@ class VectorDB {
     });
 
     const codeRecord = buildCodeRecord(records, {
-      epoch,
+      epoch: targetEpoch,
       vectorPath,
       keys,
     });
@@ -592,8 +592,8 @@ class VectorDB {
 
     const writeMs = performance.now() - t0;
     return {
-      epoch,
-      revision: epoch,
+      epoch: targetEpoch,
+      revision: targetEpoch,
       count: codeRecord.count,
       dims: codeRecord.dims,
       bytes: codeRecord.bytes,
