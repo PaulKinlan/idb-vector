@@ -230,6 +230,41 @@ try {
         await complete(tx);
         return value;
       };
+      // The measured legs, as functions. The negative control below runs THESE, against a mutated
+      // stored mask, so a leg that reverted to the resident array cannot pass (review finding 1).
+      const codesLegs = async (query, filterFromStoredMask) => {
+        const read = await time(readCodeRecord);
+        const scan = await time(() => m.sq8Scan(null, count, dims, read.value.rec, read.value.rec.norms, query, keep, filterFromStoredMask ? read.value.mask : null));
+        return { read, scan, ids: scan.value.map(row => row.index) };
+      };
+      const fetchLeg = async (ids, query) => {
+        const fetch = await time(() => fetchByIds(ids));
+        const rerank = await time(() => rerankFetched(fetch.value, query, 10, dims));
+        return { fetch, rerank, top10: rerank.value };
+      };
+      const exactLeg = async query => {
+        // Deriving the eligible ids from the stored mask is part of this leg's cost, not an untimed
+        // pre-step: the codes path's timed scan produces its candidate ids for the same reason.
+        const eligibleIdRead = await time(async () => {
+          const mk = await readStoredMask();
+          const eligible = [];
+          for (let id = 0; id < count; id++) if (mk[id]) eligible.push(id);
+          return { mk, eligible };
+        });
+        const fetched = await fetchLeg(eligibleIdRead.value.eligible, query);
+        return { eligibleIdRead, ...fetched };
+      };
+      const packedLeg = async (query, masked) => {
+        const read = await time(async () => {
+          const tx = db.transaction('packed');
+          const value = await request(tx.objectStore('packed').get('f32'));
+          await complete(tx);
+          return value;
+        });
+        const maskRead = masked ? await time(readStoredMask) : null;
+        const scan = await time(() => m.exactTopK(read.value, count, dims, query, 10, masked ? maskRead.value : null));
+        return { read, maskRead, scan, ids: scan.value.map(row => row.index), top10: scan.value };
+      };
       const scanRowsTop = (rows, query) => {
         let queryNorm = 0;
         for (let d = 0; d < dims; d++) queryNorm += query[d] * query[d];
@@ -255,22 +290,24 @@ try {
       let packedExactLegs = { read: [], scan: [] }, batchedExactMs = null;
 
       for (let rep = 0; rep < spec.repetitions; rep++) {
-        for (let q = 0; q < queries.length; q++) {
-          const query = queries[q];
-          const codesRead = await time(readCodeRecord);
-          const scan = await time(() => m.sq8Scan(null, count, dims, codesRead.value.rec, codesRead.value.rec.norms, query, keep, null));
+        // The query order rotates with each repetition: replaying the same order would re-read the same
+        // records in the same sequence, which is not what order-rotated repetitions are for.
+        const rotated = queries.map((_, i) => queries[(i + rep) % queries.length]);
+        let step = -1;
+        for (const query of rotated) {
+          step++;
+          const qi = queries.indexOf(query);
+          const { read: codesRead, scan, ids: candidateIds } = await codesLegs(query, false);
           legs.codesRead.push(codesRead.ms);
           legs.scan.push(scan.ms);
-          const candidateIds = scan.value.map(row => row.index);
           for (const budget of spec.budgets) {
             const ids = candidateIds.slice(0, budget);
-            const fetch = await time(() => fetchByIds(ids));
-            const rerank = await time(() => rerankFetched(fetch.value, query, 10, dims));
+            const { fetch, rerank } = await fetchLeg(ids, query);
             legs.fetch.push(fetch.ms); legs.rerank.push(rerank.ms);
             const slot = perBudget[budget];
             slot.fetch.push(fetch.ms); slot.rerank.push(rerank.ms);
-            slot.recall.push(m.recallAtK(rerank.value, oracle[q]));
-            slot.ceiling.push(m.candidateCeiling(ids, oracle[q]));
+            slot.recall.push(m.recallAtK(rerank.value, oracle[qi]));
+            slot.ceiling.push(m.candidateCeiling(ids, oracle[qi]));
             slot.endToEnd.push(codesRead.ms + scan.ms + fetch.ms + rerank.ms);
             // A whole-block observation for every query and budget, not one sample: read, scan,
             // key fetch and rerank inside a single timer (idb-vector-thu).
@@ -282,9 +319,9 @@ try {
             });
             slot.whole.push(whole.ms);
             slot.wholeRecall = slot.wholeRecall || [];
-            slot.wholeRecall.push(m.recallAtK(whole.value, oracle[q]));
+            slot.wholeRecall.push(m.recallAtK(whole.value, oracle[qi]));
             // The fetched originals must be the stored rows, not a stale or wrong-width record.
-            if (rep === 0 && q < 2) {
+            if (rep === 0 && step < 2) {
               const fetched = fetch.value.find(row => row && row.embedding);
               const expected = vectors.subarray(fetched.id * dims, (fetched.id + 1) * dims);
               let same = true;
@@ -297,9 +334,8 @@ try {
 
       // Path (a): the packed Float32 snapshot read plus the exact scan, timed per query.
       for (let rep = 0; rep < 2; rep++) for (const query of queries.slice(0, 3)) {
-        const read = await time(() => request(db.transaction('packed').objectStore('packed').get('f32')));
+        const { read, scan } = await packedLeg(query, false);
         packedExactLegs.read.push(read.ms);
-        const scan = await time(() => m.exactTopK(read.value, count, dims, query, 10, null));
         packedExactLegs.scan.push(scan.ms);
       }
       // Path (b): the library's batched page walk over individual records, one query.
@@ -376,14 +412,15 @@ try {
         const legsPredicate = { maskRead: [], scan: [], fetch: [], rerank: [], endToEnd: [], whole: [], recall: [], ceiling: [], withinMask: [] };
         const legsExactEligible = { eligibleIdRead: [], fetch: [], rerank: [], endToEnd: [], whole: [], recall: [], withinMask: [] };
         const legsPackedMasked = { read: [], maskRead: [], scan: [], endToEnd: [], whole: [], recall: [], withinMask: [] };
-        for (let rep = 0; rep < spec.repetitions; rep++) for (const query of queries) {
+        for (let rep = 0; rep < spec.repetitions; rep++) {
+          const rotated = queries.map((_, i) => queries[(i + rep) % queries.length]);
+          for (const query of rotated) {
           const q = queries.indexOf(query);
           // (i) side-store: read the code record and its mask, masked scan, fetch the top-300 by key, rerank.
-          const rec = await time(readCodeRecord);
-          const scan = await time(() => m.sq8Scan(null, count, dims, rec.value.rec, rec.value.rec.norms, query, keep, rec.value.mask));
-          const ids = scan.value.map(row => row.index).slice(0, 300);
-          const fetch = await time(() => fetchByIds(ids));
-          const rerank = await time(() => rerankFetched(fetch.value, query, 10, dims));
+          const codes = await codesLegs(query, true);
+          const rec = codes.read, scan = codes.scan;
+          const ids = codes.ids.slice(0, 300);
+          const { fetch, rerank } = await fetchLeg(ids, query);
           legsPredicate.maskRead.push(rec.ms); legsPredicate.scan.push(scan.ms);
           legsPredicate.fetch.push(fetch.ms); legsPredicate.rerank.push(rerank.ms);
           legsPredicate.endToEnd.push(rec.ms + scan.ms + fetch.ms + rerank.ms);
@@ -399,19 +436,12 @@ try {
           legsPredicate.whole.push(sideWhole.ms);
           // (ii) exact over the eligible originals: read the stored mask, take the eligible ids from
           // THAT value, fetch all of them in one transaction, rank exactly in Float64.
-          const exactMask = await time(async () => {
-            const mk = await readStoredMask();
-            const eligible = [];
-            for (let id = 0; id < count; id++) if (mk[id]) eligible.push(id);
-            return { mk, eligible };
-          });
-          const exactFetch = await time(() => fetchByIds(exactMask.value.eligible));
-          const exactRerank = await time(() => rerankFetched(exactFetch.value, query, 10, dims));
-          legsExactEligible.eligibleIdRead.push(exactMask.ms);
-          legsExactEligible.fetch.push(exactFetch.ms); legsExactEligible.rerank.push(exactRerank.ms);
-          legsExactEligible.endToEnd.push(exactMask.ms + exactFetch.ms + exactRerank.ms);
-          legsExactEligible.recall.push(m.recallAtK(exactRerank.value, oracleEligible[q]));
-          legsExactEligible.withinMask.push(exactRerank.value.every(row => exactMask.value.mk[row.index] === 1));
+          const exact = await exactLeg(query);
+          legsExactEligible.eligibleIdRead.push(exact.eligibleIdRead.ms);
+          legsExactEligible.fetch.push(exact.fetch.ms); legsExactEligible.rerank.push(exact.rerank.ms);
+          legsExactEligible.endToEnd.push(exact.eligibleIdRead.ms + exact.fetch.ms + exact.rerank.ms);
+          legsExactEligible.recall.push(m.recallAtK(exact.rerank.value, oracleEligible[q]));
+          legsExactEligible.withinMask.push(exact.rerank.value.every(row => exact.eligibleIdRead.value.mk[row.index] === 1));
           const exactWhole = await time(async () => {
             const mk = await readStoredMask();
             const eligible = [];
@@ -421,19 +451,12 @@ try {
           });
           legsExactEligible.whole.push(exactWhole.ms);
           // (iii) the packed Float32 record and the stored mask, each read from IndexedDB.
-          const packedRead = await time(async () => {
-            const tx = db.transaction('packed');
-            const value = await request(tx.objectStore('packed').get('f32'));
-            await complete(tx);
-            return value;
-          });
-          const packedMask = await time(readStoredMask);
-          const packedScan = await time(() => m.exactTopK(packedRead.value, count, dims, query, 10, packedMask.value));
-          legsPackedMasked.read.push(packedRead.ms); legsPackedMasked.maskRead.push(packedMask.ms);
-          legsPackedMasked.scan.push(packedScan.ms);
-          legsPackedMasked.endToEnd.push(packedRead.ms + packedMask.ms + packedScan.ms);
-          legsPackedMasked.recall.push(m.recallAtK(packedScan.value, oracleEligible[q]));
-          legsPackedMasked.withinMask.push(packedScan.value.every(row => packedMask.value[row.index] === 1));
+          const packed = await packedLeg(query, true);
+          legsPackedMasked.read.push(packed.read.ms); legsPackedMasked.maskRead.push(packed.maskRead.ms);
+          legsPackedMasked.scan.push(packed.scan.ms);
+          legsPackedMasked.endToEnd.push(packed.read.ms + packed.maskRead.ms + packed.scan.ms);
+          legsPackedMasked.recall.push(m.recallAtK(packed.scan.value, oracleEligible[q]));
+          legsPackedMasked.withinMask.push(packed.scan.value.every(row => packed.maskRead.value[row.index] === 1));
           const packedWhole = await time(async () => {
             const tx = db.transaction('packed');
             const rec2 = await request(tx.objectStore('packed').get('f32'));
@@ -442,50 +465,51 @@ try {
             return m.exactTopK(rec2, count, dims, query, 10, mk);
           });
           legsPackedMasked.whole.push(packedWhole.ms);
+          }
         }
 
-        // Negative control: store a DIFFERENT mask and run all three legs against it. Each leg derives
-        // its eligibility from whatever mask IndexedDB serves, so each must return a different top-10
-        // and nothing outside that mask. A leg that quietly used the resident array would come back
-        // identical to the baseline, which is the false-green this control exists to catch.
+        // Negative control. The stored mask record is OVERWRITTEN with a different mask, and the three
+        // measured leg functions above are then run again with no argument that could supply the
+        // resident array - they read whatever IndexedDB serves. A leg that had reverted to the
+        // resident mask would return its baseline top-10 and fail this. The original mask is restored
+        // afterwards, and the restore is verified, because the cold phase reads this same record in a
+        // fresh process.
         const probeMask = m.eligibleMask(count, id => id % 100 === 8);
-        const probeTx = db.transaction('codes', 'readwrite');
-        probeTx.objectStore('codes').put(probeMask, 'mask-probe');
-        await complete(probeTx);
-        const readProbeMask = async () => {
-          const tx = db.transaction('codes');
-          const value = await request(tx.objectStore('codes').get('mask-probe'));
-          await complete(tx);
-          return value;
-        };
         const probeQuery = queries[0];
         const probeOracle = m.exactTopK(vectors, count, dims, probeQuery, 10, probeMask);
-        const legTop10 = async mk => {
-          const { rec } = await readCodeRecord();
-          const codesIds = m.sq8Scan(null, count, dims, rec, rec.norms, probeQuery, keep, mk).map(row => row.index).slice(0, 300);
-          const codesTop = rerankFetched(await fetchByIds(codesIds), probeQuery, 10, dims).map(row => row.index);
-          const eligible = [];
-          for (let id = 0; id < count; id++) if (mk[id]) eligible.push(id);
-          const exactTop = rerankFetched(await fetchByIds(eligible), probeQuery, 10, dims).map(row => row.index);
-          const packedTx = db.transaction('packed');
-          const packedRec = await request(packedTx.objectStore('packed').get('f32'));
-          await complete(packedTx);
-          const packedTop = m.exactTopK(packedRec, count, dims, probeQuery, 10, mk).map(row => row.index);
-          return { codesTop, exactTop, packedTop };
-        };
-        const servedMask = await readProbeMask();
-        const probeServedMatches = servedMask.every((value, id) => (value ? 1 : 0) === (probeMask[id] ? 1 : 0));
-        const baselineTop = await legTop10(storedMask);
-        const probeTop = await legTop10(servedMask);
         const key = ids => [...ids].sort((a, b) => a - b).join(',');
         const oracleKey = key(probeOracle.map(row => row.index));
-        const maskProbe = { storedMaskBytesDiffering, probeEligibleRows: probeMask.reduce((sum, value) => sum + value, 0), probeServedMatchesStored: probeServedMatches, legs: {} };
+        const runLegs = async () => {
+          const codes = await codesLegs(probeQuery, true);
+          const codesFetch = await fetchLeg(codes.ids.slice(0, 300), probeQuery);
+          const exact = await exactLeg(probeQuery);
+          const packed = await packedLeg(probeQuery, true);
+          return { codesTop: codesFetch.top10.map(row => row.index), exactTop: exact.top10.map(row => row.index), packedTop: packed.top10.map(row => row.index) };
+        };
+        const writeMask = async value => {
+          const tx = db.transaction('codes', 'readwrite');
+          tx.objectStore('codes').put(value, 'mask');
+          await complete(tx);
+        };
+        const baselineTop = await runLegs();
+        await writeMask(probeMask);
+        const servedProbe = await readStoredMask();
+        const probeServedMatches = servedProbe.every((value, id) => (value ? 1 : 0) === (probeMask[id] ? 1 : 0));
+        const probeTop = await runLegs();
+        await writeMask(storedMask);
+        const restored = await readStoredMask();
+        const maskRestored = restored.every((value, id) => (value ? 1 : 0) === (storedMask[id] ? 1 : 0));
+        const maskProbe = {
+          storedMaskBytesDiffering, probeEligibleRows: probeMask.reduce((sum, value) => sum + value, 0),
+          probeServedMatchesStored: probeServedMatches, maskRestoredAfterProbe: maskRestored,
+          legs: {},
+        };
         for (const leg of ['codesTop', 'exactTop', 'packedTop']) {
           maskProbe.legs[leg] = {
             baselineTop10: key(baselineTop[leg]),
             probeTop10: key(probeTop[leg]),
             changedUnderProbeMask: key(baselineTop[leg]) !== key(probeTop[leg]),
-            probeWithinProbeMask: probeTop[leg].every(id => servedMask[id] === 1),
+            probeWithinProbeMask: probeTop[leg].every(id => probeMask[id] === 1),
             probeMatchesProbeOracle: key(probeTop[leg]) === oracleKey,
           };
         }
@@ -674,6 +698,7 @@ try {
       const probe = result.predicate.maskProbe;
       assert.equal(probe.storedMaskBytesDiffering, 0, 'the stored mask does not match the resident mask');
       assert.equal(probe.probeServedMatchesStored, true, 'the probe mask was not served back by IndexedDB');
+      assert.equal(probe.maskRestoredAfterProbe, true, 'the stored mask was not restored after the probe');
       assert.equal(probe.probeEligibleRows, smoke ? 20 : 1000);
       for (const [leg, check] of Object.entries(probe.legs)) {
         assert.equal(check.changedUnderProbeMask, true, `${leg} did not respond to a different stored mask`);
@@ -742,8 +767,8 @@ try {
     diff: execFileSync('git', ['diff', '--stat']).toString().trim(),
     browser: browserVersion,
     cpu: os.cpus()[0].model, load: os.loadavg(),
-    coldDefinition: 'A cold observation is a single query run in a NEW browser process on the profile the warm phase wrote: fresh process, fresh IndexedDB connection, no query timed before it in that process, and a query vector (corpus row 12345) that the warm loop never issued. It is not disk-cold - the bytes were written moments earlier and the OS page cache still holds them - so it is a process-cold and cache-first-read-cold value, nothing stronger.',
-    firstReadDefinition: 'perLeg firstReadMs is the first read of that record in the warm process, immediately after the corpus write: a cache-first read, NOT a cold one. No cold figure in this report is taken from the warm loop.',
+    coldDefinition: 'A cold observation is a single query run in a NEW browser process on the profile the warm phase wrote: fresh process, fresh IndexedDB connection, no query timed before it in that process, and a query vector the warm loop never issued. That vector is corpus row 12345, clamped to count - 1 for corpora smaller than that (the smoke corpus uses row 1999). It is not disk-cold - the bytes were written moments earlier and the OS page cache still holds them - so it is a process-cold and first-read value, nothing stronger.',
+    firstReadDefinition: 'perLeg.*.firstReadMs is the first sample of that series in the warm process (the first query of the first repetition) and nothing more: for codesRead and the mask reads it is the first read of that record in this process, for scan and rerank it is the first execution of that leg. It is NOT a cold measurement - the record was written moments earlier, so it is cache-first - and the N=300 fetch series follows the N=100 fetch inside the same query, so even its first sample is not a first fetch. No cold figure in this report is taken from the warm loop.',
     conditions: 'Warm phase: one timed query per (corpus, query, budget) - read the code record and the eligibility mask from IndexedDB, scan the int8 codes, fetch the top-N originals by key in a single readonly transaction, rerank exactly in Float64. Originals are stored as 100,000 individual { id, embedding } records (Float64Array), the codes as one packed record; one fresh database per corpus, writes completed before any timing. Oracles are computed from the resident vectors. 3 order-rotated repetitions at 128 dimensions and 2 at 384. The 1%-predicate leg is a paired comparison inside the warm run: the int8 codes path, an exact path over the eligible originals fetched by key, and the packed Float32 record plus a masked exact scan - every one of them deriving eligibility from the stored mask record, with a negative control that re-runs all three legs against a different stored mask. The cold phase then repeats the unpredicated codes and packed paths (and the masked codes path) in fresh browser processes.',
     nodeCrosscheck: { buildCodeRecordRevision: tinyRecord.revision, fetchedRerankLength: rerankFetched(tinyIds.map(id => ({ id, embedding: Float64Array.from(tiny.vectors.subarray(id * 32, (id + 1) * 32)) })), tiny.queries[0], 10, 32).length },
     results,
