@@ -121,6 +121,11 @@ refused: cosine similarity against a zero vector is `NaN`, and a stored `NaN` sc
 ahead of real matches.
 - **`limit`** must be a positive integer. Omitting it — or passing `{}`, as in
 `query([1, 0], {})` — means `limit: 10`, never "no limit".
+- **Options are an allow-list.** `query()` accepts `limit` and `threshold` and **refuses any other
+option by name** — `query(vector, { predicate: fn })` is a `TypeError`, not an unfiltered ranking.
+When the refused option names a candidate source (`index`, `range` or `predicate`) the message says
+to use `queryCandidates()` instead. A query that looks filtered must never silently return
+unfiltered results (`idb-vector-5a8`).
 - **Dimensions.** Every vector in one object store must have the same length as the vectors you query
 it with. A record whose vector is present but has another length (or is otherwise invalid) makes
 `query()` **reject and name that record's key**; it is never silently skipped. Fix the record or
@@ -174,9 +179,40 @@ range), where a predicate cannot reduce the reads; `info.reason` says which case
 - A record with no value at the indexed field is absent from that index, so it is not a candidate.
 Use a predicate without an index when such records must be considered. A `multiEntry` index is
 refused: it visits one record once per matching entry, which would rank that record more than once.
-- `recordsRead` below `recordsScored` means the predicate removed candidates; a `recordsRead` far
+- `recordsScored` below `recordsRead` means the predicate removed candidates; a `recordsRead` far
 below the store size is the point of an index. An index or range restricts the corpus, so fewer
 than `limit` results only means "fewer matches" when `fullScanRequired` is `true`.
+
+### Eligibility, thresholds and what a candidate query promises
+
+A candidate query answers one question exactly: **the top-k of the records its candidate spec
+selected**, by cosine similarity. That is not the same claim as "the top-k of the store".
+
+- `threshold` (a cosine similarity in `[-1, 1]`, default none) keeps only records whose similarity
+is `>= threshold`. It is applied **before** truncation to `limit`, so a result set shorter than
+`limit` always means the eligible set itself holds fewer than `limit` records, never that a
+better-scoring eligible record was dropped. Omit it for no threshold: `null` is refused rather
+than read as "no threshold" (the same rule as `limit: null`), so `query()` and `queryCandidates()`
+accept the same values and a threshold a caller computed as `null` by mistake is never dropped
+silently. A value outside `[-1, 1]` is refused too, instead of silently returning nothing, and an
+invalid one rejects with `TypeError`/`RangeError`.
+- `info.recordsScored` is that eligible count: the records that passed the predicate and the
+threshold and were ranked. `results.length` is `min(limit, recordsScored)`.
+- **Ties.** Records with equal similarity keep the order they were read in: store key order for a
+full scan, index order for an index read. Truncation to `limit` therefore keeps the earliest-read
+records of a tie group, so the same store and the same spec always produce the same top-k.
+- `info.recordsRead === 0` means the candidate spec read nothing at all; `recordsRead > 0` with
+`recordsScored === 0` means candidates existed and **none** of them was eligible. Those are
+different answers and are reported separately.
+- **Exactness scope.** `info.candidateSetComplete` is the promise field: `true` only when every
+record in the store was a candidate, so the result is the **exact global eligible top-k**. With
+`mode: "index"` or `mode: "store-range"` it is `false`: the result is exact only **within the
+records that spec read**, because a record with no value at the indexed field, or outside the key
+range, is not a candidate and the library cannot know whether a different predicate would have
+accepted it. Exact reranking of a pruned candidate set is not exact global retrieval, and this
+library does not label it as such. `info.fullScanRequired` states the same thing from the cost
+side ("did this spec force a full read?") and is `true` under exactly the same condition today;
+they are separate fields because a future bounded source may be exhaustive on purpose.
 
 ## Optional packed snapshots (new API)
 

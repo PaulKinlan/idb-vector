@@ -61,6 +61,19 @@ function assertLimit(limit) {
   return limit;
 }
 
+// A similarity threshold is applied BEFORE top-k truncation, so a result set shorter than `limit`
+// always means the eligible set itself holds fewer than `limit` records. Cosine similarity lies in
+// [-1, 1], so a threshold outside that range could only ever empty the result silently.
+function assertThreshold(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError(`threshold must be a finite number; got ${describe(value)}`);
+  }
+  if (value < -1 || value > 1) {
+    throw new RangeError(`threshold must be a cosine similarity between -1 and 1; got ${describe(value)}`);
+  }
+  return value;
+}
+
 // --- candidate selection -----------------------------------------------------------------------
 // `query()` ranks every record. `queryCandidates()` ranks a candidate set chosen by the CALLER's
 // own IndexedDB schema (an index name and/or an IDBKeyRange) plus an optional JS predicate. The
@@ -68,21 +81,27 @@ function assertLimit(limit) {
 // the available indexes, never a silent full scan. A candidate spec that cannot narrow the read
 // discloses `fullScanRequired`, because "fewer results than asked" must not be read as "no more
 // matches" when the corpus was restricted.
-const CANDIDATE_OPTION_KEYS = ["limit", "index", "range", "predicate"];
+const CANDIDATE_OPTION_KEYS = ["limit", "threshold", "index", "range", "predicate"];
+const QUERY_OPTION_KEYS = ["limit", "threshold"];
 const NO_CANDIDATES = { index: null, range: null, predicate: null };
 
 function normalizeCandidateOptions(options) {
-  if (options === undefined || options === null) return { limit: 10, candidates: { ...NO_CANDIDATES } };
+  if (options === undefined || options === null) return { limit: 10, threshold: null, candidates: { ...NO_CANDIDATES } };
   if (!isRecord(options)) {
-    throw new TypeError(`queryCandidates() options must be an object such as { index: "category", range: IDBKeyRange.only(7) }; got ${describe(options)}`);
+    throw new TypeError(`queryCandidates() options must be an object such as { index: "category", threshold: 0.5 }; got ${describe(options)}`);
   }
   for (const key of Object.keys(options)) {
     if (CANDIDATE_OPTION_KEYS.includes(key) === false) {
       throw new TypeError(`queryCandidates() option ${describe(key)} is not supported; supported options are ${CANDIDATE_OPTION_KEYS.join(", ")}`);
     }
   }
-  const { limit = 10, index = null, range = null, predicate = null } = options;
+  const { limit = 10, threshold = null, index = null, range = null, predicate = null } = options;
   assertLimit(limit);
+  // `threshold` is a scalar option like `limit`, not one of the candidate spec fields that document
+  // null as "none": omit it for no threshold. Accepting null here would silently drop a threshold
+  // that a caller computed as null by mistake (query() already refuses it), and the two entry points
+  // must agree on what they accept.
+  if (options.threshold !== undefined) assertThreshold(threshold);
   if (index !== null && (typeof index !== "string" || index.length === 0)) {
     throw new TypeError(`queryCandidates() index must be a non-empty string naming one index on the object store; got ${describe(index)}`);
   }
@@ -92,7 +111,7 @@ function normalizeCandidateOptions(options) {
   if (predicate !== null && typeof predicate !== "function") {
     throw new TypeError(`queryCandidates() predicate must be a function of one record returning a boolean; got ${describe(predicate)}`);
   }
-  return { limit, candidates: { index, range, predicate } };
+  return { limit, threshold, candidates: { index, range, predicate } };
 }
 
 // Resolves a candidate spec against the caller's store. The store-dependent check lives here
@@ -222,7 +241,6 @@ async function create(options) {
         return;
       }
       resolve(db);
-      resolve(db);
     };
 
     request.onerror = (event) => {
@@ -339,32 +357,44 @@ class VectorDB {
     return committed(transaction, request);
   }
 
-  // Return the most similar items up to [limit] items (default 10).
+  // Return the most similar items up to [limit] items (default 10), optionally above [threshold].
   async query(queryVector, options) {
     if (options !== undefined && options !== null && !isRecord(options)) {
       throw new TypeError(`query() options must be an object such as { limit: 10 }; got ${describe(options)}`);
     }
 
+    // query() accepts an allow-list. Ignoring an unknown key is how a caller ends up believing they
+    // filtered a query that never was: `query(vector, { predicate: fn })` would return an unfiltered
+    // ranking that looks filtered.
+    for (const key of Object.keys(options ?? {})) {
+      if (QUERY_OPTION_KEYS.includes(key)) continue;
+      const candidateHint = CANDIDATE_OPTION_KEYS.includes(key)
+        ? " Use queryCandidates() to select candidates with an index, key range or predicate."
+        : "";
+      throw new TypeError(`query() option ${describe(key)} is not supported; query() options are ${QUERY_OPTION_KEYS.join(" and ")}.${candidateHint}`);
+    }
+
     const limit = assertLimit(options?.limit === undefined ? 10 : options.limit);
+    const threshold = options?.threshold === undefined ? null : assertThreshold(options.threshold);
 
     assertVector(queryVector, "query() vector");
 
-    return (await this.#rank(queryVector, limit, NO_CANDIDATES)).results;
+    return (await this.#rank(queryVector, limit, NO_CANDIDATES, threshold)).results;
   }
 
   // Exact ranking over a candidate set the caller selects from THEIR schema, with disclosure of
   // what was read. See README.md, "Candidate queries".
   async queryCandidates(queryVector, options) {
-    const { limit, candidates } = normalizeCandidateOptions(options);
+    const { limit, threshold, candidates } = normalizeCandidateOptions(options);
 
     assertVector(queryVector, "queryCandidates() vector");
 
-    return this.#rank(queryVector, limit, candidates);
+    return this.#rank(queryVector, limit, candidates, threshold);
   }
 
   // `candidates` names the record source: `{ index: null, range: null, predicate: null }` is the
   // full exact scan that query() uses. Returns `{ results, info }`; query() drops `info`.
-  async #rank(queryVector, limit, candidates) {
+  async #rank(queryVector, limit, candidates, threshold) {
     const db = await this.#connection();
     const storeName = this.#objectStore;
     const vectorPath = this.#vectorPath;
@@ -387,6 +417,12 @@ class VectorDB {
         upperOpen: selection.range.upperOpen,
       },
       predicate: selection.predicate !== null,
+      threshold,
+      // The promise, not the cost: true only when every record in the store was a candidate, so the
+      // returned top-k is the exact global eligible top-k. `fullScanRequired` states whether the
+      // spec forced that read; today the two are true under the same condition, and they are
+      // separate fields because a future bounded source may be exhaustive on purpose (kuc.6).
+      candidateSetComplete: selection.fullScanRequired === true,
       recordsRead: 0,
       recordsScored: 0,
       fullScanRequired: selection.fullScanRequired,
@@ -442,6 +478,13 @@ class VectorDB {
         const similarity = cosineSimilarity(queryVector, vector);
         if (!Number.isFinite(similarity)) {
           reject(storedVectorError(vectorPath, key, vector, queryVectorLength));
+          return;
+        }
+
+        // Threshold before truncation: dropping low scores afterwards would leave fewer than `limit`
+        // results while more eligible records existed.
+        if (threshold !== null && similarity < threshold) {
+          cursor.continue();
           return;
         }
 

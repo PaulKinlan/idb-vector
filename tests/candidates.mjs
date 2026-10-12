@@ -266,7 +266,8 @@ try {
     // (b) Unknown option key
     await refusal('unknown option key rejected',
       () => shapeDB.queryCandidates(testQVec, { unsupportedOption: true }),
-      { type: TypeError, includes: ['queryCandidates() option "unsupportedOption" is not supported', 'limit, index, range, predicate'] });
+      // Each supported option must be named, without pinning the incidental order: kuc.3 added threshold.
+      { type: TypeError, includes: ['queryCandidates() option "unsupportedOption" is not supported', 'limit', 'threshold', 'index', 'range', 'predicate'] });
 
     // (c) Non-string index
     await refusal('numeric index rejected',
