@@ -254,6 +254,35 @@ reject with `InvalidStateError`. An external version upgrade also closes the con
 on `versionchange`, so the application should create a new instance to use the new version.
 See [format, resource bounds, evidence and caveats](reports/packed-snapshot.md).
 
+## Optional int8 code side-store with bounded exact rerank (new API)
+
+An **opt-in, caller-owned side-store** speeds up non-resident workloads where reading original records from disk per query is the primary bottleneck. At 100k records x 128 dimensions, int8 codes cost 25% of the original Float32 bytes (12.8 MB vs 51.2 MB), cutting query read time by 2.6-2.7x (126.2 ms vs 340.3 ms for packed snapshot; 13.5-24.6x faster than individual record walk) at recall@10 1.000 with a bounded candidate budget of 100-300 candidates (see ADR 0001).
+
+- **Exact ranking contract:** Int8 codes order candidates only. Final scores are always computed via an exact Float64 rerank of fetched original records; the API never returns approximate scores.
+- **Exact key identity:** Results carry the store's exact IndexedDB primary key (`cursor.primaryKey`), matching out-of-line stores, custom `keyPath`, or auto-incrementing keys.
+- **Bounded single-transaction fetch:** Fetches the top-N candidate originals (default `candidateBudget <= 300`) in a single readonly IndexedDB transaction (0.085-0.106 ms per get batched vs 0.47 ms serial).
+- **Revision pinning & fail-safe:** Every original record must carry a `revision` property matching the pinned revision (`buildSideStore` throws if any record lacks it). If an original record is missing, deleted, or its revision mismatches during query, `querySideStore` either falls back to an exact scan (when `fallback: true`) or throws an error (0 dead rows acceptable on current revision).
+- **Pre-filtering via `eligibleKeys`:** Arbitrary JS function predicates are forbidden on `querySideStore()` to prevent late-filter truncation (ADR 0001). Pre-filter candidates by passing an Array or Set of `eligibleKeys`, which filters candidates *before* the candidate budget is enforced.
+- **Unfiltered workloads only:** For selective filtered queries (e.g. 1% predicate), scanning the small eligible set of originals directly via `queryCandidates()` is faster (67.4 ms vs 72.3 ms with codes); do not use the side-store for selective filtered queries.
+- **Write and update costs:** A side-store adds storage (1 byte/dim per row + metadata) and an update cost (5-323 µs per row code re-quantization measured), in addition to the persistence of originals as individual records (which costs 29-48 s per 100k rows in IndexedDB).
+
+```javascript
+// 1. Build the side-store into a caller-created object store (e.g. "codes")
+// Requires source records to carry the matching revision property
+const stats = await db.buildSideStore({ sideStore: "codes", revision: 1 });
+console.log(`Built ${stats.count} codes (${(stats.bytes / 1024).toFixed(1)} KB) in ${stats.writeMs.toFixed(1)} ms`);
+
+// 2. Query with bounded exact rerank
+const { results, info } = await db.querySideStore(queryVector, {
+  sideStore: "codes",
+  revision: 1,
+  candidateBudget: 150, // default <= 300
+  limit: 10,
+  fallback: true, // safe exact fallback if revision mismatches
+});
+// results contain { key, object, similarity } with exact Float64 scores from reranked originals
+```
+
 ## Optional geometry diagnostic and whitening (new API)
 
 ```javascript
