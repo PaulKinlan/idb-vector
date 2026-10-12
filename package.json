@@ -8,7 +8,7 @@
     "url": "https://github.com/PaulKinlan/idb-vector"
   },
   "scripts": {
-    "test": "node tests/browser.mjs && node tests/validation.mjs && node tests/candidates.mjs && node tests/eligibility.mjs && node tests/paged-scan.mjs",
+    "test": "node tests/browser.mjs && node tests/validation.mjs && node tests/candidates.mjs && node tests/eligibility.mjs && node tests/paged-scan.mjs && node tests/cdp-orphans.mjs",
     "test:fast": "node --test tests/unit/*.test.mjs",
     "start": "serve",
     "demo": "node tools/demo-server.mjs",
@@ -24,6 +24,7 @@
     "test:eligibility": "node tests/eligibility.mjs",
     "test:paged": "node tests/paged-scan.mjs",
     "measure:paged": "node tests/paged-scan.mjs --measure",
+    "test:cdp": "node tests/cdp-orphans.mjs",
     "measure:candidates": "node tests/candidates.mjs --measure",
     "measure:packed": "node tests/packed-read.mjs",
     "build:research": "node tools/build-research.mjs",
