@@ -22,7 +22,10 @@ const specs = process.env.IDB_KUC9_SMOKE
     { name: 'uniform-100k-384', count: 100000, dims: 384, seed: 43, budgets: [100, 300], repetitions: 2 },
   ];
 const smoke = Boolean(process.env.IDB_KUC9_SMOKE);
-const jsonPath = smoke ? 'reports/side-store-query-smoke.json' : 'reports/side-store-query.json';
+// A smoke run writes to a temp path: it is a check of the driver, and a tracked write during a gate
+// records STALE even when the bytes are identical (idb-vector-2ox). The full-run path is the
+// committed evidence and is written deliberately.
+const jsonPath = smoke ? join(os.tmpdir(), 'idb-vector-side-store-query-smoke.json') : 'reports/side-store-query.json';
 // One profile for the whole run: the warm phase writes its databases into it, and the cold phase
 // reopens that same profile in a NEW browser process. A cold query is therefore one that a process
 // which did not write the store runs before anything else (idb-vector-thu, round 2).
@@ -51,6 +54,7 @@ async function coldObservation({ profile, url, dbName, path, kind, count, dims, 
   // it here keeps a cold observation from failing for a reason that has nothing to do with the query.
   rmSync(join(profile, 'SingletonLock'), { force: true });
   const coldPage = await launch({ profile });
+  browsers.add(coldPage);
   try {
     await coldPage.goto(url);
     return await coldPage.evaluate(async args => {
@@ -134,14 +138,34 @@ async function coldObservation({ profile, url, dbName, path, kind, count, dims, 
       };
     }, { ...{ dbName, path, kind, count, dims, seed, budget, masked, queryRow } });
   } finally {
+    browsers.delete(coldPage);
     await coldPage.close();
   }
+}
+
+// Every browser this script starts is tracked so a signal kills it instead of leaking it. launch()
+// only installs a process 'exit' hook, and a SIGTERM with no handler does not run 'exit' hooks - and
+// the browser is spawned detached, so it survives the script's process group. On 2026-10-12 that
+// combination left a 45-minute Chrome behind when the gate's bound killed a hung run (reaper).
+const browsers = new Set();
+const closeBrowsers = async () => {
+  for (const open of [...browsers]) {
+    browsers.delete(open);
+    await open.close().catch(() => {});
+  }
+};
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+  process.on(signal, () => {
+    console.error(`received ${signal}: closing ${browsers.size} browser(s)`);
+    closeBrowsers().finally(() => process.exit(1));
+  });
 }
 
 const { server, url } = await serve();
 let page;
 try {
   page = await launch({ profile });
+  browsers.add(page);
   await page.goto(url);
   const results = await page.evaluate(async (specs, dbNames) => {
     const m = await import('/test-harness/quantized-pass.js');
@@ -596,6 +620,7 @@ try {
   // processes on one --user-data-dir deadlock on the profile lock (observed - the first cold
   // observation hung until the gate bound killed it).
   const browserVersion = await page.send('Browser.getVersion');
+  browsers.delete(page);
   await page.close();
   page = null;
   console.error(`warm phase done: ${results.length} corpus(es) measured; warm browser closed`);
@@ -744,7 +769,9 @@ try {
   }
   console.log(`Report: ${jsonPath}`);
 } finally {
+  if (page) browsers.delete(page);
   await page?.close();
+  await closeBrowsers();
   await new Promise(resolve => server.close(resolve));
   // The profile is the caller's (passed to launch()), so removing it is this script's job: it holds
   // the databases the cold phase read, and it is the only copy of them.
