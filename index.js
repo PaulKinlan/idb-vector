@@ -102,6 +102,12 @@ function selectCandidates(store, { index, range, predicate }, storeName) {
     const available = Array.from(store.indexNames);
     throw new TypeError(`queryCandidates() index ${describe(index)} is not on object store '${storeName}'; available indexes: ${available.length ? available.join(", ") : "none"}. Create it in your own upgrade transaction: this library never migrates an application schema.`);
   }
+  // A multiEntry index visits one record once per matching array element, so the same record would
+  // be ranked several times and consume several of the `limit` slots. Refuse it rather than return
+  // a silently duplicated ranking.
+  if (index !== null && store.index(index).multiEntry) {
+    throw new TypeError(`queryCandidates() index ${describe(index)} is a multiEntry index, which visits one record once per matching entry and would rank the same record more than once; use a single-valued index, or select with the predicate option over the store instead`);
+  }
   const mode = index !== null ? "index" : range !== null ? "store-range" : "full-scan";
   return {
     index,
