@@ -133,6 +133,50 @@ Records written by another connection — or by an older version of this package
 contract at query time, and a query that meets one reports the offending key instead of returning a
 ranking built from it.
 
+## Candidate queries: rank a set your own indexes select
+
+`query()` always scans the whole store. When you already keep metadata indexes on your own
+schema, `queryCandidates()` returns an exact top-k over the candidate set those indexes select,
+and discloses what it read:
+
+```javascript
+// Your schema, your upgrade transaction: this library never creates or migrates an index.
+const caller = await new Promise((resolve, reject) => {
+  const request = indexedDB.open("my-app", 2);
+  request.onupgradeneeded = () => {
+    const store = request.result.createObjectStore("docs", { keyPath: "id" });
+    store.createIndex("category", "category");
+    store.createIndex("tenant_category", ["tenant", "category"]); // compound: lexicographic prefix
+  };
+  request.onsuccess = () => resolve(request.result);
+});
+caller.close();
+
+const db = new VectorDB({ dbName: "my-app", objectStore: "docs", vectorPath: "embedding" });
+const { results, info } = await db.queryCandidates(queryVector, {
+  limit: 10,
+  index: "category", // optional: an IDBIndex on your store
+  range: IDBKeyRange.only("news"), // optional: an IDBKeyRange on that index
+  predicate: (record) => record.published === true, // optional: JS check, applied before ranking
+});
+// info = { mode: "index", index: "category", range: { lower: "news", upper: "news", lowerOpen: false, upperOpen: false },
+//          predicate: true, recordsRead: 41, recordsScored: 38, fullScanRequired: false, reason: null, limit: 10 }
+```
+
+- `index` and `range` are **yours**. The library opens your database at its own version and never
+upgrades it; a missing index rejects with the list of available index names, never a silent scan.
+A database that does not exist yet is still created at version 1 with the store and vector index.
+- `range` without `index` selects a range of the store's own keys.
+- `predicate` runs **before** ranking, so it cannot lose a match that a later top-k truncation
+would have hidden.
+- `info.fullScanRequired` is `true` exactly when the spec reads every record (no index and no
+range), where a predicate cannot reduce the reads; `info.reason` says which case applies.
+- A record with no value at the indexed field is absent from that index, so it is not a candidate.
+Use a predicate without an index when such records must be considered.
+- `recordsRead` below `recordsScored` means the predicate removed candidates; a `recordsRead` far
+below the store size is the point of an index. An index or range restricts the corpus, so fewer
+than `limit` results only means "fewer matches" when `fullScanRequired` is `true`.
+
 ## Optional packed snapshots (new API)
 
 Default `query()` still scans IndexedDB and sees writes from other connections.
