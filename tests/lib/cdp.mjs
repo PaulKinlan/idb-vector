@@ -24,6 +24,62 @@ const BROWSERS = [
   "/usr/bin/google-chrome",
 ].filter(Boolean);
 
+// Whether ANY process is still in the group: signal 0 asks the kernel without signalling anything.
+// The group outlives the browser this file spawned, which is the whole point - a helper that ignores
+// SIGTERM keeps the group alive after the leader has been reaped.
+function groupAlive(pgid) {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+// Waits for the group to empty AND for the browser to be reaped. Escalating on the browser's exit
+// alone is not enough: a helper that survives SIGTERM would then outlive a close() that reported
+// success (observed - two helpers did, until this checked the group instead of the leader).
+async function waitForGroupGone(pgid, child, ms) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if (groupAlive(pgid) === false && (child.exitCode !== null || child.signalCode !== null)) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(50);
+  }
+}
+
+// Sends a signal to the browser's whole process group, falling back to the single process where
+// process groups are not available (or the caller passed a child that is not a group leader).
+function signalProcessGroup(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+    return true;
+  } catch {
+    try {
+      child.kill(signal);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+// Terminates the browser AND waits for its whole group to be gone. SIGTERM first so Chrome can shut
+// down cleanly, SIGKILL if anything is still in the group afterwards: a signal that is never waited
+// for leaves helpers (and the profile directory) behind, which is how the orphans above happened.
+async function endProcessGroup(child, { graceMs = 1500, killGraceMs = 2000 } = {}) {
+  const pgid = child.pid;
+  if (groupAlive(pgid) === false) return;
+  signalProcessGroup(child, "SIGTERM");
+  if (await waitForGroupGone(pgid, child, graceMs)) return;
+  signalProcessGroup(child, "SIGKILL");
+  if (await waitForGroupGone(pgid, child, killGraceMs) === false) {
+    // Said out loud rather than swallowed: a close() that did not finish the job is worth knowing
+    // about, and the caller is about to remove the profile directory.
+    console.warn(`chromium process group ${pgid} did not exit; close() left it to the reaper`);
+  }
+}
+
 export async function launch({ width = 1000, height = 800, profile = null, fakeMedia = false, browserArgs = ["--disable-gpu"] } = {}) {
   const binary = BROWSERS.find((b) => existsSync(b));
   if (!binary) throw new Error("no Chromium/Chrome binary found; set IDB_VECTOR_CHROME");
@@ -46,7 +102,11 @@ export async function launch({ width = 1000, height = 800, profile = null, fakeM
       "--remote-debugging-port=0",
       "about:blank",
     ],
-    { stdio: ["ignore", "pipe", "pipe"] },
+    // Spawned detached so Chrome leads its OWN process group (setsid), which is what lets close()
+    // signal every helper it starts. Killing only this pid - which is what close() used to do -
+    // leaves renderer, GPU, zygote and crashpad helpers reparented and running: one crashpad
+    // handler outlived its browser by 46 minutes on this 2-vCPU VM.
+    { stdio: ["ignore", "pipe", "pipe"], detached: true },
   );
 
   const wsUrl = await new Promise((resolve, reject) => {
@@ -99,16 +159,27 @@ export async function launch({ width = 1000, height = 800, profile = null, fakeM
   await send("Page.enable", {}, sessionId);
   await send("Runtime.enable", {}, sessionId);
 
+  // `close()` is the normal path, but a suite can also exit without reaching it: an assertion that
+  // throws past the caller's finally, or a plain process.exit(). Because the browser now leads its
+  // own process group it no longer goes down with this process's group, so the last thing this
+  // process does is signal that group. (A hard kill of the suite is the one case no handler can
+  // cover; the reaper is the backstop there.) Added per launch and removed by close(), so a suite
+  // that closes its browser adds no listener once it is done.
+  const killGroupOnExit = () => signalProcessGroup(child, "SIGKILL");
+  process.once("exit", killGroupOnExit);
+
   const page = {
     sessionId,
+    // The Chrome process, which is also its process group id on POSIX because it is spawned
+    // detached. Exposed so a test can prove the group is gone after close().
+    pid: child.pid,
     send: (method, params) => send(method, params, sessionId),
     async close() {
       try {
         socket.close();
       } catch {}
-      try {
-        child.kill("SIGKILL");
-      } catch {}
+      await endProcessGroup(child);
+      process.off("exit", killGroupOnExit);
       try {
         if (ownProfile) rmSync(profile, { recursive: true, force: true });
       } catch {}
