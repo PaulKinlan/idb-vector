@@ -24,6 +24,7 @@ try {
     });
 
     const databasesToClean = [];
+    const defaultGetEpoch = async () => 1;
 
     try {
       // =========================================================================
@@ -39,8 +40,8 @@ try {
         raw.close();
         const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
         await db.insert({ id: 101, embedding: [1, 0] });
-        await db.buildSideStore({ epoch: 1 });
-        const res = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
+        const res = await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, limit: 1 });
         check(res.results.length === 1, 'Inv 1: returns 1 result');
         check(res.results[0].key === 101, `Inv 1: in-line key is 101, got ${res.results[0].key}`);
         await db.close();
@@ -59,8 +60,8 @@ try {
         raw.close();
         const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
         await db.insert({ id: 'confusing-id', embedding: [1, 0] }, 'real-ool-key');
-        await db.buildSideStore({ epoch: 1 });
-        const res = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
+        const res = await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, limit: 1 });
         check(res.results.length === 1, 'Inv 2: returns 1 result');
         check(res.results[0].key === 'real-ool-key', `Inv 2: out-of-line key is "real-ool-key", got ${res.results[0].key}`);
         check(res.results[0].object.id === 'confusing-id', 'Inv 2: object preserved');
@@ -80,8 +81,8 @@ try {
         raw.close();
         const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
         await db.insert({ embedding: [1, 0] });
-        await db.buildSideStore({ epoch: 1 });
-        const res = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
+        const res = await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, limit: 1 });
         check(res.results.length === 1, 'Inv 3: returns 1 result');
         check(typeof res.results[0].key === 'number' && res.results[0].key >= 1, `Inv 3: autoIncrement key is generated number, got ${res.results[0].key}`);
         await db.close();
@@ -101,9 +102,9 @@ try {
         const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
         await db.insert({ k: 'string-key-42', embedding: [1, 0] });
         await db.insert({ k: 42, embedding: [0, 1] });
-        await db.buildSideStore({ epoch: 1 });
-        const resStr = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
-        const resNum = await db.querySideStore([0, 1], { epoch: 1, limit: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
+        const resStr = await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, limit: 1 });
+        const resNum = await db.querySideStore([0, 1], { epoch: 1, getEpoch: defaultGetEpoch, limit: 1 });
         check(resStr.results[0].key === 'string-key-42', `Inv 4: string key preserved: ${resStr.results[0].key}`);
         check(resNum.results[0].key === 42, `Inv 4: number key preserved: ${resNum.results[0].key}`);
         await db.close();
@@ -125,9 +126,9 @@ try {
         const arrayKey = ['cat', 99];
         await db.insert({ embedding: [1, 0] }, dateKey);
         await db.insert({ embedding: [0, 1] }, arrayKey);
-        await db.buildSideStore({ epoch: 1 });
-        const resDate = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
-        const resArr = await db.querySideStore([0, 1], { epoch: 1, limit: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
+        const resDate = await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, limit: 1 });
+        const resArr = await db.querySideStore([0, 1], { epoch: 1, getEpoch: defaultGetEpoch, limit: 1 });
         check(indexedDB.cmp(resDate.results[0].key, dateKey) === 0, 'Inv 5: Date key matches via indexedDB.cmp');
         check(indexedDB.cmp(resArr.results[0].key, arrayKey) === 0, 'Inv 5: Array key matches via indexedDB.cmp');
         await db.close();
@@ -146,8 +147,8 @@ try {
         raw.close();
         const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
         await db.insert({ meta: { item: { id: 'nested-uuid-1' } }, embedding: [1, 0] });
-        await db.buildSideStore({ epoch: 1 });
-        const res = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
+        const res = await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, limit: 1 });
         check(res.results[0].key === 'nested-uuid-1', `Inv 6: custom nested keyPath returned: ${res.results[0].key}`);
         await db.close();
       }
@@ -190,7 +191,7 @@ try {
       }
 
       // =========================================================================
-      // Invariant 8: Store-wide Revision Pinning (Unversioned / Missing Epoch Rejection)
+      // Invariant 8: Store-wide Revision Pinning (Unversioned / Missing getEpoch Rejection)
       // =========================================================================
       {
         const dbName = `test-inv8-${crypto.randomUUID()}`;
@@ -203,22 +204,50 @@ try {
         const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
         await db.insert({ id: 1, embedding: [1, 0] });
 
+        // 1. buildSideStore without getEpoch rejects
         let unversionedBuildError = null;
         try {
-          await db.buildSideStore({ epoch: null });
+          await db.buildSideStore({ epoch: 1 }); // missing getEpoch!
         } catch (err) {
           unversionedBuildError = err;
         }
-        check(unversionedBuildError !== null, 'Inv 8: build without epoch rejects');
+        check(unversionedBuildError !== null, 'Inv 8: build without getEpoch rejects');
+        check(unversionedBuildError instanceof TypeError, `Inv 8: build error is TypeError, got ${unversionedBuildError?.constructor?.name}`);
+        check(unversionedBuildError.message.includes('requires a trustworthy corpus-wide epoch mechanism'), `Inv 8: message: ${unversionedBuildError.message}`);
 
-        await db.buildSideStore({ epoch: 1 });
+        // Build with valid getEpoch
+        const getEpoch = async () => 1;
+        await db.buildSideStore({ epoch: 1, getEpoch });
+
+        // 2. querySideStore without getEpoch rejects
         let unversionedQueryError = null;
         try {
-          await db.querySideStore([1, 0], { epoch: null });
+          await db.querySideStore([1, 0], { epoch: 1 }); // missing getEpoch!
         } catch (err) {
           unversionedQueryError = err;
         }
-        check(unversionedQueryError !== null, 'Inv 8: query without epoch rejects');
+        check(unversionedQueryError !== null, 'Inv 8: query without getEpoch rejects');
+        check(unversionedQueryError instanceof TypeError, `Inv 8: query error is TypeError, got ${unversionedQueryError?.constructor?.name}`);
+
+        // 3. querySideStore without pinned epoch rejects
+        let missingPinnedEpochError = null;
+        try {
+          await db.querySideStore([1, 0], { getEpoch }); // missing epoch!
+        } catch (err) {
+          missingPinnedEpochError = err;
+        }
+        check(missingPinnedEpochError !== null, 'Inv 8: query without pinned epoch rejects');
+        check(missingPinnedEpochError instanceof TypeError, `Inv 8: missing epoch is TypeError`);
+
+        // 4. getEpoch returning null or undefined rejects
+        let nullEpochError = null;
+        try {
+          await db.querySideStore([1, 0], { epoch: 1, getEpoch: async () => null });
+        } catch (err) {
+          nullEpochError = err;
+        }
+        check(nullEpochError !== null, 'Inv 8: null getEpoch return rejects');
+
         await db.close();
       }
 
@@ -235,11 +264,11 @@ try {
         raw.close();
         const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
         await db.insert({ id: 1, category: 'a', embedding: [1, 0] });
-        await db.buildSideStore({ epoch: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
 
         let predError = null;
         try {
-          await db.querySideStore([1, 0], { epoch: 1, predicate: (r) => r.category === 'a' });
+          await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, predicate: (r) => r.category === 'a' });
         } catch (err) {
           predError = err;
         }
@@ -273,7 +302,7 @@ try {
         await db.insert({ embedding: [0.9, 0.1] }, arrKey1);
         await db.insert({ embedding: [0.1, 0.9] }, arrKey2);
 
-        await db.buildSideStore({ epoch: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
 
         // Query passing DIFFERENT object instances of the same Date and Array values in eligibleKeys
         const filterDate = new Date(1700000001000);
@@ -283,6 +312,7 @@ try {
 
         const qRes = await db.querySideStore([1, 0], {
           epoch: 1,
+          getEpoch: defaultGetEpoch,
           eligibleKeys: [filterDate, filterArr],
           limit: 10,
         });
@@ -313,12 +343,13 @@ try {
         await db.insert({ id: 3, embedding: [0.5, 0.5] });
         await db.insert({ id: 4, embedding: [0.4, 0.6] });
 
-        await db.buildSideStore({ epoch: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
 
         // candidateBudget = 2, eligibleKeys = [3, 4]
         // If truncation happened before eligibility check, keys 1 & 2 would fill the budget and 3 & 4 would be lost.
         const res = await db.querySideStore([1.0, 0.0], {
           epoch: 1,
+          getEpoch: defaultGetEpoch,
           candidateBudget: 2,
           eligibleKeys: [3, 4],
           limit: 2,
@@ -348,10 +379,11 @@ try {
           await db.insert({ id: i, embedding: [i / 20, 1 - i / 20] });
         }
 
-        await db.buildSideStore({ epoch: 1 });
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
 
         const res = await db.querySideStore([1, 0], {
           epoch: 1,
+          getEpoch: defaultGetEpoch,
           candidateBudget: 5,
           limit: 10,
         });

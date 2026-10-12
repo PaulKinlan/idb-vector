@@ -526,28 +526,31 @@ class VectorDB {
     const {
       sideStore = "codes",
       key = "code_record",
-      epoch = options.revision ?? 1,
+      epoch = null,
       getEpoch = null,
+      revision = null,
     } = options;
 
-    if (epoch === null || epoch === undefined) {
-      throw new TypeError("buildSideStore() requires a store-wide epoch/revision (ADR 0001 Invariant 8)");
-    }
-    if (!Number.isSafeInteger(epoch) && typeof epoch !== "string") {
-      throw new TypeError(`epoch must be a safe integer or string; got ${describe(epoch)}`);
+    if (typeof getEpoch !== "function") {
+      throw new TypeError(
+        "buildSideStore() requires a trustworthy corpus-wide epoch mechanism (ADR 0001 Invariant 8). Pass { getEpoch: async (db) => epoch }."
+      );
     }
 
     const db = await this.#connection();
     const sourceStoreName = this.#objectStore;
     const vectorPath = this.#vectorPath;
 
-    if (getEpoch) {
-      const currentEpoch = await getEpoch(db);
-      if (currentEpoch !== epoch) {
-        throw new Error(
-          `Store-wide epoch mismatch on build: getEpoch returned ${currentEpoch}, expected ${epoch} (ADR 0001 Invariant 8)`
-        );
-      }
+    const currentEpoch = await getEpoch(db);
+    if (currentEpoch === undefined || currentEpoch === null) {
+      throw new TypeError("getEpoch() must return a trustworthy non-null epoch (ADR 0001 Invariant 8)");
+    }
+
+    const targetEpoch = epoch ?? revision ?? currentEpoch;
+    if (targetEpoch !== currentEpoch) {
+      throw new Error(
+        `Store-wide epoch mismatch on build: getEpoch returned ${currentEpoch}, expected ${targetEpoch} (ADR 0001 Invariant 7)`
+      );
     }
 
     const records = [];
@@ -603,7 +606,7 @@ class VectorDB {
     const {
       sideStore = "codes",
       key = "code_record",
-      epoch = options.revision,
+      epoch = null,
       getEpoch = null,
       candidateBudget = 300,
       limit = 10,
@@ -611,6 +614,7 @@ class VectorDB {
       predicate = null,
       eligibleKeys = null,
       codeRecord: suppliedRecord = null,
+      revision = null,
     } = options;
 
     // Invariant 9: Predicate Rejection — arbitrary record predicates are forbidden (ADR 0001 Invariant 9)
@@ -620,9 +624,17 @@ class VectorDB {
       );
     }
 
+    const pinnedEpoch = epoch ?? revision;
     // Invariant 8: Store-wide Revision Pinning required
-    if (epoch === null || epoch === undefined) {
-      throw new TypeError("querySideStore() requires a pinned epoch/revision (ADR 0001 Invariant 8)");
+    if (pinnedEpoch === null || pinnedEpoch === undefined) {
+      throw new TypeError("querySideStore() requires a pinned epoch/revision (ADR 0001 Invariant 8). Pass { epoch }.");
+    }
+
+    // Invariant 8: Corpus-wide epoch provider is mandatory
+    if (typeof getEpoch !== "function") {
+      throw new TypeError(
+        "querySideStore() requires a trustworthy corpus-wide epoch mechanism (ADR 0001 Invariant 8). Pass { getEpoch: async (db) => epoch }."
+      );
     }
     if (!Number.isSafeInteger(candidateBudget) || candidateBudget <= 0) {
       throw new RangeError(`candidateBudget must be a positive integer; got ${describe(candidateBudget)}`);
@@ -658,20 +670,21 @@ class VectorDB {
     }
 
     // Invariant 7: Query pinned epoch must match side-store record epoch
-    if (codeRecord.epoch !== epoch) {
+    if (codeRecord.epoch !== pinnedEpoch) {
       throw new Error(
-        `Store-wide epoch mismatch: query pinned epoch ${epoch}, but side-store was built at epoch ${codeRecord.epoch} (ADR 0001 Invariant 7)`
+        `Store-wide epoch mismatch: query pinned epoch ${pinnedEpoch}, but side-store was built at epoch ${codeRecord.epoch} (ADR 0001 Invariant 7)`
       );
     }
 
-    // Invariant 7: Verify store-wide epoch against current main store if getEpoch provided
-    if (getEpoch) {
-      const currentEpoch = await getEpoch(db);
-      if (currentEpoch !== codeRecord.epoch) {
-        throw new Error(
-          `Store-wide epoch mismatch: main store epoch has advanced to ${currentEpoch}, but side-store was built at epoch ${codeRecord.epoch} (ADR 0001 Invariant 7)`
-        );
-      }
+    // Invariant 7: Verify store-wide epoch against current main store via mandatory getEpoch
+    const storeEpoch = await getEpoch(db);
+    if (storeEpoch === undefined || storeEpoch === null) {
+      throw new TypeError("getEpoch() must return a trustworthy non-null epoch (ADR 0001 Invariant 8)");
+    }
+    if (storeEpoch !== codeRecord.epoch || storeEpoch !== pinnedEpoch) {
+      throw new Error(
+        `Store-wide epoch mismatch: main store epoch has advanced to ${storeEpoch}, but query pinned epoch is ${pinnedEpoch} and side-store epoch is ${codeRecord.epoch} (ADR 0001 Invariant 7)`
+      );
     }
 
     // Invariants 10 & 11: Scan candidates with eligibleKeys pre-filtering before candidate budget
