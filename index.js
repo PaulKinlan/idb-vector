@@ -74,6 +74,18 @@ function assertThreshold(value) {
   return value;
 }
 
+// A paged read holds at most this many records at once, so it must be a positive integer for the
+// memory bound it advertises to be real. `null` means the cursor path.
+function assertPageSize(pageSize) {
+  if (pageSize === null) {
+    return null;
+  }
+  if (!Number.isSafeInteger(pageSize) || pageSize <= 0) {
+    throw new RangeError(`pageSize must be a positive integer; got ${describe(pageSize)}`);
+  }
+  return pageSize;
+}
+
 // --- candidate selection -----------------------------------------------------------------------
 // `query()` ranks every record. `queryCandidates()` ranks a candidate set chosen by the CALLER's
 // own IndexedDB schema (an index name and/or an IDBKeyRange) plus an optional JS predicate. The
@@ -81,8 +93,8 @@ function assertThreshold(value) {
 // the available indexes, never a silent full scan. A candidate spec that cannot narrow the read
 // discloses `fullScanRequired`, because "fewer results than asked" must not be read as "no more
 // matches" when the corpus was restricted.
-const CANDIDATE_OPTION_KEYS = ["limit", "threshold", "index", "range", "predicate"];
-const QUERY_OPTION_KEYS = ["limit", "threshold"];
+const CANDIDATE_OPTION_KEYS = ["limit", "threshold", "index", "range", "predicate", "pageSize"];
+const QUERY_OPTION_KEYS = ["limit", "threshold", "pageSize"];
 const NO_CANDIDATES = { index: null, range: null, predicate: null };
 
 function normalizeCandidateOptions(options) {
@@ -95,13 +107,14 @@ function normalizeCandidateOptions(options) {
       throw new TypeError(`queryCandidates() option ${describe(key)} is not supported; supported options are ${CANDIDATE_OPTION_KEYS.join(", ")}`);
     }
   }
-  const { limit = 10, threshold = null, index = null, range = null, predicate = null } = options;
+  const { limit = 10, threshold = null, index = null, range = null, predicate = null, pageSize = null } = options;
   assertLimit(limit);
   // `threshold` is a scalar option like `limit`, not one of the candidate spec fields that document
   // null as "none": omit it for no threshold. Accepting null here would silently drop a threshold
   // that a caller computed as null by mistake (query() already refuses it), and the two entry points
   // must agree on what they accept.
   if (options.threshold !== undefined) assertThreshold(threshold);
+  assertPageSize(pageSize);
   if (index !== null && (typeof index !== "string" || index.length === 0)) {
     throw new TypeError(`queryCandidates() index must be a non-empty string naming one index on the object store; got ${describe(index)}`);
   }
@@ -111,7 +124,7 @@ function normalizeCandidateOptions(options) {
   if (predicate !== null && typeof predicate !== "function") {
     throw new TypeError(`queryCandidates() predicate must be a function of one record returning a boolean; got ${describe(predicate)}`);
   }
-  return { limit, threshold, candidates: { index, range, predicate } };
+  return { limit, threshold, pageSize, candidates: { index, range, predicate } };
 }
 
 // Resolves a candidate spec against the caller's store. The store-dependent check lives here
@@ -196,11 +209,28 @@ function updateRequest(store, key, object) {
   return store.put(object);
 }
 
-function cosineSimilarity(a, b) {
+function cosineSimilarity(a, b, aMagnitude) {
   const dotProduct = a.reduce((sum, aVal, idx) => sum + aVal * b[idx], 0);
-  const aMagnitude = Math.sqrt(a.reduce((sum, aVal) => sum + aVal * aVal, 0));
+  // `aMagnitude` is the query vector's norm, which ranking hoists out of its per-record loop:
+  // recomputing it for every record is pure waste (100k records x 128 dims is millions of
+  // redundant operations) and the value is identical, so scores stay bit-identical. Callers that
+  // do not pass it (the packed-snapshot fallback) get the same value computed here.
+  const magnitude = aMagnitude === undefined ? vectorMagnitude(a) : aMagnitude;
   const bMagnitude = Math.sqrt(b.reduce((sum, bVal) => sum + bVal * bVal, 0));
-  return dotProduct / (aMagnitude * bMagnitude);
+  return dotProduct / (magnitude * bMagnitude);
+}
+
+function vectorMagnitude(vector) {
+  return Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+}
+
+// A read request whose own result is all that matters; the paged read issues these two at a time
+// inside one transaction, so they share its snapshot.
+function requestResult(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 // A successful request can still be rolled back by its transaction.
@@ -376,35 +406,45 @@ class VectorDB {
 
     const limit = assertLimit(options?.limit === undefined ? 10 : options.limit);
     const threshold = options?.threshold === undefined ? null : assertThreshold(options.threshold);
+    const pageSize = assertPageSize(options?.pageSize === undefined ? null : options.pageSize);
 
     assertVector(queryVector, "query() vector");
 
-    return (await this.#rank(queryVector, limit, NO_CANDIDATES, threshold)).results;
+    return (await this.#rank(queryVector, limit, NO_CANDIDATES, threshold, pageSize)).results;
   }
 
   // Exact ranking over a candidate set the caller selects from THEIR schema, with disclosure of
   // what was read. See README.md, "Candidate queries".
   async queryCandidates(queryVector, options) {
-    const { limit, threshold, candidates } = normalizeCandidateOptions(options);
+    const { limit, threshold, pageSize, candidates } = normalizeCandidateOptions(options);
 
     assertVector(queryVector, "queryCandidates() vector");
 
-    return this.#rank(queryVector, limit, candidates, threshold);
+    return this.#rank(queryVector, limit, candidates, threshold, pageSize);
   }
 
   // `candidates` names the record source: `{ index: null, range: null, predicate: null }` is the
   // full exact scan that query() uses. Returns `{ results, info }`; query() drops `info`.
-  async #rank(queryVector, limit, candidates, threshold) {
+  async #rank(queryVector, limit, candidates, threshold, pageSize) {
     const db = await this.#connection();
     const storeName = this.#objectStore;
     const vectorPath = this.#vectorPath;
     const queryVectorLength = queryVector.length;
+    // Hoisted once per query instead of once per record: `cosineSimilarity` used to recompute the
+    // query vector's norm for every record it scored. The per-record arithmetic and its
+    // accumulation order are unchanged, so every score stays bit-identical.
+    const queryMagnitude = vectorMagnitude(queryVector);
 
     const transaction = db.transaction([storeName], "readonly");
     const store = transaction.objectStore(storeName);
     const selection = selectCandidates(store, candidates, storeName);
-    const source = selection.index === null ? store : store.index(selection.index);
-    const request = source.openCursor(selection.range);
+
+    // A paged read resumes from the last key it read, which is exact only when keys are unique. An
+    // index can repeat one key across records, and a key range would have to be intersected with
+    // every page bound, so both keep the cursor path rather than risk skipping a record.
+    if (pageSize !== null && selection.mode !== "full-scan") {
+      throw new TypeError(`pageSize cannot be combined with an index or a key range (mode ${selection.mode}): a paged read resumes from the last key it read, which is exact only for a whole-store scan, where every key is unique. Omit pageSize to use the cursor path.`);
+    }
 
     const similarities = new SortedArray(limit, "similarity");
     const info = {
@@ -423,6 +463,8 @@ class VectorDB {
       // spec forced that read; today the two are true under the same condition, and they are
       // separate fields because a future bounded source may be exhaustive on purpose (kuc.6).
       candidateSetComplete: selection.fullScanRequired === true,
+      readMode: pageSize === null ? "cursor" : "paged",
+      pageSize,
       recordsRead: 0,
       recordsScored: 0,
       fullScanRequired: selection.fullScanRequired,
@@ -430,73 +472,111 @@ class VectorDB {
       limit,
     };
 
-    return new Promise((resolve, reject) => {
-      request.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (cursor === null) {
-          // sorted already.
-          resolve({ results: similarities.slice(0, limit), info });
+    // ONE implementation of the per-record rules for BOTH read strategies, so a paged read cannot
+    // drift from the cursor read: a record with no vector at vectorPath is not part of the corpus
+    // (the rule an IndexedDB index applies to a missing key path), a record that HAS one must be
+    // valid, and eligibility is decided BEFORE ranking so a predicate cannot silently lose a match
+    // that a later top-k truncation would have hidden.
+    const consider = (key, record) => {
+      info.recordsRead += 1;
+      if (!isRecord(record) || Object.hasOwn(record, vectorPath) === false) {
+        return;
+      }
+
+      if (selection.predicate !== null) {
+        let eligible;
+        try {
+          eligible = selection.predicate(record);
+        } catch (error) {
+          throw new Error(`queryCandidates() predicate threw for key ${JSON.stringify(key)}: ${error.message}`);
+        }
+        if (!eligible) {
           return;
         }
+      }
 
-        info.recordsRead += 1;
-        // An index cursor's `key` is the index key; the record key is `primaryKey`.
-        const key = selection.index === null ? cursor.key : cursor.primaryKey;
-        const record = cursor.value;
-        // A record with no vector at vectorPath is not part of the corpus; the same rule an
-        // IndexedDB index applies to a missing key path. A record that HAS one must be valid:
-        // skipping it silently is how invalid vectors used to poison the ranking.
-        if (!isRecord(record) || Object.hasOwn(record, vectorPath) === false) {
-          cursor.continue();
-          return;
-        }
+      // Length is checked before scoring: `cosineSimilarity` iterates the query vector, so a
+      // LONGER stored vector would otherwise be truncated silently instead of rejected.
+      const vector = record[vectorPath];
+      if (!Array.isArray(vector) || vector.length !== queryVectorLength) {
+        throw storedVectorError(vectorPath, key, vector, queryVectorLength);
+      }
 
-        // Eligibility is decided BEFORE ranking, so a predicate cannot silently lose a match that
-        // a later top-k truncation would have hidden.
-        if (selection.predicate !== null) {
-          let eligible;
+      const similarity = cosineSimilarity(queryVector, vector, queryMagnitude);
+      if (!Number.isFinite(similarity)) {
+        throw storedVectorError(vectorPath, key, vector, queryVectorLength);
+      }
+
+      // Threshold BEFORE truncation: dropping low scores afterwards would leave fewer than `limit`
+      // results while more eligible records existed. It is applied here, in the one place both read
+      // strategies share, so a paged read cannot bypass it.
+      if (threshold !== null && similarity < threshold) {
+        return;
+      }
+
+      info.recordsScored += 1;
+      similarities.insert({ object: record, key, similarity });
+    };
+
+    if (pageSize === null) {
+      return new Promise((resolve, reject) => {
+        const source = selection.index === null ? store : store.index(selection.index);
+        const request = source.openCursor(selection.range);
+
+        request.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor === null) {
+            // sorted already.
+            resolve({ results: similarities.slice(0, limit), info });
+            return;
+          }
+
+          // An index cursor's `key` is the index key; the record key is `primaryKey`.
+          const key = selection.index === null ? cursor.key : cursor.primaryKey;
           try {
-            eligible = selection.predicate(record);
+            consider(key, cursor.value);
           } catch (error) {
-            reject(new Error(`queryCandidates() predicate threw for key ${JSON.stringify(key)}: ${error.message}`));
+            reject(error);
             return;
           }
-          if (!eligible) {
-            cursor.continue();
-            return;
-          }
-        }
-
-        // Length is checked before scoring: `cosineSimilarity` iterates the query vector, so a
-        // LONGER stored vector would otherwise be truncated silently instead of rejected.
-        const vector = record[vectorPath];
-        if (!Array.isArray(vector) || vector.length !== queryVectorLength) {
-          reject(storedVectorError(vectorPath, key, vector, queryVectorLength));
-          return;
-        }
-
-        const similarity = cosineSimilarity(queryVector, vector);
-        if (!Number.isFinite(similarity)) {
-          reject(storedVectorError(vectorPath, key, vector, queryVectorLength));
-          return;
-        }
-
-        // Threshold before truncation: dropping low scores afterwards would leave fewer than `limit`
-        // results while more eligible records existed.
-        if (threshold !== null && similarity < threshold) {
           cursor.continue();
-          return;
-        }
+        };
 
-        info.recordsScored += 1;
-        similarities.insert({ object: record, key, similarity });
-        cursor.continue();
-      };
+        request.onerror = (event) => {
+          reject(event.target.error);
+        };
+      });
+    }
 
-      request.onerror = (event) => {
-        reject(event.target.error);
-      };
-    });
+    // Paged read: every page runs in the ONE transaction opened above, so the whole query sees a
+    // single snapshot and a writer on another connection cannot tear the scan (the prototype this
+    // came from opened a transaction per page). It resumes from the last key it read with an
+    // exclusive lower bound, which is valid for numbers, strings, dates and array keys alike,
+    // rather than assuming numeric keys can be incremented. At most `pageSize` records are held at
+    // one time.
+    let resume = null;
+    for (;;) {
+      const range = resume === null ? null : IDBKeyRange.lowerBound(resume, true);
+      const [keys, records] = await Promise.all([
+        requestResult(store.getAllKeys(range, pageSize)),
+        requestResult(store.getAll(range, pageSize)),
+      ]);
+      if (records.length !== keys.length) {
+        throw new Error(`paged read read ${keys.length} keys and ${records.length} records in one transaction; refusing to rank a torn page`);
+      }
+      if (keys.length === 0) {
+        break;
+      }
+      for (let index = 0; index < keys.length; index += 1) {
+        consider(keys[index], records[index]);
+      }
+      if (keys.length < pageSize) {
+        break;
+      }
+      resume = keys[keys.length - 1];
+    }
+
+    return { results: similarities.slice(0, limit), info };
   }
 
   // Explicitly stale until refresh(); default query() remains authoritative.
