@@ -4,8 +4,10 @@ Bead `idb-vector-kuc.9`, answering the one hypothesis
 [quantized-candidate-pass.md](quantized-candidate-pass.md) left open: a compact int8 code
 side-store with a **bounded exact rerank** should cut the read leg of a query that reads from
 IndexedDB. That report composed the estimate from separately measured legs (~114 ms against
-328 ms at 100k × 128); this one drives the whole query as a single timed unit and compares it with
-the two exact paths in the same run.
+328 ms at 100k × 128); this one times every leg inside one query, per query, and compares it with
+the two exact paths in the same run. The headline is a median of per-query leg sums, with one
+whole-block single-query check at 128 dimensions (n = 1, 141.9 ms against a 126.2 ms leg sum, +12%)
+— there is no whole-block corroboration at 384 dimensions.
 
 Research only: **`index.js` is untouched by this bead** and no side-store is implemented in the
 library. Reproduce with `node tools/evaluate-side-store-query.mjs` (headless Chromium, ~12 minutes
@@ -35,17 +37,26 @@ machine was heavily contended throughout, so absolute milliseconds here are infl
 [quantized-candidate-pass.md](quantized-candidate-pass.md) (measured at load 2.06). The paths were
 timed in sequence (side-store first, then the packed path, then the batched walk), not interleaved,
 so the **ratios within the run** are the decision-grade part and the absolute values are not.
-Cold is the first query of the first repetition; warm values are medians over 3 order-rotated
-repetitions at 128 dimensions and 2 at 384. One process, warm page cache, no p95 claim.
+Sample sizes: the side-store path is n = 30 queries at 128 dimensions (3 order-rotated repetitions
+× 10 queries) and n = 20 at 384 (2 × 10); the packed-Float32 path is n = 6 (2 repetitions × 3
+queries); the batched record walk is n = 1, a single query, so its figure is one measurement under
+load 8.68 and the ratio for it rests on the mechanical byte difference as much as on the sample.
+"Cold" is the first query of the first repetition (N = 100); the N = 300 figure labelled cold is the
+first N = 300 query, which follows the N = 100 legs, so it is not a cold measurement and is not
+quoted as one. One process, warm page cache, no p95 claim.
 
 ## End-to-end query cost (median ms per query)
 
-| path per query | 100k × 128 | 100k × 384 |
-|---|---:|---:|
-| int8 codes + bounded rerank, N = 100 (recall@10 1.000) | **126.2** | **586.1** |
-| int8 codes + bounded rerank, N = 300 (recall@10 1.000) | 166.3 | 661.8 |
-| one packed Float32 record read + exact scan | 340.3 | 1528.4 |
-| batched page walk over individual records + exact scan | 3101.1 | 8965.7 |
+| path per query | n | 100k × 128 | 100k × 384 |
+|---|---:|---:|---:|
+| int8 codes + bounded rerank, N = 100 (recall@10 1.000) | 30 / 20 | **126.2** | **586.1** |
+| int8 codes + bounded rerank, N = 300 (recall@10 1.000) | 30 / 20 | 166.3 | 661.8 |
+| one packed Float32 record read + exact scan | 6 | 340.3 | 1528.4 |
+| batched page walk over individual records + exact scan | 1 | 3101.1 | 8965.7 |
+
+n is the number of timed queries behind each figure at 128 / 384 dimensions (the packed and batched
+paths are the same n at both). The first two rows are medians of per-query leg sums; the last two
+are medians of whole blocks.
 
 The side-store path is **2.7× faster than reading the packed Float32 snapshot** at 100k × 128 and
 2.6× at 100k × 384, and **24.6× / 15.3× faster than the batched individual-record walk** at the
@@ -62,14 +73,16 @@ confirmed, and the earlier composition was accurate: 126.2 ms measured against ~
 | fetch N = 100 originals by key | 10.6 | 38.7 |
 | fetch N = 300 originals by key | 25.4 | 101.5 |
 | exact rerank of fetched rows, N = 300 | 0.1 | 0.3 |
-| one query timed as a whole block, first query (N = 100) | 141.9 | 2212.1 |
+| one query timed as a whole block, first query of the run (N = 100, n = 1) | 141.9 | 2212.1 |
 
 Per-leg figures are medians of that leg; the end-to-end figures are medians of per-query sums, so
 the legs do not add up to the end-to-end column exactly.
 
 The **read of the code record is 55–60% of the whole query**, so this path is a read-bandwidth
-trade, not an arithmetic trick — which is exactly why it wins: 12.8 MB instead of 51.2 MB of
-packed Float32, or instead of ~100–307 MB of individually read records. The single-whole-query
+trade, not an arithmetic trick — which is exactly why it wins: 13.2 MB of code record instead of
+51.2 MB of packed Float32 (12.8 MB of codes plus the row norms and the affine tables), or instead
+of ~102–307 MB of individually read records. The byte and time ratios agree: codes are 3.9× smaller
+than the packed Float32 record and read 3.7× faster (75.4 ms against 281.7 ms). The single-whole-query
 number at 128 dimensions (141.9 ms) matches the sum of the legs (126.2 ms), so the composition is
 sound; at 384 dimensions the first query (2212.1 ms) is dominated by one-time effects
 (higher cold read plus write flush) and is not used in the decision.
@@ -77,7 +90,7 @@ sound; at 384 dimensions the first query (2212.1 ms) is dominated by one-time ef
 **Batching the rerank fetch is what makes the rerank affordable.** Measured here, one get costs
 0.106 ms at N = 100 and 0.085 ms at N = 300 (128 dimensions), 0.387 / 0.338 ms at 384 — against the
 0.47 ms per get in `quantized-candidate-pass.md`, which was 1,000 serial one-shot transactions and
-is now known to be an upper bound, ~4–5× the batched figure.
+is now known to be an upper bound, 4.4–5.5× the batched figure.
 
 ## Predicate-before-candidate at 1% selectivity: necessary but not sufficient
 
@@ -85,14 +98,15 @@ Masked codes scan and rerank 1,000 eligible rows at 100k × 128:
 
 | leg | ms |
 |---|---:|
-| read the code record + mask (whole 12.8 MB record) | 75.4 |
+| read the code record + mask (the whole 13.2 MB record) | 75.4 |
 | masked scan (scores only the 1,000 eligible rows) | 2.0 |
 | fetch N = 300 eligible candidates by key | 27.6 |
-| exact rerank | <0.1 |
 | **end-to-end (recall@10 1.000, ceiling 1.000)** | **87.0** |
 
 Scoring is not the problem — the masked scan is 2.0 ms, because it only scores 1% of the rows. The
-problem is that the **code record is packed whole**, so a 1% query still reads all 12.8 MB. The
+problem is that the **code record is packed whole**, so a 1% query still reads all 13.2 MB. (The
+predicate summary records the end-to-end figure and its scan and fetch legs; its rerank is inside
+that end-to-end and is not recorded separately.) The
 exact eligible scan measured 0.8 ms in `quantized-candidate-pass.md`; this path is 87 ms for the
 same answer. A side-store only helps a filtered query if the codes are stored in a form the
 predicate can skip — per-bucket or per-page chunks, or codes for the eligible set only — otherwise
@@ -148,7 +162,7 @@ candidates, and the rerank fetch must be batched in one transaction (that is wha
 Two conditions come with it, both measured here:
 
 1. **A filtered query does not benefit** while the code record is packed whole: 87.0 ms for a 1%
-   selection, against 0.8 ms for the exact eligible scan, because the whole 12.8 MB record is read
+   selection, against 0.8 ms for the exact eligible scan, because the whole 13.2 MB record is read
    regardless. Chunking or predigesting the code store for the predicate is a prerequisite, not a
    follow-up optimisation.
 2. **A resident workload does not benefit at all.** `quantized-candidate-pass.md` measured int8

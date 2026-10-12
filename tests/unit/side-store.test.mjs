@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { uniformCorpus, precomputeNorms, exactTopK, rerankTopK, recallAtK } from '../../test-harness/quantized-pass.js';
+// precomputeNorms is still used by the rerank comparison below.
 import { buildCodeRecord, rerankFetched } from '../../test-harness/side-store.js';
 
 test('the code record carries what a query needs and nothing the originals could be rebuilt from', () => {
@@ -17,9 +18,15 @@ test('the code record carries what a query needs and nothing the originals could
   assert.equal(record.bytes, count * dims + count * 4 + dims * 4 + dims * 4);
   // Codes reconstruct each coordinate within half a scale step, so the record is a lossy stand-in
   // for scoring, never a replacement for the originals in an exact rerank.
-  const norms = precomputeNorms(vectors, count, dims);
+  // Recompute the norm here instead of comparing against precomputeNorms output, which is what
+  // buildCodeRecord stores: the check has to be independent of the code under test.
+  const inlineNorm = i => {
+    let sum = 0;
+    for (let d = 0; d < dims; d++) sum += vectors[i * dims + d] ** 2;
+    return Math.sqrt(sum);
+  };
   for (let i = 0; i < count; i += 53) {
-    assert.ok(Math.abs(norms[i] - record.norms[i]) < 1e-6);
+    assert.ok(Math.abs(inlineNorm(i) - record.norms[i]) < 1e-6);
     for (let d = 0; d < dims; d += 7) {
       const reconstructed = (record.codes[i * dims + d] + 127) * record.scales[d] + record.mins[d];
       assert.ok(Math.abs(reconstructed - vectors[i * dims + d]) <= record.scales[d] / 2 + 1e-9);
