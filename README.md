@@ -128,6 +128,10 @@ the live cursor without truncating the corpus. Inspect `snapshot.reason` and `by
 The budget covers retained packed buffers, **not all browser heap or arbitrary source
 metadata**. Float64 preserves existing JS-number precision; vectors are not normalized
 on write. Writes resolve after transaction completion, not merely request success.
+Call `await db.close()` when finished with a `VectorDB` to release its IndexedDB
+connection before deleting its database. Closing is idempotent; further operations
+reject with `InvalidStateError`. An external version upgrade also closes the connection
+on `versionchange`, so the application should create a new instance to use the new version.
 See [format, resource bounds, evidence and caveats](reports/packed-snapshot.md).
 
 ## Optional geometry diagnostic and whitening (new API)
