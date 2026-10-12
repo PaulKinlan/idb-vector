@@ -222,7 +222,6 @@ async function create(options) {
         return;
       }
       resolve(db);
-      resolve(db);
     };
 
     request.onerror = (event) => {

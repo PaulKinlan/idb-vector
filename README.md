@@ -174,7 +174,7 @@ range), where a predicate cannot reduce the reads; `info.reason` says which case
 - A record with no value at the indexed field is absent from that index, so it is not a candidate.
 Use a predicate without an index when such records must be considered. A `multiEntry` index is
 refused: it visits one record once per matching entry, which would rank that record more than once.
-- `recordsRead` below `recordsScored` means the predicate removed candidates; a `recordsRead` far
+- `recordsScored` below `recordsRead` means the predicate removed candidates; a `recordsRead` far
 below the store size is the point of an index. An index or range restricts the corpus, so fewer
 than `limit` results only means "fewer matches" when `fullScanRequired` is `true`.
 
