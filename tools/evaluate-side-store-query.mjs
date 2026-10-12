@@ -112,10 +112,12 @@ try {
       };
 
       const keep = Math.max(...spec.budgets);
+      // Every leg is kept as a sample series so the report can state a cold value (the first query
+      // of the run, before anything has read that record) and a warm-only summary (idb-vector-thu).
       const legs = Object.fromEntries(['codesRead', 'scan', 'fetch', 'rerank'].map(k => [k, []]));
-      const perBudget = Object.fromEntries(spec.budgets.map(n => [n, { fetch: [], rerank: [], recall: [], ceiling: [], endToEnd: [] }]));
+      const perBudget = Object.fromEntries(spec.budgets.map(n => [n, { fetch: [], rerank: [], recall: [], ceiling: [], endToEnd: [], whole: [] }]));
       const freshChecks = [];
-      let singleQueryMs = null, packedExactLegs = { read: [], scan: [] }, batchedExactMs = null;
+      let packedExactLegs = { read: [], scan: [] }, batchedExactMs = null;
 
       for (let rep = 0; rep < spec.repetitions; rep++) {
         for (let q = 0; q < queries.length; q++) {
@@ -135,16 +137,17 @@ try {
             slot.recall.push(m.recallAtK(rerank.value, oracle[q]));
             slot.ceiling.push(m.candidateCeiling(ids, oracle[q]));
             slot.endToEnd.push(codesRead.ms + scan.ms + fetch.ms + rerank.ms);
-            if (rep === 0 && q === 0 && budget === spec.budgets[0]) {
-              // One query timed as a whole block, everything inside the timer.
-              const whole = await time(async () => {
-                const rec = await readCodeRecord();
-                const scan2 = m.sq8Scan(null, count, dims, rec.rec, rec.rec.norms, query, keep, null);
-                const rows = await fetchByIds(scan2.map(row => row.index).slice(0, budget));
-                return rerankFetched(rows, query, 10, dims);
-              });
-              singleQueryMs = whole.ms;
-            }
+            // A whole-block observation for every query and budget, not one sample: read, scan,
+            // key fetch and rerank inside a single timer (idb-vector-thu).
+            const whole = await time(async () => {
+              const rec = await readCodeRecord();
+              const scan2 = m.sq8Scan(null, count, dims, rec.rec, rec.rec.norms, query, keep, null);
+              const rows = await fetchByIds(scan2.map(row => row.index).slice(0, budget));
+              return rerankFetched(rows, query, 10, dims);
+            });
+            slot.whole.push(whole.ms);
+            slot.wholeRecall = slot.wholeRecall || [];
+            slot.wholeRecall.push(m.recallAtK(whole.value, oracle[q]));
             // The fetched originals must be the stored rows, not a stale or wrong-width record.
             if (rep === 0 && q < 2) {
               const fetched = fetch.value.find(row => row && row.embedding);
@@ -176,6 +179,15 @@ try {
       });
       batchedExactMs = batched.ms;
 
+      // Cold (first query of the run, nothing has read the record yet) and warm-only (the rest)
+      // summaries for every leg and for the whole-block observations (idb-vector-thu).
+      const coldWarm = values => ({
+        coldMs: values[0],
+        warmMedianMs: values.length > 1 ? median(values.slice(1)) : null,
+        warmSamples: values.length > 1 ? values.slice(1) : [],
+        samples: values.length,
+      });
+
       const summary = {
         name: spec.name, count, dims, seeds: seed, budgets: spec.budgets, queries: queries.length,
         repetitions: spec.repetitions,
@@ -187,40 +199,129 @@ try {
           rerankMsMedian: Object.fromEntries(spec.budgets.map(n => [n, median(perBudget[n].rerank)])),
           endToEndMsMedian: Object.fromEntries(spec.budgets.map(n => [n, median(perBudget[n].endToEnd)])),
           coldMs: Object.fromEntries(spec.budgets.map(n => [n, perBudget[n].endToEnd[0]])),
-          singleQueryMs,
+          warmOnlyEndToEndMsMedian: Object.fromEntries(spec.budgets.map(n => [n, median(perBudget[n].endToEnd.slice(1))])),
+          perLeg: {
+            codesRead: coldWarm(legs.codesRead),
+            scan: coldWarm(legs.scan),
+            fetch: Object.fromEntries(spec.budgets.map(n => [n, coldWarm(perBudget[n].fetch)])),
+            rerank: Object.fromEntries(spec.budgets.map(n => [n, coldWarm(perBudget[n].rerank)])),
+          },
+          wholeBlock: Object.fromEntries(spec.budgets.map(n => [n, coldWarm(perBudget[n].whole)])),
+          wholeBlockRecallMean: Object.fromEntries(spec.budgets.map(n => [n, perBudget[n].wholeRecall.reduce((a, b) => a + b, 0) / perBudget[n].wholeRecall.length])),
           recallAt10Mean: Object.fromEntries(spec.budgets.map(n => [n, perBudget[n].recall.reduce((a, b) => a + b, 0) / perBudget[n].recall.length])),
           candidateCeilingMean: Object.fromEntries(spec.budgets.map(n => [n, perBudget[n].ceiling.reduce((a, b) => a + b, 0) / perBudget[n].ceiling.length])),
         },
         packedExact: {
           readMsMedian: median(packedExactLegs.read), scanMsMedian: median(packedExactLegs.scan),
           endToEndMsMedian: median(packedExactLegs.read) + median(packedExactLegs.scan),
+          perLeg: { read: coldWarm(packedExactLegs.read), scan: coldWarm(packedExactLegs.scan) },
         },
         batchedExact: { queries: 1, endToEndMs: batchedExactMs },
         fetchedRowsVerified: freshChecks,
       };
 
       if (spec.predicate) {
-        const legsPredicate = { open: [], scan: [], fetch: [], rerank: [], endToEnd: [], recall: [], ceiling: [] };
+        // Paired filtered comparison (idb-vector-pun): every alternative below reads its data from
+        // IndexedDB in this same run, so the side-store is not compared against a resident scan.
+        // The eligible set has to be obtained by some means; here it is the stored eligibility mask
+        // (100 KB). In the library that role is a metadata index, whose own cost is measured
+        // elsewhere - this leg is the mask read, not a metadata-index claim.
+        const legsPredicate = { maskRead: [], scan: [], fetch: [], rerank: [], endToEnd: [], whole: [], recall: [], ceiling: [] };
+        const legsExactEligible = { maskRead: [], fetch: [], rerank: [], endToEnd: [], whole: [], recall: [] };
+        const legsPackedMasked = { read: [], scan: [], endToEnd: [], whole: [], recall: [] };
+        const eligibleIds = [];
+        for (let id = 0; id < count; id++) if (mask[id]) eligibleIds.push(id);
         for (let rep = 0; rep < spec.repetitions; rep++) for (const query of queries) {
+          const q = queries.indexOf(query);
+          // (i) side-store: read codes + mask, masked scan, fetch the top-300 by key, rerank.
           const rec = await time(readCodeRecord);
           const scan = await time(() => m.sq8Scan(null, count, dims, rec.value.rec, rec.value.rec.norms, query, keep, rec.value.mask));
           const ids = scan.value.map(row => row.index).slice(0, 300);
           const fetch = await time(() => fetchByIds(ids));
           const rerank = await time(() => rerankFetched(fetch.value, query, 10, dims));
-          legsPredicate.open.push(rec.ms); legsPredicate.scan.push(scan.ms);
+          legsPredicate.maskRead.push(rec.ms); legsPredicate.scan.push(scan.ms);
           legsPredicate.fetch.push(fetch.ms); legsPredicate.rerank.push(rerank.ms);
-          legsPredicate.endToEnd.push(rec.ms + scan.ms + fetch.ms + rerank.ms);
-          legsPredicate.recall.push(m.recallAtK(rerank.value, oracleEligible[queries.indexOf(query)]));
-          legsPredicate.ceiling.push(m.candidateCeiling(ids, oracleEligible[queries.indexOf(query)]));
+          const sideEnd = rec.ms + scan.ms + fetch.ms + rerank.ms;
+          legsPredicate.endToEnd.push(sideEnd);
+          legsPredicate.recall.push(m.recallAtK(rerank.value, oracleEligible[q]));
+          legsPredicate.ceiling.push(m.candidateCeiling(ids, oracleEligible[q]));
+          const sideWhole = await time(async () => {
+            const r = await readCodeRecord();
+            const s = m.sq8Scan(null, count, dims, r.rec, r.rec.norms, query, keep, r.mask);
+            const rows = await fetchByIds(s.map(row => row.index).slice(0, 300));
+            return rerankFetched(rows, query, 10, dims);
+          });
+          legsPredicate.whole.push(sideWhole.ms);
+          // (ii) exact over the eligible originals fetched BY KEY, no codes at all: read the mask,
+          // fetch the 1,000 eligible rows in one transaction, rank them exactly in Float64.
+          const exactMask = await time(async () => {
+            const tx = db.transaction('codes');
+            const mk = await request(tx.objectStore('codes').get('mask'));
+            await complete(tx);
+            return mk;
+          });
+          const exactFetch = await time(() => fetchByIds(eligibleIds));
+          const exactRerank = await time(() => rerankFetched(exactFetch.value, query, 10, dims));
+          legsExactEligible.maskRead.push(exactMask.ms);
+          legsExactEligible.fetch.push(exactFetch.ms); legsExactEligible.rerank.push(exactRerank.ms);
+          legsExactEligible.endToEnd.push(exactMask.ms + exactFetch.ms + exactRerank.ms);
+          legsExactEligible.recall.push(m.recallAtK(exactRerank.value, oracleEligible[q]));
+          const exactWhole = await time(async () => {
+            const tx = db.transaction('codes');
+            const mk = await request(tx.objectStore('codes').get('mask'));
+            await complete(tx);
+            const rows = await fetchByIds(eligibleIds);
+            return rerankFetched(rows, query, 10, dims);
+          });
+          legsExactEligible.whole.push(exactWhole.ms);
+          // (iii) the packed Float32 record read from IndexedDB plus the masked exact scan.
+          const packedRead = await time(() => request(db.transaction('packed').objectStore('packed').get('f32')));
+          const packedScan = await time(() => m.exactTopK(packedRead.value, count, dims, query, 10, mask));
+          legsPackedMasked.read.push(packedRead.ms); legsPackedMasked.scan.push(packedScan.ms);
+          legsPackedMasked.endToEnd.push(packedRead.ms + packedScan.ms);
+          legsPackedMasked.recall.push(m.recallAtK(packedScan.value, oracleEligible[q]));
+          const packedWhole = await time(async () => {
+            const rec2 = await request(db.transaction('packed').objectStore('packed').get('f32'));
+            return m.exactTopK(rec2, count, dims, query, 10, mask);
+          });
+          legsPackedMasked.whole.push(packedWhole.ms);
         }
+        const mean = values => values.reduce((a, b) => a + b, 0) / values.length;
         const eligible = mask.reduce((sum, value) => sum + value, 0);
         summary.predicate = {
-          eligibleRows: eligible, selectivity: eligible / count,
-          scanMsMedian: median(legsPredicate.scan), fetchMsMedian: median(legsPredicate.fetch),
-          endToEndMsMedian: median(legsPredicate.endToEnd),
-          recallAt10Mean: legsPredicate.recall.reduce((a, b) => a + b, 0) / legsPredicate.recall.length,
-          candidateCeilingMean: legsPredicate.ceiling.reduce((a, b) => a + b, 0) / legsPredicate.ceiling.length,
-          budget: 300,
+          eligibleRows: eligible, selectivity: eligible / count, budget: 300,
+          eligibleIdsSource: 'stored eligibility mask record (100 KB); the library uses a metadata index for this step',
+          sideStore: {
+            scanMsMedian: median(legsPredicate.scan), fetchMsMedian: median(legsPredicate.fetch),
+            endToEndMsMedian: median(legsPredicate.endToEnd),
+            warmOnlyEndToEndMsMedian: median(legsPredicate.endToEnd.slice(1)),
+            wholeBlock: coldWarm(legsPredicate.whole),
+            perLeg: {
+              maskRead: coldWarm(legsPredicate.maskRead), scan: coldWarm(legsPredicate.scan),
+              fetch: coldWarm(legsPredicate.fetch), rerank: coldWarm(legsPredicate.rerank),
+            },
+            recallAt10Mean: mean(legsPredicate.recall),
+            candidateCeilingMean: mean(legsPredicate.ceiling),
+          },
+          exactEligibleByKey: {
+            fetchMsMedian: median(legsExactEligible.fetch), rerankMsMedian: median(legsExactEligible.rerank),
+            endToEndMsMedian: median(legsExactEligible.endToEnd),
+            warmOnlyEndToEndMsMedian: median(legsExactEligible.endToEnd.slice(1)),
+            wholeBlock: coldWarm(legsExactEligible.whole),
+            perLeg: {
+              maskRead: coldWarm(legsExactEligible.maskRead), fetch: coldWarm(legsExactEligible.fetch),
+              rerank: coldWarm(legsExactEligible.rerank),
+            },
+            recallAt10Mean: mean(legsExactEligible.recall),
+          },
+          packedExactMasked: {
+            readMsMedian: median(legsPackedMasked.read), scanMsMedian: median(legsPackedMasked.scan),
+            endToEndMsMedian: median(legsPackedMasked.endToEnd),
+            warmOnlyEndToEndMsMedian: median(legsPackedMasked.endToEnd.slice(1)),
+            wholeBlock: coldWarm(legsPackedMasked.whole),
+            perLeg: { read: coldWarm(legsPackedMasked.read), scan: coldWarm(legsPackedMasked.scan) },
+            recallAt10Mean: mean(legsPackedMasked.recall),
+          },
         };
       }
 
@@ -304,17 +405,37 @@ try {
       const ceiling = result.sideStore.candidateCeilingMean[budget];
       assert.ok(recall >= 0 && recall <= ceiling + 1e-12, `${result.name} recall@${budget} above ceiling`);
       assert.ok(result.sideStore.endToEndMsMedian[budget] > 0, `${result.name} end-to-end@${budget}`);
-      assert.ok(result.sideStore.coldMs[budget] >= 0);
+      assert.ok(result.sideStore.warmOnlyEndToEndMsMedian[budget] > 0, `${result.name} warm end-to-end@${budget}`);
+      // Cold and warm per leg, plus whole-block observations for every query (idb-vector-thu).
+      const expected = result.repetitions * result.queries;
+      const whole = result.sideStore.wholeBlock[budget];
+      assert.equal(whole.samples, expected, `${result.name} whole-block samples@${budget}`);
+      assert.ok(whole.coldMs > 0 && whole.warmMedianMs > 0, `${result.name} whole-block cold/warm@${budget}`);
+      assert.ok(result.sideStore.wholeBlockRecallMean[budget] >= result.sideStore.recallAt10Mean[budget] - 1e-9);
+      for (const [leg, series] of [['codesRead', result.sideStore.perLeg.codesRead], ['scan', result.sideStore.perLeg.scan],
+        ['fetch', result.sideStore.perLeg.fetch[budget]], ['rerank', result.sideStore.perLeg.rerank[budget]]]) {
+        assert.equal(series.samples, expected, `${result.name} ${leg} samples`);
+        assert.ok(series.coldMs >= 0 && series.warmMedianMs >= 0, `${result.name} ${leg} cold/warm`);
+      }
     }
     for (const check of result.fetchedRowsVerified) {
       assert.equal(check.sameAsResident, true, `${result.name} fetched row ${check.id} differs from the stored vector`);
       assert.equal(check.dimensions, result.dims);
     }
     assert.ok(result.packedExact.endToEndMsMedian > 0 && result.batchedExact.endToEndMs > 0);
+    assert.ok(result.packedExact.perLeg.read.coldMs > 0 && result.packedExact.perLeg.read.warmMedianMs > 0);
     if (result.predicate) {
       assert.equal(result.predicate.eligibleRows, smoke ? 20 : 1000);
-      assert.ok(result.predicate.recallAt10Mean >= 0.9, 'predicate-before recall');
-      assert.ok(result.predicate.endToEndMsMedian > 0);
+      // Three paired IndexedDB alternatives, all with a whole-block sample per query
+      // (idb-vector-pun). The exact paths are exact by construction, so their recall must be 1.
+      for (const [name, path] of [['sideStore', result.predicate.sideStore], ['exactEligibleByKey', result.predicate.exactEligibleByKey], ['packedExactMasked', result.predicate.packedExactMasked]]) {
+        assert.ok(path.recallAt10Mean >= 0.99, `${name} filtered recall ${path.recallAt10Mean}`);
+        assert.ok(path.endToEndMsMedian > 0 && path.warmOnlyEndToEndMsMedian > 0, `${name} filtered end-to-end`);
+        assert.equal(path.wholeBlock.samples, result.repetitions * result.queries, `${name} filtered whole-block samples`);
+        assert.ok(path.wholeBlock.coldMs > 0 && path.wholeBlock.warmMedianMs > 0, `${name} filtered whole-block cold/warm`);
+        for (const series of Object.values(path.perLeg)) assert.ok(series.coldMs >= 0 && series.warmMedianMs >= 0, `${name} filtered per-leg cold/warm`);
+      }
+      assert.equal(result.predicate.sideStore.candidateCeilingMean, 1);
     }
     if (result.revision) {
       // Structural, not a recall threshold: the current revision must never fetch a deleted row,
@@ -332,17 +453,22 @@ try {
     diff: execFileSync('git', ['diff', '--stat']).toString().trim(),
     browser: await page.send('Browser.getVersion'),
     cpu: os.cpus()[0].model, load: os.loadavg(),
-    conditions: 'One timed query per (corpus, query, budget): read the code record and eligibility mask, scan the int8 codes, fetch the top-N originals by key in a single readonly transaction, rerank exactly in Float64. Originals are stored as 100,000 individual { id, embedding } records (Float64Array), the codes as one packed record; both in one fresh database per corpus, writes completed before any timing. Oracles are computed from the resident vectors. Cold is the first query of the first repetition, warm medians cover the rest; 3 order-rotated repetitions (2 for the 384-dimension corpus).',
+    conditions: 'One timed query per (corpus, query, budget): read the code record and eligibility mask, scan the int8 codes, fetch the top-N originals by key in a single readonly transaction, rerank exactly in Float64. Originals are stored as 100,000 individual { id, embedding } records (Float64Array), the codes as one packed record; both in one fresh database per corpus, writes completed before any timing. Oracles are computed from the resident vectors. Every leg and every whole-block observation is recorded per query, so the report can state a cold value (first query of the run) and a warm-only median (the remaining queries) rather than one aggregate; 3 order-rotated repetitions at 128 dimensions and 2 at 384. The 1%-predicate leg is a paired comparison inside this same run: the int8 codes path, an exact path over the eligible originals fetched by key (mask read, one-transaction fetch, Float64 rerank) and the packed Float32 record read plus a masked exact scan.',
     nodeCrosscheck: { buildCodeRecordRevision: tinyRecord.revision, fetchedRerankLength: rerankFetched(tinyIds.map(id => ({ id, embedding: Float64Array.from(tiny.vectors.subarray(id * 32, (id + 1) * 32)) })), tiny.queries[0], 10, 32).length },
     results,
   };
   await writeFile(jsonPath, JSON.stringify(report, null, 2) + '\n');
   for (const result of results) {
     const s = result.sideStore;
-    console.log(`${result.name} (n=${result.count}, d=${result.dims}): codes read ${s.codesReadMsMedian.toFixed(1)}ms | scan ${s.scanMsMedian.toFixed(1)}ms | ` +
-      result.budgets.map(n => `N=${n} fetch ${s.fetchMsMedian[n].toFixed(1)}ms rerank ${s.rerankMsMedian[n].toFixed(1)}ms end-to-end ${s.endToEndMsMedian[n].toFixed(1)}ms (cold ${s.coldMs[n].toFixed(1)}ms) r@10=${s.recallAt10Mean[n].toFixed(3)}`).join(' | ') +
+    console.log(`${result.name} (n=${result.count}, d=${result.dims}): codes read ${s.codesReadMsMedian.toFixed(1)}ms (cold ${s.perLeg.codesRead.coldMs.toFixed(1)}) | scan ${s.scanMsMedian.toFixed(1)}ms | ` +
+      result.budgets.map(n => `N=${n} fetch ${s.fetchMsMedian[n].toFixed(1)}ms rerank ${s.rerankMsMedian[n].toFixed(1)}ms end-to-end ${s.endToEndMsMedian[n].toFixed(1)}ms warm-only ${s.warmOnlyEndToEndMsMedian[n].toFixed(1)}ms whole cold ${s.wholeBlock[n].coldMs.toFixed(1)} / warm ${s.wholeBlock[n].warmMedianMs.toFixed(1)}ms r@10=${s.recallAt10Mean[n].toFixed(3)}`).join(' | ') +
       ` | packed f32 + exact ${result.packedExact.endToEndMsMedian.toFixed(1)}ms | batched records + exact ${result.batchedExact.endToEndMs.toFixed(1)}ms`);
-    if (result.predicate) console.log(`  predicate 1%: end-to-end ${result.predicate.endToEndMsMedian.toFixed(1)}ms r@10=${result.predicate.recallAt10Mean.toFixed(3)} (eligible ${result.predicate.eligibleRows})`);
+    if (result.predicate) {
+      const p = result.predicate;
+      console.log(`  predicate 1%: side-store ${p.sideStore.endToEndMsMedian.toFixed(1)}ms (warm ${p.sideStore.warmOnlyEndToEndMsMedian.toFixed(1)}ms, whole cold ${p.sideStore.wholeBlock.coldMs.toFixed(1)} / warm ${p.sideStore.wholeBlock.warmMedianMs.toFixed(1)}ms) r@10=${p.sideStore.recallAt10Mean.toFixed(3)} | ` +
+        `exact eligible by key ${p.exactEligibleByKey.endToEndMsMedian.toFixed(1)}ms (whole warm ${p.exactEligibleByKey.wholeBlock.warmMedianMs.toFixed(1)}ms) r@10=${p.exactEligibleByKey.recallAt10Mean.toFixed(3)} | ` +
+        `packed f32 masked ${p.packedExactMasked.endToEndMsMedian.toFixed(1)}ms r@10=${p.packedExactMasked.recallAt10Mean.toFixed(3)} (eligible ${p.eligibleRows})`);
+    }
     if (result.revision) console.log(`  revision: current r@10=${result.revision.currentRecallAt10Mean.toFixed(3)} stale r@10=${result.revision.staleRecallAt10Mean.toFixed(3)} missing in stale fetch ${result.revision.missingRecordsInStaleFetch}`);
   }
   console.log(`Report: ${jsonPath}`);
