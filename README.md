@@ -213,6 +213,43 @@ accepted it. Exact reranking of a pruned candidate set is not exact global retri
 library does not label it as such. `info.fullScanRequired` states the same thing from the cost
 side ("did this spec force a full read?") and is `true` under exactly the same condition today;
 they are separate fields because a future bounded source may be exhaustive on purpose.
+## Read strategies: a cursor, or an optional paged scan
+
+`query()` and `queryCandidates()` read with a cursor by default. Passing `pageSize` reads the store
+in bounded pages instead; `info.readMode` and `info.pageSize` say which strategy ran.
+
+```javascript
+// Whole-store scan, read 500 records at a time instead of one cursor step per record.
+const { results, info } = await db.queryCandidates(queryVector, { limit: 10, pageSize: 500 });
+// info.readMode === "paged", info.pageSize === 500, info.mode === "full-scan"
+```
+
+- **Same snapshot either way.** Every page runs in the **one** transaction the query opened, so the
+whole query sees a single consistent view: a writer on another connection cannot tear the read by
+committing between pages. A paged read is not a live read - if you need writes to be visible, run a
+new query.
+- **Resumed by key, not by count.** A page continues from the last key it read with an exclusive
+lower bound, so paging is exact for the arbitrary primary keys IndexedDB allows - numbers, strings,
+dates, and array/compound keys. It never assumes keys are sequential or that a key can be
+incremented.
+- **One implementation of the rules.** Both strategies share the same per-record rules, so paging
+cannot drift from the cursor: a record with no vector at `vectorPath` is skipped, an invalid or
+wrong-dimension record is refused by key, and eligibility (the predicate) is decided before ranking.
+- **At most `pageSize` records are held at once**, which is the memory bound it advertises.
+- **`pageSize` is refused with an index or a key range** (`TypeError` naming the mode): an index can
+repeat one key across records and a key range would have to be intersected with every page bound,
+so paging either could skip a record. Those reads keep the cursor path.
+- **When paging pays (measured, 2-vCPU VM, Chrome, 100k records, limit 10):** with small
+records it wins - 8-dimensional vectors, `pageSize: 5000`: 956 ms versus 1693 ms for the cursor
+(1.8x); with large records it does not - 128-dimensional vectors: 4212 ms versus 4188 ms (parity),
+and 5655 ms with `pageSize: 1000`, which is slower than the cursor because each page deserializes
+up to 1000 full records at once. Batching pays when the per-record cursor overhead is large
+relative to the record payload, so choose a page size of thousands for large vectors or keep the
+cursor. Absolute times move with machine load; re-measure with `npm run measure:paged`.
+- **The query vector's norm is computed once per query**, not once per record. Hoisting it does not
+change any result: the per-record arithmetic and its accumulation order are identical, so scores are
+bit-for-bit what they were. Prior versions recomputed it for every record scored, which at 100k
+records x 128 dimensions is millions of redundant operations per query.
 
 ## Optional packed snapshots (new API)
 

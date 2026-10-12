@@ -1025,7 +1025,7 @@ try {
     // which is the late-filter trap: results that look filtered because the caller asked for it.
     await refusal('query predicate option refused',
       () => valDB.query(testVec, { predicate: (r) => r.tag === 'v1' }),
-      { type: TypeError, includes: ['query() option "predicate" is not supported', 'limit and threshold', 'queryCandidates()'] });
+      { type: TypeError, includes: ['query() option "predicate" is not supported', 'limit, threshold, pageSize', 'queryCandidates()'] });
     await refusal('query index option refused',
       () => valDB.query(testVec, { index: 'tag' }),
       { type: TypeError, includes: ['query() option "index" is not supported', 'queryCandidates()'] });
@@ -1034,7 +1034,7 @@ try {
       { type: TypeError, includes: ['query() option "range" is not supported', 'queryCandidates()'] });
     await refusal('query unknown option refused',
       () => valDB.query(testVec, { minSimilarity: 0.5 }),
-      { type: TypeError, includes: ['query() option "minSimilarity" is not supported', 'limit and threshold'] });
+      { type: TypeError, includes: ['query() option "minSimilarity" is not supported', 'limit, threshold, pageSize'] });
     // The guidance is real, not decorative: the predicate query() refused selects candidates on the
     // candidate path, and it selects exactly the record the caller meant.
     const guided = await valDB.queryCandidates(testVec, { predicate: (r) => r.tag === 'v1', limit: 5 });
