@@ -1,0 +1,3741 @@
+{
+  "observedAt": "2026-10-12T12:25:57.765Z",
+  "model": "Xenova/all-MiniLM-L6-v2",
+  "revision": "751bff37182d3f1213fa05d7196b954e230abad9",
+  "runtime": "@xenova/transformers 2.17.2 / onnxruntime-web 1.14.0",
+  "dimensions": 384,
+  "regularization": 0.000001,
+  "provenance": {
+    "corpusVectorsSha256": "d7ae23c9d4028d66aca7e070a5cb427562225af300076385c16eda76548f90e3",
+    "corpusPassagesSha256": "62549c6b8a589ace6a13d16d4c5d95d1a0fbde47338c50f8bf0d6264907f54b6",
+    "labelsSha256": "ba45b66efd65db1eeb6a43ae492a8a85c1ff3d2764cadab013031d8f68ca2775",
+    "sourceManifestSha256": "40307f1d9e62ef2576bee6b7d02745854ef72bf6dfefa719134f2373de4c9e10",
+    "annotation": "Manually authored 2026-10-12 from page titles and topic descriptions; page-level relevance (all 12 excerpts on a target page eligible), not independently judged passage qrels. No query was copied from corpus text. An exploratory check, not evidence for a default change.",
+    "split": "Unique page titles in demo/data/passages-2000.json in corpus order; title index modulo 4 = 0 is held-out evaluation candidate; remaining titles are transform-fit-only training corpus. Query and held-out candidate vectors are never used to fit preprocessing."
+  },
+  "trainPassages": 1497,
+  "eligiblePassages": 503,
+  "trainPages": 125,
+  "eligiblePages": 42,
+  "queryCount": 20,
+  "conditions": "Fresh local headless Chromium encoder for questions; Node exhaustive cosine on committed f32 corpus vectors promoted to Float64; no IndexedDB timing or p95 claim. Query search time excludes browser model encoding and one-time fit/preparation. Single process, no confidence interval.",
+  "transformVersions": {
+    "raw": "raw-cosine-v1",
+    "centered": "mean-center-v1",
+    "whitened": "cholesky-whiten-v1-ridge-1e-6"
+  },
+  "metrics": {
+    "raw": {
+      "mrrAt10": 0.975,
+      "hitAt1": 0.95,
+      "hitAt10": 1,
+      "eligibleRecallAt10": 0.6625,
+      "neighbourOverlapAt10": 1,
+      "medianQuerySearchMs": 0.7533729999995558,
+      "fitMs": 0,
+      "prepareEligibleMs": 0.9453310000008059
+    },
+    "centered": {
+      "mrrAt10": 0.975,
+      "hitAt1": 0.95,
+      "hitAt10": 1,
+      "eligibleRecallAt10": 0.6708333333333334,
+      "neighbourOverlapAt10": 0.925,
+      "medianQuerySearchMs": 0.7382849999994505,
+      "fitMs": 83.47787100000096,
+      "prepareEligibleMs": 20.979246999999305
+    },
+    "whitened": {
+      "mrrAt10": 1,
+      "hitAt1": 1,
+      "hitAt10": 1,
+      "eligibleRecallAt10": 0.5875,
+      "neighbourOverlapAt10": 0.7350000000000001,
+      "medianQuerySearchMs": 0.9899210000003222,
+      "fitMs": 384.59107100000074,
+      "prepareEligibleMs": 103.74881800000003
+    }
+  },
+  "rows": [
+    {
+      "query": "Which scientific field studies stars, planets and the universe?",
+      "targetTitle": "Astronomy",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 2.7365279999994527,
+          "top": [
+            {
+              "index": 0,
+              "title": "Astronomy",
+              "similarity": 0.6622817040741603
+            },
+            {
+              "index": 668,
+              "title": "Astronomy",
+              "similarity": 0.5908724506543762
+            },
+            {
+              "index": 167,
+              "title": "Astronomy",
+              "similarity": 0.572806515921021
+            },
+            {
+              "index": 501,
+              "title": "Astronomy",
+              "similarity": 0.5489378186255854
+            },
+            {
+              "index": 334,
+              "title": "Astronomy",
+              "similarity": 0.5325004489611911
+            },
+            {
+              "index": 835,
+              "title": "Astronomy",
+              "similarity": 0.5292894245023321
+            },
+            {
+              "index": 887,
+              "title": "Information theory",
+              "similarity": 0.501661844928856
+            },
+            {
+              "index": 1897,
+              "title": "Galaxy",
+              "similarity": 0.4634486233342161
+            },
+            {
+              "index": 1670,
+              "title": "Astronomy",
+              "similarity": 0.43299974484711873
+            },
+            {
+              "index": 895,
+              "title": "Galaxy",
+              "similarity": 0.4229168476717874
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 7,
+          "eligibleRecallAt10": 0.5833333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 1.7105129999999917,
+          "top": [
+            {
+              "index": 0,
+              "title": "Astronomy",
+              "similarity": 0.6066820739690645
+            },
+            {
+              "index": 668,
+              "title": "Astronomy",
+              "similarity": 0.5289480340527459
+            },
+            {
+              "index": 167,
+              "title": "Astronomy",
+              "similarity": 0.4839731734525857
+            },
+            {
+              "index": 835,
+              "title": "Astronomy",
+              "similarity": 0.4772458734349127
+            },
+            {
+              "index": 334,
+              "title": "Astronomy",
+              "similarity": 0.47335744179345907
+            },
+            {
+              "index": 501,
+              "title": "Astronomy",
+              "similarity": 0.47040257622413983
+            },
+            {
+              "index": 887,
+              "title": "Information theory",
+              "similarity": 0.4306738756842321
+            },
+            {
+              "index": 1897,
+              "title": "Galaxy",
+              "similarity": 0.4029645208854302
+            },
+            {
+              "index": 895,
+              "title": "Galaxy",
+              "similarity": 0.3558671369027883
+            },
+            {
+              "index": 565,
+              "title": "Solar System",
+              "similarity": 0.3479010429317187
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 2.709013000001505,
+          "top": [
+            {
+              "index": 0,
+              "title": "Astronomy",
+              "similarity": 0.36384472219126196
+            },
+            {
+              "index": 668,
+              "title": "Astronomy",
+              "similarity": 0.29342221139114216
+            },
+            {
+              "index": 835,
+              "title": "Astronomy",
+              "similarity": 0.2674476354248797
+            },
+            {
+              "index": 501,
+              "title": "Astronomy",
+              "similarity": 0.2178771481211441
+            },
+            {
+              "index": 167,
+              "title": "Astronomy",
+              "similarity": 0.21636008660969638
+            },
+            {
+              "index": 334,
+              "title": "Astronomy",
+              "similarity": 0.16241038340110872
+            },
+            {
+              "index": 1758,
+              "title": "Carbon",
+              "similarity": 0.14875067343547027
+            },
+            {
+              "index": 1567,
+              "title": "Solar System",
+              "similarity": 0.1471484316851248
+            },
+            {
+              "index": 1837,
+              "title": "Astronomy",
+              "similarity": 0.14528034765914868
+            },
+            {
+              "index": 1901,
+              "title": "Solar System",
+              "similarity": 0.14351646439319
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 7,
+          "eligibleRecallAt10": 0.5833333333333334,
+          "neighbourOverlapAt10": 0.6
+        }
+      }
+    },
+    {
+      "query": "How do living things interact with their environments?",
+      "targetTitle": "Ecology",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 2.5274630000003526,
+          "top": [
+            {
+              "index": 505,
+              "title": "Ecology",
+              "similarity": 0.5512336175194219
+            },
+            {
+              "index": 4,
+              "title": "Ecology",
+              "similarity": 0.49940843230295695
+            },
+            {
+              "index": 1237,
+              "title": "Animal",
+              "similarity": 0.48782663542134963
+            },
+            {
+              "index": 171,
+              "title": "Ecology",
+              "similarity": 0.4791709100723092
+            },
+            {
+              "index": 271,
+              "title": "Nutrition",
+              "similarity": 0.4380302164855286
+            },
+            {
+              "index": 1006,
+              "title": "Ecology",
+              "similarity": 0.424812930895418
+            },
+            {
+              "index": 1340,
+              "title": "Ecology",
+              "similarity": 0.40492301745500103
+            },
+            {
+              "index": 1404,
+              "title": "Animal",
+              "similarity": 0.40358946531893025
+            },
+            {
+              "index": 672,
+              "title": "Ecology",
+              "similarity": 0.40096221242942937
+            },
+            {
+              "index": 1440,
+              "title": "Nutrition",
+              "similarity": 0.39804059779382217
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.8250549999993382,
+          "top": [
+            {
+              "index": 505,
+              "title": "Ecology",
+              "similarity": 0.5106349105941841
+            },
+            {
+              "index": 1237,
+              "title": "Animal",
+              "similarity": 0.44293660721178163
+            },
+            {
+              "index": 4,
+              "title": "Ecology",
+              "similarity": 0.43027752098435657
+            },
+            {
+              "index": 171,
+              "title": "Ecology",
+              "similarity": 0.42427844778996116
+            },
+            {
+              "index": 271,
+              "title": "Nutrition",
+              "similarity": 0.3713246334187495
+            },
+            {
+              "index": 672,
+              "title": "Ecology",
+              "similarity": 0.3627770629198988
+            },
+            {
+              "index": 1340,
+              "title": "Ecology",
+              "similarity": 0.3618759586869829
+            },
+            {
+              "index": 1006,
+              "title": "Ecology",
+              "similarity": 0.35823658471929687
+            },
+            {
+              "index": 1404,
+              "title": "Animal",
+              "similarity": 0.356552283618277
+            },
+            {
+              "index": 438,
+              "title": "Nutrition",
+              "similarity": 0.3430272539646141
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 1.9131199999992532,
+          "top": [
+            {
+              "index": 1674,
+              "title": "Ecology",
+              "similarity": 0.21867284882048435
+            },
+            {
+              "index": 891,
+              "title": "Quantum mechanics",
+              "similarity": 0.21549067698065974
+            },
+            {
+              "index": 505,
+              "title": "Ecology",
+              "similarity": 0.19749634679391076
+            },
+            {
+              "index": 4,
+              "title": "Ecology",
+              "similarity": 0.19316965147211745
+            },
+            {
+              "index": 1492,
+              "title": "Transport",
+              "similarity": 0.18038645830082842
+            },
+            {
+              "index": 1241,
+              "title": "Evolution",
+              "similarity": 0.16872788666851216
+            },
+            {
+              "index": 1189,
+              "title": "Art",
+              "similarity": 0.15288812625673634
+            },
+            {
+              "index": 796,
+              "title": "Australia",
+              "similarity": 0.15219591570015778
+            },
+            {
+              "index": 1404,
+              "title": "Animal",
+              "similarity": 0.1519600150341933
+            },
+            {
+              "index": 1237,
+              "title": "Animal",
+              "similarity": 0.15161709902350892
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 3,
+          "eligibleRecallAt10": 0.25,
+          "neighbourOverlapAt10": 0.4
+        }
+      }
+    },
+    {
+      "query": "What field studies ancient human societies by excavating artifacts?",
+      "targetTitle": "Archaeology",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 1.1097330000011425,
+          "top": [
+            {
+              "index": 12,
+              "title": "Archaeology",
+              "similarity": 0.7010065383997793
+            },
+            {
+              "index": 346,
+              "title": "Archaeology",
+              "similarity": 0.6798606265055571
+            },
+            {
+              "index": 179,
+              "title": "Archaeology",
+              "similarity": 0.6199089041041023
+            },
+            {
+              "index": 1682,
+              "title": "Archaeology",
+              "similarity": 0.5383062330886272
+            },
+            {
+              "index": 1515,
+              "title": "Archaeology",
+              "similarity": 0.5180739713140011
+            },
+            {
+              "index": 680,
+              "title": "Archaeology",
+              "similarity": 0.5142596676952105
+            },
+            {
+              "index": 1348,
+              "title": "Archaeology",
+              "similarity": 0.48755433616383775
+            },
+            {
+              "index": 1181,
+              "title": "Archaeology",
+              "similarity": 0.4704763753614933
+            },
+            {
+              "index": 517,
+              "title": "History",
+              "similarity": 0.4674979714245297
+            },
+            {
+              "index": 1957,
+              "title": "France",
+              "similarity": 0.42906173299931727
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 8,
+          "eligibleRecallAt10": 0.6666666666666666,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 1.1941879999994853,
+          "top": [
+            {
+              "index": 12,
+              "title": "Archaeology",
+              "similarity": 0.6496664621960033
+            },
+            {
+              "index": 346,
+              "title": "Archaeology",
+              "similarity": 0.6292552894564687
+            },
+            {
+              "index": 179,
+              "title": "Archaeology",
+              "similarity": 0.5531881869809082
+            },
+            {
+              "index": 1682,
+              "title": "Archaeology",
+              "similarity": 0.4583712872436995
+            },
+            {
+              "index": 1515,
+              "title": "Archaeology",
+              "similarity": 0.4384502749371762
+            },
+            {
+              "index": 680,
+              "title": "Archaeology",
+              "similarity": 0.433393189217678
+            },
+            {
+              "index": 1348,
+              "title": "Archaeology",
+              "similarity": 0.4065566618526895
+            },
+            {
+              "index": 1181,
+              "title": "Archaeology",
+              "similarity": 0.3908350897831622
+            },
+            {
+              "index": 517,
+              "title": "History",
+              "similarity": 0.36541488391878796
+            },
+            {
+              "index": 1849,
+              "title": "Archaeology",
+              "similarity": 0.35087113836045564
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 1.1286479999998846,
+          "top": [
+            {
+              "index": 12,
+              "title": "Archaeology",
+              "similarity": 0.32225980824528944
+            },
+            {
+              "index": 346,
+              "title": "Archaeology",
+              "similarity": 0.2277929614708507
+            },
+            {
+              "index": 1515,
+              "title": "Archaeology",
+              "similarity": 0.17142370618934527
+            },
+            {
+              "index": 1169,
+              "title": "Astronomy",
+              "similarity": 0.1697252811056107
+            },
+            {
+              "index": 521,
+              "title": "Art",
+              "similarity": 0.16345269416514588
+            },
+            {
+              "index": 1957,
+              "title": "France",
+              "similarity": 0.1596579868078096
+            },
+            {
+              "index": 1348,
+              "title": "Archaeology",
+              "similarity": 0.15960716130217747
+            },
+            {
+              "index": 668,
+              "title": "Astronomy",
+              "similarity": 0.15894986706749173
+            },
+            {
+              "index": 140,
+              "title": "Indonesia",
+              "similarity": 0.15668186483537655
+            },
+            {
+              "index": 179,
+              "title": "Archaeology",
+              "similarity": 0.1430984513644805
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 5,
+          "eligibleRecallAt10": 0.4166666666666667,
+          "neighbourOverlapAt10": 0.6
+        }
+      }
+    },
+    {
+      "query": "What art form applies pigments to a surface to create an image?",
+      "targetTitle": "Painting",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.8380429999997432,
+          "top": [
+            {
+              "index": 24,
+              "title": "Painting",
+              "similarity": 0.663897387122672
+            },
+            {
+              "index": 191,
+              "title": "Painting",
+              "similarity": 0.5757456797853296
+            },
+            {
+              "index": 1694,
+              "title": "Painting",
+              "similarity": 0.5299090096860415
+            },
+            {
+              "index": 358,
+              "title": "Painting",
+              "similarity": 0.5166130814938222
+            },
+            {
+              "index": 1690,
+              "title": "Art",
+              "similarity": 0.4516003577053852
+            },
+            {
+              "index": 1193,
+              "title": "Painting",
+              "similarity": 0.43283813605948307
+            },
+            {
+              "index": 525,
+              "title": "Painting",
+              "similarity": 0.4210967200891279
+            },
+            {
+              "index": 1857,
+              "title": "Art",
+              "similarity": 0.4086808265398631
+            },
+            {
+              "index": 20,
+              "title": "Art",
+              "similarity": 0.4020396588069251
+            },
+            {
+              "index": 1360,
+              "title": "Painting",
+              "similarity": 0.3956418945154718
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 7,
+          "eligibleRecallAt10": 0.5833333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7916910000003554,
+          "top": [
+            {
+              "index": 24,
+              "title": "Painting",
+              "similarity": 0.6398884971259046
+            },
+            {
+              "index": 191,
+              "title": "Painting",
+              "similarity": 0.5419620418145866
+            },
+            {
+              "index": 1694,
+              "title": "Painting",
+              "similarity": 0.48784665217040096
+            },
+            {
+              "index": 358,
+              "title": "Painting",
+              "similarity": 0.468601829915733
+            },
+            {
+              "index": 1690,
+              "title": "Art",
+              "similarity": 0.38971454312071885
+            },
+            {
+              "index": 1193,
+              "title": "Painting",
+              "similarity": 0.38690389986215795
+            },
+            {
+              "index": 525,
+              "title": "Painting",
+              "similarity": 0.37541094773706035
+            },
+            {
+              "index": 1857,
+              "title": "Art",
+              "similarity": 0.36381970719261386
+            },
+            {
+              "index": 20,
+              "title": "Art",
+              "similarity": 0.3546704715747237
+            },
+            {
+              "index": 1356,
+              "title": "Art",
+              "similarity": 0.3408904604210279
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 1.1243560000002617,
+          "top": [
+            {
+              "index": 24,
+              "title": "Painting",
+              "similarity": 0.4968106223849076
+            },
+            {
+              "index": 1694,
+              "title": "Painting",
+              "similarity": 0.37456936260368556
+            },
+            {
+              "index": 191,
+              "title": "Painting",
+              "similarity": 0.3717787113565026
+            },
+            {
+              "index": 358,
+              "title": "Painting",
+              "similarity": 0.37089290733149227
+            },
+            {
+              "index": 20,
+              "title": "Art",
+              "similarity": 0.3157331462224898
+            },
+            {
+              "index": 1193,
+              "title": "Painting",
+              "similarity": 0.281815695663277
+            },
+            {
+              "index": 525,
+              "title": "Painting",
+              "similarity": 0.2714150600008478
+            },
+            {
+              "index": 1523,
+              "title": "Art",
+              "similarity": 0.2674340955452416
+            },
+            {
+              "index": 1356,
+              "title": "Art",
+              "similarity": 0.2620357377094965
+            },
+            {
+              "index": 1690,
+              "title": "Art",
+              "similarity": 0.25437689243719036
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.8
+        }
+      }
+    },
+    {
+      "query": "What process teaches knowledge and skills in schools?",
+      "targetTitle": "Education",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.7533729999995558,
+          "top": [
+            {
+              "index": 1368,
+              "title": "Education",
+              "similarity": 0.577363688901769
+            },
+            {
+              "index": 1201,
+              "title": "Education",
+              "similarity": 0.5581191556728885
+            },
+            {
+              "index": 199,
+              "title": "Education",
+              "similarity": 0.5473429396214962
+            },
+            {
+              "index": 32,
+              "title": "Education",
+              "similarity": 0.5083943544196338
+            },
+            {
+              "index": 366,
+              "title": "Education",
+              "similarity": 0.5002614340999467
+            },
+            {
+              "index": 1535,
+              "title": "Education",
+              "similarity": 0.4898012438348359
+            },
+            {
+              "index": 867,
+              "title": "Education",
+              "similarity": 0.47302540874289817
+            },
+            {
+              "index": 533,
+              "title": "Education",
+              "similarity": 0.46692280199752223
+            },
+            {
+              "index": 700,
+              "title": "Education",
+              "similarity": 0.42191690021601336
+            },
+            {
+              "index": 1702,
+              "title": "Education",
+              "similarity": 0.4178993682721343
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7552030000006198,
+          "top": [
+            {
+              "index": 1368,
+              "title": "Education",
+              "similarity": 0.5350770609396396
+            },
+            {
+              "index": 1201,
+              "title": "Education",
+              "similarity": 0.5105930221918805
+            },
+            {
+              "index": 199,
+              "title": "Education",
+              "similarity": 0.48937021073023035
+            },
+            {
+              "index": 32,
+              "title": "Education",
+              "similarity": 0.46323019716957137
+            },
+            {
+              "index": 366,
+              "title": "Education",
+              "similarity": 0.4561683179843088
+            },
+            {
+              "index": 1535,
+              "title": "Education",
+              "similarity": 0.4468054011348632
+            },
+            {
+              "index": 533,
+              "title": "Education",
+              "similarity": 0.4255271065371482
+            },
+            {
+              "index": 867,
+              "title": "Education",
+              "similarity": 0.4230458229799068
+            },
+            {
+              "index": 700,
+              "title": "Education",
+              "similarity": 0.3903944747198069
+            },
+            {
+              "index": 1702,
+              "title": "Education",
+              "similarity": 0.3723466601261414
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "whitened": {
+          "searchMs": 1.1049219999986235,
+          "top": [
+            {
+              "index": 1201,
+              "title": "Education",
+              "similarity": 0.4874504785457894
+            },
+            {
+              "index": 1368,
+              "title": "Education",
+              "similarity": 0.4872942384182478
+            },
+            {
+              "index": 533,
+              "title": "Education",
+              "similarity": 0.43343671946692636
+            },
+            {
+              "index": 32,
+              "title": "Education",
+              "similarity": 0.42600886757609235
+            },
+            {
+              "index": 366,
+              "title": "Education",
+              "similarity": 0.40042970075352435
+            },
+            {
+              "index": 199,
+              "title": "Education",
+              "similarity": 0.39940028843842906
+            },
+            {
+              "index": 867,
+              "title": "Education",
+              "similarity": 0.3972442015874783
+            },
+            {
+              "index": 700,
+              "title": "Education",
+              "similarity": 0.3758245493926234
+            },
+            {
+              "index": 1535,
+              "title": "Education",
+              "similarity": 0.3716710291766723
+            },
+            {
+              "index": 1702,
+              "title": "Education",
+              "similarity": 0.35497783451279247
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        }
+      }
+    },
+    {
+      "query": "What mathematics describes how likely an event is?",
+      "targetTitle": "Probability",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.8125019999988581,
+          "top": [
+            {
+              "index": 36,
+              "title": "Probability",
+              "similarity": 0.6659046587476803
+            },
+            {
+              "index": 203,
+              "title": "Probability",
+              "similarity": 0.604539688532569
+            },
+            {
+              "index": 871,
+              "title": "Probability",
+              "similarity": 0.5993724526825225
+            },
+            {
+              "index": 1372,
+              "title": "Probability",
+              "similarity": 0.5799139833035296
+            },
+            {
+              "index": 537,
+              "title": "Probability",
+              "similarity": 0.5668780979438124
+            },
+            {
+              "index": 1058,
+              "title": "Quantum mechanics",
+              "similarity": 0.5287185680493204
+            },
+            {
+              "index": 370,
+              "title": "Probability",
+              "similarity": 0.5174327173067788
+            },
+            {
+              "index": 704,
+              "title": "Probability",
+              "similarity": 0.5072617006239194
+            },
+            {
+              "index": 1873,
+              "title": "Probability",
+              "similarity": 0.5071037585853521
+            },
+            {
+              "index": 1539,
+              "title": "Probability",
+              "similarity": 0.4598347149152822
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7269849999993312,
+          "top": [
+            {
+              "index": 36,
+              "title": "Probability",
+              "similarity": 0.6525725720806808
+            },
+            {
+              "index": 871,
+              "title": "Probability",
+              "similarity": 0.5753971990537206
+            },
+            {
+              "index": 203,
+              "title": "Probability",
+              "similarity": 0.5693477076480257
+            },
+            {
+              "index": 537,
+              "title": "Probability",
+              "similarity": 0.5457492127900306
+            },
+            {
+              "index": 1372,
+              "title": "Probability",
+              "similarity": 0.540129027840378
+            },
+            {
+              "index": 1058,
+              "title": "Quantum mechanics",
+              "similarity": 0.4961547003831472
+            },
+            {
+              "index": 704,
+              "title": "Probability",
+              "similarity": 0.4879416497205937
+            },
+            {
+              "index": 370,
+              "title": "Probability",
+              "similarity": 0.48690788008567837
+            },
+            {
+              "index": 1873,
+              "title": "Probability",
+              "similarity": 0.4541984383045544
+            },
+            {
+              "index": 1038,
+              "title": "Probability",
+              "similarity": 0.4250537108051178
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 1.038099000001239,
+          "top": [
+            {
+              "index": 36,
+              "title": "Probability",
+              "similarity": 0.5814867339051644
+            },
+            {
+              "index": 871,
+              "title": "Probability",
+              "similarity": 0.4754634476227625
+            },
+            {
+              "index": 370,
+              "title": "Probability",
+              "similarity": 0.44199796643522027
+            },
+            {
+              "index": 537,
+              "title": "Probability",
+              "similarity": 0.4370150773124019
+            },
+            {
+              "index": 203,
+              "title": "Probability",
+              "similarity": 0.4230005178586467
+            },
+            {
+              "index": 1372,
+              "title": "Probability",
+              "similarity": 0.40461782796077644
+            },
+            {
+              "index": 1873,
+              "title": "Probability",
+              "similarity": 0.40080728112894176
+            },
+            {
+              "index": 704,
+              "title": "Probability",
+              "similarity": 0.39075877426293054
+            },
+            {
+              "index": 1706,
+              "title": "Probability",
+              "similarity": 0.3737531235507877
+            },
+            {
+              "index": 1539,
+              "title": "Probability",
+              "similarity": 0.3632887431292063
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 0.9
+        }
+      }
+    },
+    {
+      "query": "How can information be encoded to keep messages confidential?",
+      "targetTitle": "Cryptography",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.7603040000012697,
+          "top": [
+            {
+              "index": 1054,
+              "title": "Information theory",
+              "similarity": 0.515650198979952
+            },
+            {
+              "index": 207,
+              "title": "Cryptography",
+              "similarity": 0.49221200771172197
+            },
+            {
+              "index": 1042,
+              "title": "Cryptography",
+              "similarity": 0.45081715653782417
+            },
+            {
+              "index": 1555,
+              "title": "Information theory",
+              "similarity": 0.4246646315246785
+            },
+            {
+              "index": 40,
+              "title": "Cryptography",
+              "similarity": 0.4215100980470603
+            },
+            {
+              "index": 553,
+              "title": "Information theory",
+              "similarity": 0.40319291045533995
+            },
+            {
+              "index": 1221,
+              "title": "Information theory",
+              "similarity": 0.3908815231800017
+            },
+            {
+              "index": 1388,
+              "title": "Information theory",
+              "similarity": 0.39008348651623737
+            },
+            {
+              "index": 720,
+              "title": "Information theory",
+              "similarity": 0.3717873756559602
+            },
+            {
+              "index": 1376,
+              "title": "Cryptography",
+              "similarity": 0.36822323308529264
+            }
+          ],
+          "firstRelevantRank": 2,
+          "hits": 4,
+          "eligibleRecallAt10": 0.3333333333333333,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7527219999992667,
+          "top": [
+            {
+              "index": 1054,
+              "title": "Information theory",
+              "similarity": 0.509257434402226
+            },
+            {
+              "index": 207,
+              "title": "Cryptography",
+              "similarity": 0.4861254889146132
+            },
+            {
+              "index": 1042,
+              "title": "Cryptography",
+              "similarity": 0.4389703436142934
+            },
+            {
+              "index": 1555,
+              "title": "Information theory",
+              "similarity": 0.41786213444136094
+            },
+            {
+              "index": 40,
+              "title": "Cryptography",
+              "similarity": 0.41151659974605637
+            },
+            {
+              "index": 1221,
+              "title": "Information theory",
+              "similarity": 0.40484586224337155
+            },
+            {
+              "index": 553,
+              "title": "Information theory",
+              "similarity": 0.400200221681857
+            },
+            {
+              "index": 1388,
+              "title": "Information theory",
+              "similarity": 0.39681467091163447
+            },
+            {
+              "index": 720,
+              "title": "Information theory",
+              "similarity": 0.362299369194055
+            },
+            {
+              "index": 1376,
+              "title": "Cryptography",
+              "similarity": 0.35689491666275064
+            }
+          ],
+          "firstRelevantRank": 2,
+          "hits": 4,
+          "eligibleRecallAt10": 0.3333333333333333,
+          "neighbourOverlapAt10": 1
+        },
+        "whitened": {
+          "searchMs": 0.9665320000003703,
+          "top": [
+            {
+              "index": 207,
+              "title": "Cryptography",
+              "similarity": 0.5017610651449814
+            },
+            {
+              "index": 1054,
+              "title": "Information theory",
+              "similarity": 0.4087195309084715
+            },
+            {
+              "index": 1042,
+              "title": "Cryptography",
+              "similarity": 0.39552100813485386
+            },
+            {
+              "index": 1376,
+              "title": "Cryptography",
+              "similarity": 0.38516312334415487
+            },
+            {
+              "index": 1388,
+              "title": "Information theory",
+              "similarity": 0.37019088591402455
+            },
+            {
+              "index": 40,
+              "title": "Cryptography",
+              "similarity": 0.35929144912537236
+            },
+            {
+              "index": 1710,
+              "title": "Cryptography",
+              "similarity": 0.3572380007520719
+            },
+            {
+              "index": 1555,
+              "title": "Information theory",
+              "similarity": 0.3476416558122974
+            },
+            {
+              "index": 1221,
+              "title": "Information theory",
+              "similarity": 0.3042811869600963
+            },
+            {
+              "index": 720,
+              "title": "Information theory",
+              "similarity": 0.2987618908860596
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 5,
+          "eligibleRecallAt10": 0.4166666666666667,
+          "neighbourOverlapAt10": 0.9
+        }
+      }
+    },
+    {
+      "query": "What field trains algorithms to learn patterns from data?",
+      "targetTitle": "Machine learning",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.7989180000004126,
+          "top": [
+            {
+              "index": 211,
+              "title": "Machine learning",
+              "similarity": 0.45979126177475055
+            },
+            {
+              "index": 1213,
+              "title": "Machine learning",
+              "similarity": 0.45801548227731076
+            },
+            {
+              "index": 1380,
+              "title": "Machine learning",
+              "similarity": 0.44216796021183635
+            },
+            {
+              "index": 1046,
+              "title": "Machine learning",
+              "similarity": 0.4274028210656052
+            },
+            {
+              "index": 44,
+              "title": "Machine learning",
+              "similarity": 0.4080669591480708
+            },
+            {
+              "index": 879,
+              "title": "Machine learning",
+              "similarity": 0.3819506738562622
+            },
+            {
+              "index": 887,
+              "title": "Information theory",
+              "similarity": 0.3461087511980964
+            },
+            {
+              "index": 378,
+              "title": "Machine learning",
+              "similarity": 0.33973319641451816
+            },
+            {
+              "index": 219,
+              "title": "Information theory",
+              "similarity": 0.32427573166602475
+            },
+            {
+              "index": 712,
+              "title": "Machine learning",
+              "similarity": 0.3218029822280096
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 8,
+          "eligibleRecallAt10": 0.6666666666666666,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7382849999994505,
+          "top": [
+            {
+              "index": 211,
+              "title": "Machine learning",
+              "similarity": 0.4390385489472024
+            },
+            {
+              "index": 1213,
+              "title": "Machine learning",
+              "similarity": 0.4285728846775548
+            },
+            {
+              "index": 1380,
+              "title": "Machine learning",
+              "similarity": 0.41526007140471843
+            },
+            {
+              "index": 1046,
+              "title": "Machine learning",
+              "similarity": 0.38312294713919554
+            },
+            {
+              "index": 44,
+              "title": "Machine learning",
+              "similarity": 0.37729719547554497
+            },
+            {
+              "index": 879,
+              "title": "Machine learning",
+              "similarity": 0.32584618111689756
+            },
+            {
+              "index": 378,
+              "title": "Machine learning",
+              "similarity": 0.31523558618861974
+            },
+            {
+              "index": 887,
+              "title": "Information theory",
+              "similarity": 0.2826672779476992
+            },
+            {
+              "index": 1881,
+              "title": "Machine learning",
+              "similarity": 0.281963807173465
+            },
+            {
+              "index": 1547,
+              "title": "Machine learning",
+              "similarity": 0.27964689246120766
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 0.8
+        },
+        "whitened": {
+          "searchMs": 3.4406529999996565,
+          "top": [
+            {
+              "index": 1213,
+              "title": "Machine learning",
+              "similarity": 0.2732027121507744
+            },
+            {
+              "index": 211,
+              "title": "Machine learning",
+              "similarity": 0.24921616968454074
+            },
+            {
+              "index": 44,
+              "title": "Machine learning",
+              "similarity": 0.24108258255696677
+            },
+            {
+              "index": 533,
+              "title": "Education",
+              "similarity": 0.20072296474977494
+            },
+            {
+              "index": 1380,
+              "title": "Machine learning",
+              "similarity": 0.17572031181647566
+            },
+            {
+              "index": 712,
+              "title": "Machine learning",
+              "similarity": 0.17123270662941478
+            },
+            {
+              "index": 1201,
+              "title": "Education",
+              "similarity": 0.15953938463333805
+            },
+            {
+              "index": 1818,
+              "title": "Aviation",
+              "similarity": 0.15669658124615712
+            },
+            {
+              "index": 52,
+              "title": "Information theory",
+              "similarity": 0.15637869948386107
+            },
+            {
+              "index": 720,
+              "title": "Information theory",
+              "similarity": 0.1541961284427064
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 5,
+          "eligibleRecallAt10": 0.4166666666666667,
+          "neighbourOverlapAt10": 0.5
+        }
+      }
+    },
+    {
+      "query": "What hyperlinked information system uses websites and browsers?",
+      "targetTitle": "World Wide Web",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.7380310000007739,
+          "top": [
+            {
+              "index": 382,
+              "title": "World Wide Web",
+              "similarity": 0.6676859089467869
+            },
+            {
+              "index": 215,
+              "title": "World Wide Web",
+              "similarity": 0.6411723546757082
+            },
+            {
+              "index": 48,
+              "title": "World Wide Web",
+              "similarity": 0.5539719705635352
+            },
+            {
+              "index": 549,
+              "title": "World Wide Web",
+              "similarity": 0.5388053061574825
+            },
+            {
+              "index": 1050,
+              "title": "World Wide Web",
+              "similarity": 0.5344638535921197
+            },
+            {
+              "index": 1384,
+              "title": "World Wide Web",
+              "similarity": 0.471150215767184
+            },
+            {
+              "index": 1551,
+              "title": "World Wide Web",
+              "similarity": 0.4503300092351119
+            },
+            {
+              "index": 716,
+              "title": "World Wide Web",
+              "similarity": 0.4469769406367311
+            },
+            {
+              "index": 1217,
+              "title": "World Wide Web",
+              "similarity": 0.4423050378770932
+            },
+            {
+              "index": 1885,
+              "title": "World Wide Web",
+              "similarity": 0.38935840918166326
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7308010000015202,
+          "top": [
+            {
+              "index": 382,
+              "title": "World Wide Web",
+              "similarity": 0.6525095228624842
+            },
+            {
+              "index": 215,
+              "title": "World Wide Web",
+              "similarity": 0.6151515669087337
+            },
+            {
+              "index": 48,
+              "title": "World Wide Web",
+              "similarity": 0.528217222182365
+            },
+            {
+              "index": 1050,
+              "title": "World Wide Web",
+              "similarity": 0.5151474328202785
+            },
+            {
+              "index": 549,
+              "title": "World Wide Web",
+              "similarity": 0.5126822946881407
+            },
+            {
+              "index": 1384,
+              "title": "World Wide Web",
+              "similarity": 0.4613498759827785
+            },
+            {
+              "index": 1551,
+              "title": "World Wide Web",
+              "similarity": 0.4427731290869648
+            },
+            {
+              "index": 1217,
+              "title": "World Wide Web",
+              "similarity": 0.41672461744446937
+            },
+            {
+              "index": 716,
+              "title": "World Wide Web",
+              "similarity": 0.4047979969620857
+            },
+            {
+              "index": 1885,
+              "title": "World Wide Web",
+              "similarity": 0.3921083696300727
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "whitened": {
+          "searchMs": 1.0315840000002936,
+          "top": [
+            {
+              "index": 215,
+              "title": "World Wide Web",
+              "similarity": 0.5818219084851258
+            },
+            {
+              "index": 382,
+              "title": "World Wide Web",
+              "similarity": 0.5623690281981197
+            },
+            {
+              "index": 48,
+              "title": "World Wide Web",
+              "similarity": 0.4908315098598211
+            },
+            {
+              "index": 1384,
+              "title": "World Wide Web",
+              "similarity": 0.44820151759984145
+            },
+            {
+              "index": 1885,
+              "title": "World Wide Web",
+              "similarity": 0.43366792949504984
+            },
+            {
+              "index": 1551,
+              "title": "World Wide Web",
+              "similarity": 0.4187442275222476
+            },
+            {
+              "index": 1050,
+              "title": "World Wide Web",
+              "similarity": 0.3754938186169245
+            },
+            {
+              "index": 1718,
+              "title": "World Wide Web",
+              "similarity": 0.36025524994936614
+            },
+            {
+              "index": 549,
+              "title": "World Wide Web",
+              "similarity": 0.3510168162497119
+            },
+            {
+              "index": 883,
+              "title": "World Wide Web",
+              "similarity": 0.3467653061794431
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 0.8
+        }
+      }
+    },
+    {
+      "query": "How is information quantified using entropy and communication channels?",
+      "targetTitle": "Information theory",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.7874349999983679,
+          "top": [
+            {
+              "index": 1054,
+              "title": "Information theory",
+              "similarity": 0.7271782322569077
+            },
+            {
+              "index": 553,
+              "title": "Information theory",
+              "similarity": 0.7193530285468843
+            },
+            {
+              "index": 52,
+              "title": "Information theory",
+              "similarity": 0.6222665787821335
+            },
+            {
+              "index": 1221,
+              "title": "Information theory",
+              "similarity": 0.5932675325445669
+            },
+            {
+              "index": 1722,
+              "title": "Information theory",
+              "similarity": 0.5077532401416514
+            },
+            {
+              "index": 1388,
+              "title": "Information theory",
+              "similarity": 0.4901927436127415
+            },
+            {
+              "index": 720,
+              "title": "Information theory",
+              "similarity": 0.4847784571917484
+            },
+            {
+              "index": 219,
+              "title": "Information theory",
+              "similarity": 0.4803789423949277
+            },
+            {
+              "index": 386,
+              "title": "Information theory",
+              "similarity": 0.46844188682895366
+            },
+            {
+              "index": 1889,
+              "title": "Information theory",
+              "similarity": 0.43885689697890107
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.718113999999332,
+          "top": [
+            {
+              "index": 1054,
+              "title": "Information theory",
+              "similarity": 0.7147503272886478
+            },
+            {
+              "index": 553,
+              "title": "Information theory",
+              "similarity": 0.7091271296895034
+            },
+            {
+              "index": 52,
+              "title": "Information theory",
+              "similarity": 0.5971930600756585
+            },
+            {
+              "index": 1221,
+              "title": "Information theory",
+              "similarity": 0.5908527636452424
+            },
+            {
+              "index": 1722,
+              "title": "Information theory",
+              "similarity": 0.4834040060240064
+            },
+            {
+              "index": 1388,
+              "title": "Information theory",
+              "similarity": 0.4804936096367398
+            },
+            {
+              "index": 720,
+              "title": "Information theory",
+              "similarity": 0.46041692930296385
+            },
+            {
+              "index": 386,
+              "title": "Information theory",
+              "similarity": 0.44983283596007223
+            },
+            {
+              "index": 219,
+              "title": "Information theory",
+              "similarity": 0.44138476681251937
+            },
+            {
+              "index": 1889,
+              "title": "Information theory",
+              "similarity": 0.41367139747083975
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "whitened": {
+          "searchMs": 0.9737039999999979,
+          "top": [
+            {
+              "index": 553,
+              "title": "Information theory",
+              "similarity": 0.6081662189505678
+            },
+            {
+              "index": 1054,
+              "title": "Information theory",
+              "similarity": 0.6078352056322431
+            },
+            {
+              "index": 52,
+              "title": "Information theory",
+              "similarity": 0.5612304811399565
+            },
+            {
+              "index": 1221,
+              "title": "Information theory",
+              "similarity": 0.4987244366560043
+            },
+            {
+              "index": 1722,
+              "title": "Information theory",
+              "similarity": 0.4496175013224278
+            },
+            {
+              "index": 219,
+              "title": "Information theory",
+              "similarity": 0.3793764370628693
+            },
+            {
+              "index": 1388,
+              "title": "Information theory",
+              "similarity": 0.37476735815905887
+            },
+            {
+              "index": 1889,
+              "title": "Information theory",
+              "similarity": 0.3724261648183905
+            },
+            {
+              "index": 720,
+              "title": "Information theory",
+              "similarity": 0.36093653212726834
+            },
+            {
+              "index": 1555,
+              "title": "Information theory",
+              "similarity": 0.3345643354837614
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 0.9
+        }
+      }
+    },
+    {
+      "query": "What theory describes matter at atomic and subatomic scales?",
+      "targetTitle": "Quantum mechanics",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.7132350000010774,
+          "top": [
+            {
+              "index": 223,
+              "title": "Quantum mechanics",
+              "similarity": 0.5412090988666461
+            },
+            {
+              "index": 56,
+              "title": "Quantum mechanics",
+              "similarity": 0.5066030319091561
+            },
+            {
+              "index": 891,
+              "title": "Quantum mechanics",
+              "similarity": 0.4329567289972507
+            },
+            {
+              "index": 1261,
+              "title": "Hydrogen",
+              "similarity": 0.3999567418141646
+            },
+            {
+              "index": 557,
+              "title": "Quantum mechanics",
+              "similarity": 0.36196496200692785
+            },
+            {
+              "index": 1090,
+              "title": "Carbon",
+              "similarity": 0.33536313069144597
+            },
+            {
+              "index": 668,
+              "title": "Astronomy",
+              "similarity": 0.33002355783016807
+            },
+            {
+              "index": 92,
+              "title": "Hydrogen",
+              "similarity": 0.32426255082853933
+            },
+            {
+              "index": 1006,
+              "title": "Ecology",
+              "similarity": 0.31899798826270537
+            },
+            {
+              "index": 390,
+              "title": "Quantum mechanics",
+              "similarity": 0.3148272276807043
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 5,
+          "eligibleRecallAt10": 0.4166666666666667,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7576919999992242,
+          "top": [
+            {
+              "index": 223,
+              "title": "Quantum mechanics",
+              "similarity": 0.49336399862610525
+            },
+            {
+              "index": 56,
+              "title": "Quantum mechanics",
+              "similarity": 0.4596537318907322
+            },
+            {
+              "index": 891,
+              "title": "Quantum mechanics",
+              "similarity": 0.3828880259810642
+            },
+            {
+              "index": 1261,
+              "title": "Hydrogen",
+              "similarity": 0.3740176037582986
+            },
+            {
+              "index": 1090,
+              "title": "Carbon",
+              "similarity": 0.305026936532676
+            },
+            {
+              "index": 390,
+              "title": "Quantum mechanics",
+              "similarity": 0.28484972537286646
+            },
+            {
+              "index": 557,
+              "title": "Quantum mechanics",
+              "similarity": 0.28476648337317184
+            },
+            {
+              "index": 927,
+              "title": "Hydrogen",
+              "similarity": 0.27164691360446686
+            },
+            {
+              "index": 92,
+              "title": "Hydrogen",
+              "similarity": 0.26285617784784887
+            },
+            {
+              "index": 1225,
+              "title": "Quantum mechanics",
+              "similarity": 0.26253396762902315
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.8
+        },
+        "whitened": {
+          "searchMs": 0.9899210000003222,
+          "top": [
+            {
+              "index": 223,
+              "title": "Quantum mechanics",
+              "similarity": 0.3789750055159643
+            },
+            {
+              "index": 56,
+              "title": "Quantum mechanics",
+              "similarity": 0.22641615854577163
+            },
+            {
+              "index": 1261,
+              "title": "Hydrogen",
+              "similarity": 0.1731624038708871
+            },
+            {
+              "index": 891,
+              "title": "Quantum mechanics",
+              "similarity": 0.1647474196442768
+            },
+            {
+              "index": 1297,
+              "title": "Australia",
+              "similarity": 0.15964927030373946
+            },
+            {
+              "index": 927,
+              "title": "Hydrogen",
+              "similarity": 0.151728716719676
+            },
+            {
+              "index": 975,
+              "title": "Indonesia",
+              "similarity": 0.15004743649582206
+            },
+            {
+              "index": 231,
+              "title": "Solar System",
+              "similarity": 0.14875575856118925
+            },
+            {
+              "index": 1026,
+              "title": "Painting",
+              "similarity": 0.14005041742815313
+            },
+            {
+              "index": 1710,
+              "title": "Cryptography",
+              "similarity": 0.13576872431879644
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 3,
+          "eligibleRecallAt10": 0.25,
+          "neighbourOverlapAt10": 0.4
+        }
+      }
+    },
+    {
+      "query": "What is a gravitationally bound collection of billions of stars?",
+      "targetTitle": "Galaxy",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.7125550000000658,
+          "top": [
+            {
+              "index": 60,
+              "title": "Galaxy",
+              "similarity": 0.5746248614159538
+            },
+            {
+              "index": 394,
+              "title": "Galaxy",
+              "similarity": 0.5110946096612377
+            },
+            {
+              "index": 64,
+              "title": "Solar System",
+              "similarity": 0.46025103798346556
+            },
+            {
+              "index": 561,
+              "title": "Galaxy",
+              "similarity": 0.4577427246532043
+            },
+            {
+              "index": 1400,
+              "title": "Solar System",
+              "similarity": 0.44568531580035126
+            },
+            {
+              "index": 227,
+              "title": "Galaxy",
+              "similarity": 0.43974172900982994
+            },
+            {
+              "index": 1229,
+              "title": "Galaxy",
+              "similarity": 0.41775926923559786
+            },
+            {
+              "index": 1233,
+              "title": "Solar System",
+              "similarity": 0.41740833279064266
+            },
+            {
+              "index": 895,
+              "title": "Galaxy",
+              "similarity": 0.4144359151544921
+            },
+            {
+              "index": 1897,
+              "title": "Galaxy",
+              "similarity": 0.4105449725673949
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 7,
+          "eligibleRecallAt10": 0.5833333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7388749999990978,
+          "top": [
+            {
+              "index": 60,
+              "title": "Galaxy",
+              "similarity": 0.5517331591774767
+            },
+            {
+              "index": 394,
+              "title": "Galaxy",
+              "similarity": 0.5120393497549972
+            },
+            {
+              "index": 561,
+              "title": "Galaxy",
+              "similarity": 0.4427544917627506
+            },
+            {
+              "index": 227,
+              "title": "Galaxy",
+              "similarity": 0.43179224220805074
+            },
+            {
+              "index": 64,
+              "title": "Solar System",
+              "similarity": 0.42273323723540296
+            },
+            {
+              "index": 1233,
+              "title": "Solar System",
+              "similarity": 0.4169608891417424
+            },
+            {
+              "index": 1400,
+              "title": "Solar System",
+              "similarity": 0.4058053821308936
+            },
+            {
+              "index": 1229,
+              "title": "Galaxy",
+              "similarity": 0.4000873810814727
+            },
+            {
+              "index": 895,
+              "title": "Galaxy",
+              "similarity": 0.37855926056942363
+            },
+            {
+              "index": 1897,
+              "title": "Galaxy",
+              "similarity": 0.37619996746881007
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 7,
+          "eligibleRecallAt10": 0.5833333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "whitened": {
+          "searchMs": 1.077635999999984,
+          "top": [
+            {
+              "index": 60,
+              "title": "Galaxy",
+              "similarity": 0.28326890115064174
+            },
+            {
+              "index": 394,
+              "title": "Galaxy",
+              "similarity": 0.2793538011712748
+            },
+            {
+              "index": 1253,
+              "title": "Photosynthesis",
+              "similarity": 0.27659352979721724
+            },
+            {
+              "index": 390,
+              "title": "Quantum mechanics",
+              "similarity": 0.23336549068722076
+            },
+            {
+              "index": 64,
+              "title": "Solar System",
+              "similarity": 0.1646368465583607
+            },
+            {
+              "index": 227,
+              "title": "Galaxy",
+              "similarity": 0.15518036247712635
+            },
+            {
+              "index": 1889,
+              "title": "Information theory",
+              "similarity": 0.1502397414012301
+            },
+            {
+              "index": 1997,
+              "title": "Chocolate",
+              "similarity": 0.14751665132440098
+            },
+            {
+              "index": 1229,
+              "title": "Galaxy",
+              "similarity": 0.14056021790125392
+            },
+            {
+              "index": 1062,
+              "title": "Galaxy",
+              "similarity": 0.13534741546954604
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 5,
+          "eligibleRecallAt10": 0.4166666666666667,
+          "neighbourOverlapAt10": 0.5
+        }
+      }
+    },
+    {
+      "query": "Which planets orbit our sun and what is their planetary system called?",
+      "targetTitle": "Solar System",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.9178649999994377,
+          "top": [
+            {
+              "index": 64,
+              "title": "Solar System",
+              "similarity": 0.746078305580177
+            },
+            {
+              "index": 1400,
+              "title": "Solar System",
+              "similarity": 0.6861523464244449
+            },
+            {
+              "index": 398,
+              "title": "Solar System",
+              "similarity": 0.6436700600254386
+            },
+            {
+              "index": 565,
+              "title": "Solar System",
+              "similarity": 0.6006941282570175
+            },
+            {
+              "index": 1567,
+              "title": "Solar System",
+              "similarity": 0.561438149284908
+            },
+            {
+              "index": 899,
+              "title": "Solar System",
+              "similarity": 0.5459740758725579
+            },
+            {
+              "index": 732,
+              "title": "Solar System",
+              "similarity": 0.502298882524149
+            },
+            {
+              "index": 231,
+              "title": "Solar System",
+              "similarity": 0.47568063106209774
+            },
+            {
+              "index": 1670,
+              "title": "Astronomy",
+              "similarity": 0.4681816578950135
+            },
+            {
+              "index": 1066,
+              "title": "Solar System",
+              "similarity": 0.4325536786644533
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7092520000005607,
+          "top": [
+            {
+              "index": 64,
+              "title": "Solar System",
+              "similarity": 0.7215631540816636
+            },
+            {
+              "index": 1400,
+              "title": "Solar System",
+              "similarity": 0.6550389397160202
+            },
+            {
+              "index": 398,
+              "title": "Solar System",
+              "similarity": 0.621606462267986
+            },
+            {
+              "index": 565,
+              "title": "Solar System",
+              "similarity": 0.5747075124386297
+            },
+            {
+              "index": 1567,
+              "title": "Solar System",
+              "similarity": 0.5218854682488662
+            },
+            {
+              "index": 899,
+              "title": "Solar System",
+              "similarity": 0.5210648595321139
+            },
+            {
+              "index": 732,
+              "title": "Solar System",
+              "similarity": 0.4745277420232479
+            },
+            {
+              "index": 231,
+              "title": "Solar System",
+              "similarity": 0.4422351997495833
+            },
+            {
+              "index": 1670,
+              "title": "Astronomy",
+              "similarity": 0.3982873370024088
+            },
+            {
+              "index": 1066,
+              "title": "Solar System",
+              "similarity": 0.39815568787817834
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 1
+        },
+        "whitened": {
+          "searchMs": 0.9163109999990411,
+          "top": [
+            {
+              "index": 64,
+              "title": "Solar System",
+              "similarity": 0.4186929122676701
+            },
+            {
+              "index": 1400,
+              "title": "Solar System",
+              "similarity": 0.3216010082365085
+            },
+            {
+              "index": 565,
+              "title": "Solar System",
+              "similarity": 0.30460607818152424
+            },
+            {
+              "index": 899,
+              "title": "Solar System",
+              "similarity": 0.29428331771738153
+            },
+            {
+              "index": 231,
+              "title": "Solar System",
+              "similarity": 0.282549311631426
+            },
+            {
+              "index": 398,
+              "title": "Solar System",
+              "similarity": 0.26229627862386334
+            },
+            {
+              "index": 1670,
+              "title": "Astronomy",
+              "similarity": 0.24790588482954462
+            },
+            {
+              "index": 1567,
+              "title": "Solar System",
+              "similarity": 0.23696663577439112
+            },
+            {
+              "index": 732,
+              "title": "Solar System",
+              "similarity": 0.20865751676095295
+            },
+            {
+              "index": 1734,
+              "title": "Solar System",
+              "similarity": 0.15313451526929034
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 0.9
+        }
+      }
+    },
+    {
+      "query": "What process changes inherited traits across generations of living organisms?",
+      "targetTitle": "Evolution",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.6527770000011515,
+          "top": [
+            {
+              "index": 1074,
+              "title": "Evolution",
+              "similarity": 0.6990311350678791
+            },
+            {
+              "index": 406,
+              "title": "Evolution",
+              "similarity": 0.6489062721852034
+            },
+            {
+              "index": 573,
+              "title": "Evolution",
+              "similarity": 0.6339584930909664
+            },
+            {
+              "index": 1909,
+              "title": "Evolution",
+              "similarity": 0.6241550600920144
+            },
+            {
+              "index": 72,
+              "title": "Evolution",
+              "similarity": 0.5627328714549115
+            },
+            {
+              "index": 1241,
+              "title": "Evolution",
+              "similarity": 0.5369910185738004
+            },
+            {
+              "index": 1742,
+              "title": "Evolution",
+              "similarity": 0.5292379544159612
+            },
+            {
+              "index": 1575,
+              "title": "Evolution",
+              "similarity": 0.47246022272416693
+            },
+            {
+              "index": 1404,
+              "title": "Animal",
+              "similarity": 0.39910569674326557
+            },
+            {
+              "index": 907,
+              "title": "Evolution",
+              "similarity": 0.39037883171277177
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7338240000008227,
+          "top": [
+            {
+              "index": 1074,
+              "title": "Evolution",
+              "similarity": 0.679269725047943
+            },
+            {
+              "index": 406,
+              "title": "Evolution",
+              "similarity": 0.6297121963646325
+            },
+            {
+              "index": 1909,
+              "title": "Evolution",
+              "similarity": 0.5990167348884219
+            },
+            {
+              "index": 573,
+              "title": "Evolution",
+              "similarity": 0.5987039869871563
+            },
+            {
+              "index": 72,
+              "title": "Evolution",
+              "similarity": 0.5264304261003823
+            },
+            {
+              "index": 1742,
+              "title": "Evolution",
+              "similarity": 0.5069352829090237
+            },
+            {
+              "index": 1241,
+              "title": "Evolution",
+              "similarity": 0.5030958735259957
+            },
+            {
+              "index": 1575,
+              "title": "Evolution",
+              "similarity": 0.441805548820317
+            },
+            {
+              "index": 1905,
+              "title": "Animal",
+              "similarity": 0.3762940146541661
+            },
+            {
+              "index": 1404,
+              "title": "Animal",
+              "similarity": 0.35697808627549477
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 8,
+          "eligibleRecallAt10": 0.6666666666666666,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 0.9120480000001407,
+          "top": [
+            {
+              "index": 1074,
+              "title": "Evolution",
+              "similarity": 0.5020274340656524
+            },
+            {
+              "index": 1909,
+              "title": "Evolution",
+              "similarity": 0.3400620195772361
+            },
+            {
+              "index": 573,
+              "title": "Evolution",
+              "similarity": 0.3348063681343933
+            },
+            {
+              "index": 406,
+              "title": "Evolution",
+              "similarity": 0.33330985019913895
+            },
+            {
+              "index": 72,
+              "title": "Evolution",
+              "similarity": 0.31705163896896776
+            },
+            {
+              "index": 1241,
+              "title": "Evolution",
+              "similarity": 0.28307399822107493
+            },
+            {
+              "index": 1575,
+              "title": "Evolution",
+              "similarity": 0.24634545041072098
+            },
+            {
+              "index": 1742,
+              "title": "Evolution",
+              "similarity": 0.22803682620422283
+            },
+            {
+              "index": 1905,
+              "title": "Animal",
+              "similarity": 0.17246753347238764
+            },
+            {
+              "index": 1571,
+              "title": "Animal",
+              "similarity": 0.16225203031185279
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 8,
+          "eligibleRecallAt10": 0.6666666666666666,
+          "neighbourOverlapAt10": 0.8
+        }
+      }
+    },
+    {
+      "query": "How do plants turn sunlight into chemical energy?",
+      "targetTitle": "Photosynthesis",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.710135999999693,
+          "top": [
+            {
+              "index": 84,
+              "title": "Photosynthesis",
+              "similarity": 0.6670943521612519
+            },
+            {
+              "index": 752,
+              "title": "Photosynthesis",
+              "similarity": 0.6492318643419536
+            },
+            {
+              "index": 1488,
+              "title": "Food",
+              "similarity": 0.6388202903714818
+            },
+            {
+              "index": 1587,
+              "title": "Photosynthesis",
+              "similarity": 0.6033767304656716
+            },
+            {
+              "index": 251,
+              "title": "Photosynthesis",
+              "similarity": 0.5749848239455785
+            },
+            {
+              "index": 1420,
+              "title": "Photosynthesis",
+              "similarity": 0.5706131541196472
+            },
+            {
+              "index": 1754,
+              "title": "Photosynthesis",
+              "similarity": 0.5377566838986342
+            },
+            {
+              "index": 1086,
+              "title": "Photosynthesis",
+              "similarity": 0.5316923340349766
+            },
+            {
+              "index": 919,
+              "title": "Photosynthesis",
+              "similarity": 0.5250837273239276
+            },
+            {
+              "index": 585,
+              "title": "Photosynthesis",
+              "similarity": 0.49758821853769497
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7253609999988839,
+          "top": [
+            {
+              "index": 84,
+              "title": "Photosynthesis",
+              "similarity": 0.6429729492821387
+            },
+            {
+              "index": 752,
+              "title": "Photosynthesis",
+              "similarity": 0.6364526163641004
+            },
+            {
+              "index": 1488,
+              "title": "Food",
+              "similarity": 0.6099790589397672
+            },
+            {
+              "index": 1587,
+              "title": "Photosynthesis",
+              "similarity": 0.5784402802248287
+            },
+            {
+              "index": 1420,
+              "title": "Photosynthesis",
+              "similarity": 0.5421661216281075
+            },
+            {
+              "index": 251,
+              "title": "Photosynthesis",
+              "similarity": 0.5392800063921823
+            },
+            {
+              "index": 1754,
+              "title": "Photosynthesis",
+              "similarity": 0.5164578823282804
+            },
+            {
+              "index": 919,
+              "title": "Photosynthesis",
+              "similarity": 0.5072598327049239
+            },
+            {
+              "index": 1086,
+              "title": "Photosynthesis",
+              "similarity": 0.4924782291085468
+            },
+            {
+              "index": 418,
+              "title": "Photosynthesis",
+              "similarity": 0.4731636045119112
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 0.9294520000003104,
+          "top": [
+            {
+              "index": 752,
+              "title": "Photosynthesis",
+              "similarity": 0.33643994642086905
+            },
+            {
+              "index": 96,
+              "title": "Solar power",
+              "similarity": 0.2994939896151385
+            },
+            {
+              "index": 84,
+              "title": "Photosynthesis",
+              "similarity": 0.2804996298561507
+            },
+            {
+              "index": 1933,
+              "title": "Solar power",
+              "similarity": 0.2449218506991079
+            },
+            {
+              "index": 1488,
+              "title": "Food",
+              "similarity": 0.22541480563443309
+            },
+            {
+              "index": 585,
+              "title": "Photosynthesis",
+              "similarity": 0.21915683366939506
+            },
+            {
+              "index": 418,
+              "title": "Photosynthesis",
+              "similarity": 0.21907834254975705
+            },
+            {
+              "index": 919,
+              "title": "Photosynthesis",
+              "similarity": 0.21594680620750145
+            },
+            {
+              "index": 760,
+              "title": "Hydrogen",
+              "similarity": 0.21172627212279835
+            },
+            {
+              "index": 1587,
+              "title": "Photosynthesis",
+              "similarity": 0.20773363205040063
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.6
+        }
+      }
+    },
+    {
+      "query": "What is the long-term warming of Earth's climate from greenhouse gases?",
+      "targetTitle": "Climate change",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.7425949999997101,
+          "top": [
+            {
+              "index": 80,
+              "title": "Climate change",
+              "similarity": 0.6291871081317931
+            },
+            {
+              "index": 247,
+              "title": "Climate change",
+              "similarity": 0.5882334109098194
+            },
+            {
+              "index": 1416,
+              "title": "Climate change",
+              "similarity": 0.5494433698528601
+            },
+            {
+              "index": 1917,
+              "title": "Climate change",
+              "similarity": 0.5182575009923561
+            },
+            {
+              "index": 1082,
+              "title": "Climate change",
+              "similarity": 0.4995191305444727
+            },
+            {
+              "index": 414,
+              "title": "Climate change",
+              "similarity": 0.4981861270052488
+            },
+            {
+              "index": 748,
+              "title": "Climate change",
+              "similarity": 0.49039868571398887
+            },
+            {
+              "index": 915,
+              "title": "Climate change",
+              "similarity": 0.4618161645163335
+            },
+            {
+              "index": 1583,
+              "title": "Climate change",
+              "similarity": 0.42919103498043804
+            },
+            {
+              "index": 1249,
+              "title": "Climate change",
+              "similarity": 0.4228915536508944
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7125520000008692,
+          "top": [
+            {
+              "index": 80,
+              "title": "Climate change",
+              "similarity": 0.6013026086409459
+            },
+            {
+              "index": 247,
+              "title": "Climate change",
+              "similarity": 0.5619788042052027
+            },
+            {
+              "index": 1416,
+              "title": "Climate change",
+              "similarity": 0.5247486743604172
+            },
+            {
+              "index": 1917,
+              "title": "Climate change",
+              "similarity": 0.4955690297004471
+            },
+            {
+              "index": 748,
+              "title": "Climate change",
+              "similarity": 0.4942123406280964
+            },
+            {
+              "index": 414,
+              "title": "Climate change",
+              "similarity": 0.4858601913894909
+            },
+            {
+              "index": 1082,
+              "title": "Climate change",
+              "similarity": 0.47325545927709334
+            },
+            {
+              "index": 915,
+              "title": "Climate change",
+              "similarity": 0.4393014784024004
+            },
+            {
+              "index": 1583,
+              "title": "Climate change",
+              "similarity": 0.4049235394227798
+            },
+            {
+              "index": 581,
+              "title": "Climate change",
+              "similarity": 0.39265843674849327
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 0.875199000000066,
+          "top": [
+            {
+              "index": 80,
+              "title": "Climate change",
+              "similarity": 0.43045803969511653
+            },
+            {
+              "index": 247,
+              "title": "Climate change",
+              "similarity": 0.3913813729436002
+            },
+            {
+              "index": 1416,
+              "title": "Climate change",
+              "similarity": 0.29979584537742265
+            },
+            {
+              "index": 414,
+              "title": "Climate change",
+              "similarity": 0.2702845186907075
+            },
+            {
+              "index": 1082,
+              "title": "Climate change",
+              "similarity": 0.2647493525504844
+            },
+            {
+              "index": 915,
+              "title": "Climate change",
+              "similarity": 0.2531702349684523
+            },
+            {
+              "index": 1917,
+              "title": "Climate change",
+              "similarity": 0.2531122180865497
+            },
+            {
+              "index": 748,
+              "title": "Climate change",
+              "similarity": 0.23122100533885243
+            },
+            {
+              "index": 1042,
+              "title": "Cryptography",
+              "similarity": 0.21526183257371156
+            },
+            {
+              "index": 1583,
+              "title": "Climate change",
+              "similarity": 0.19805613874874103
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 9,
+          "eligibleRecallAt10": 0.75,
+          "neighbourOverlapAt10": 0.9
+        }
+      }
+    },
+    {
+      "query": "How is sunlight converted into electrical power?",
+      "targetTitle": "Solar power",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.6818880000009813,
+          "top": [
+            {
+              "index": 96,
+              "title": "Solar power",
+              "similarity": 0.7026694262286071
+            },
+            {
+              "index": 1933,
+              "title": "Solar power",
+              "similarity": 0.581771189801988
+            },
+            {
+              "index": 1488,
+              "title": "Food",
+              "similarity": 0.4952472702529884
+            },
+            {
+              "index": 84,
+              "title": "Photosynthesis",
+              "similarity": 0.4823916640314561
+            },
+            {
+              "index": 430,
+              "title": "Solar power",
+              "similarity": 0.4696295955945031
+            },
+            {
+              "index": 1432,
+              "title": "Solar power",
+              "similarity": 0.4647892645839307
+            },
+            {
+              "index": 764,
+              "title": "Solar power",
+              "similarity": 0.46373995514748007
+            },
+            {
+              "index": 752,
+              "title": "Photosynthesis",
+              "similarity": 0.436922206301321
+            },
+            {
+              "index": 1086,
+              "title": "Photosynthesis",
+              "similarity": 0.43167601750820195
+            },
+            {
+              "index": 1420,
+              "title": "Photosynthesis",
+              "similarity": 0.4170079632858318
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 5,
+          "eligibleRecallAt10": 0.4166666666666667,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7161739999992278,
+          "top": [
+            {
+              "index": 96,
+              "title": "Solar power",
+              "similarity": 0.6913585097931513
+            },
+            {
+              "index": 1933,
+              "title": "Solar power",
+              "similarity": 0.5726660655922848
+            },
+            {
+              "index": 1488,
+              "title": "Food",
+              "similarity": 0.46256631638913204
+            },
+            {
+              "index": 84,
+              "title": "Photosynthesis",
+              "similarity": 0.4525775045784281
+            },
+            {
+              "index": 764,
+              "title": "Solar power",
+              "similarity": 0.45128879061352556
+            },
+            {
+              "index": 430,
+              "title": "Solar power",
+              "similarity": 0.4487849134069519
+            },
+            {
+              "index": 1432,
+              "title": "Solar power",
+              "similarity": 0.44448079821751035
+            },
+            {
+              "index": 752,
+              "title": "Photosynthesis",
+              "similarity": 0.4241693176218317
+            },
+            {
+              "index": 263,
+              "title": "Solar power",
+              "similarity": 0.3993905365230161
+            },
+            {
+              "index": 597,
+              "title": "Solar power",
+              "similarity": 0.39825557322242383
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 7,
+          "eligibleRecallAt10": 0.5833333333333334,
+          "neighbourOverlapAt10": 0.8
+        },
+        "whitened": {
+          "searchMs": 0.8716629999998986,
+          "top": [
+            {
+              "index": 96,
+              "title": "Solar power",
+              "similarity": 0.5173627548650066
+            },
+            {
+              "index": 1933,
+              "title": "Solar power",
+              "similarity": 0.46472540505818755
+            },
+            {
+              "index": 597,
+              "title": "Solar power",
+              "similarity": 0.2461958360130589
+            },
+            {
+              "index": 1432,
+              "title": "Solar power",
+              "similarity": 0.24150798451407512
+            },
+            {
+              "index": 764,
+              "title": "Solar power",
+              "similarity": 0.23951714166934415
+            },
+            {
+              "index": 430,
+              "title": "Solar power",
+              "similarity": 0.23867201096795268
+            },
+            {
+              "index": 84,
+              "title": "Photosynthesis",
+              "similarity": 0.23438216093896372
+            },
+            {
+              "index": 752,
+              "title": "Photosynthesis",
+              "similarity": 0.21559484020400752
+            },
+            {
+              "index": 1086,
+              "title": "Photosynthesis",
+              "similarity": 0.21019078469427738
+            },
+            {
+              "index": 919,
+              "title": "Photosynthesis",
+              "similarity": 0.18189916154966954
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.8
+        }
+      }
+    },
+    {
+      "query": "Which organ pumps blood through the circulatory system?",
+      "targetTitle": "Heart",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.6790799999998853,
+          "top": [
+            {
+              "index": 100,
+              "title": "Heart",
+              "similarity": 0.6650323990713207
+            },
+            {
+              "index": 434,
+              "title": "Heart",
+              "similarity": 0.6285049411210857
+            },
+            {
+              "index": 601,
+              "title": "Heart",
+              "similarity": 0.5501650840069581
+            },
+            {
+              "index": 267,
+              "title": "Heart",
+              "similarity": 0.492489917751641
+            },
+            {
+              "index": 1937,
+              "title": "Heart",
+              "similarity": 0.44977038143600084
+            },
+            {
+              "index": 1603,
+              "title": "Heart",
+              "similarity": 0.4428707639163703
+            },
+            {
+              "index": 1102,
+              "title": "Heart",
+              "similarity": 0.4364144211853337
+            },
+            {
+              "index": 1770,
+              "title": "Heart",
+              "similarity": 0.3584273324314347
+            },
+            {
+              "index": 1269,
+              "title": "Heart",
+              "similarity": 0.3220146772999094
+            },
+            {
+              "index": 935,
+              "title": "Heart",
+              "similarity": 0.3081901026924661
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7384859999983746,
+          "top": [
+            {
+              "index": 100,
+              "title": "Heart",
+              "similarity": 0.6648954081055733
+            },
+            {
+              "index": 434,
+              "title": "Heart",
+              "similarity": 0.6349136334316093
+            },
+            {
+              "index": 601,
+              "title": "Heart",
+              "similarity": 0.5600465479816511
+            },
+            {
+              "index": 267,
+              "title": "Heart",
+              "similarity": 0.4976917895989643
+            },
+            {
+              "index": 1603,
+              "title": "Heart",
+              "similarity": 0.4556755201554544
+            },
+            {
+              "index": 1937,
+              "title": "Heart",
+              "similarity": 0.45527018120408635
+            },
+            {
+              "index": 1102,
+              "title": "Heart",
+              "similarity": 0.4490597228301891
+            },
+            {
+              "index": 1770,
+              "title": "Heart",
+              "similarity": 0.37358040304396445
+            },
+            {
+              "index": 1269,
+              "title": "Heart",
+              "similarity": 0.34399450038762125
+            },
+            {
+              "index": 935,
+              "title": "Heart",
+              "similarity": 0.30110068260836886
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "whitened": {
+          "searchMs": 0.7978519999996934,
+          "top": [
+            {
+              "index": 100,
+              "title": "Heart",
+              "similarity": 0.5850735975564515
+            },
+            {
+              "index": 434,
+              "title": "Heart",
+              "similarity": 0.5024854923191551
+            },
+            {
+              "index": 601,
+              "title": "Heart",
+              "similarity": 0.4027820945619095
+            },
+            {
+              "index": 267,
+              "title": "Heart",
+              "similarity": 0.37663346306332296
+            },
+            {
+              "index": 1603,
+              "title": "Heart",
+              "similarity": 0.3388764662158838
+            },
+            {
+              "index": 1102,
+              "title": "Heart",
+              "similarity": 0.30410687338789666
+            },
+            {
+              "index": 1937,
+              "title": "Heart",
+              "similarity": 0.2961884049220858
+            },
+            {
+              "index": 1770,
+              "title": "Heart",
+              "similarity": 0.2593009762391616
+            },
+            {
+              "index": 1269,
+              "title": "Heart",
+              "similarity": 0.22436000817584875
+            },
+            {
+              "index": 1436,
+              "title": "Heart",
+              "similarity": 0.22128703246198742
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 0.9
+        }
+      }
+    },
+    {
+      "query": "What is the study of food and nutrients needed by organisms?",
+      "targetTitle": "Nutrition",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.6807250000001659,
+          "top": [
+            {
+              "index": 104,
+              "title": "Nutrition",
+              "similarity": 0.6937127313445481
+            },
+            {
+              "index": 271,
+              "title": "Nutrition",
+              "similarity": 0.6553799002262549
+            },
+            {
+              "index": 152,
+              "title": "Food",
+              "similarity": 0.6543926373265059
+            },
+            {
+              "index": 1774,
+              "title": "Nutrition",
+              "similarity": 0.6079348838874427
+            },
+            {
+              "index": 939,
+              "title": "Nutrition",
+              "similarity": 0.6078502322758649
+            },
+            {
+              "index": 653,
+              "title": "Food",
+              "similarity": 0.5990452550426153
+            },
+            {
+              "index": 1822,
+              "title": "Food",
+              "similarity": 0.5696453914928339
+            },
+            {
+              "index": 1607,
+              "title": "Nutrition",
+              "similarity": 0.5209676450688037
+            },
+            {
+              "index": 438,
+              "title": "Nutrition",
+              "similarity": 0.5195579182685638
+            },
+            {
+              "index": 505,
+              "title": "Ecology",
+              "similarity": 0.5089941825182414
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7247979999992822,
+          "top": [
+            {
+              "index": 104,
+              "title": "Nutrition",
+              "similarity": 0.6485833204683171
+            },
+            {
+              "index": 152,
+              "title": "Food",
+              "similarity": 0.6057973239414167
+            },
+            {
+              "index": 271,
+              "title": "Nutrition",
+              "similarity": 0.6007237403167806
+            },
+            {
+              "index": 1774,
+              "title": "Nutrition",
+              "similarity": 0.5666942432690275
+            },
+            {
+              "index": 939,
+              "title": "Nutrition",
+              "similarity": 0.5583670817081186
+            },
+            {
+              "index": 653,
+              "title": "Food",
+              "similarity": 0.5434846446522388
+            },
+            {
+              "index": 1822,
+              "title": "Food",
+              "similarity": 0.5154409788976215
+            },
+            {
+              "index": 438,
+              "title": "Nutrition",
+              "similarity": 0.4624414732322207
+            },
+            {
+              "index": 1607,
+              "title": "Nutrition",
+              "similarity": 0.45681745824464415
+            },
+            {
+              "index": 1154,
+              "title": "Food",
+              "similarity": 0.4548726497474743
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.9
+        },
+        "whitened": {
+          "searchMs": 0.8853720000006433,
+          "top": [
+            {
+              "index": 104,
+              "title": "Nutrition",
+              "similarity": 0.4528102564239407
+            },
+            {
+              "index": 152,
+              "title": "Food",
+              "similarity": 0.42768779912300986
+            },
+            {
+              "index": 271,
+              "title": "Nutrition",
+              "similarity": 0.4016348090707606
+            },
+            {
+              "index": 1774,
+              "title": "Nutrition",
+              "similarity": 0.3863767142903476
+            },
+            {
+              "index": 939,
+              "title": "Nutrition",
+              "similarity": 0.3720367580801457
+            },
+            {
+              "index": 653,
+              "title": "Food",
+              "similarity": 0.36996220664110147
+            },
+            {
+              "index": 772,
+              "title": "Nutrition",
+              "similarity": 0.3341803412548113
+            },
+            {
+              "index": 1607,
+              "title": "Nutrition",
+              "similarity": 0.3129565112824142
+            },
+            {
+              "index": 1822,
+              "title": "Food",
+              "similarity": 0.2733592893615541
+            },
+            {
+              "index": 987,
+              "title": "Food",
+              "similarity": 0.2722661249168755
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 6,
+          "eligibleRecallAt10": 0.5,
+          "neighbourOverlapAt10": 0.8
+        }
+      }
+    },
+    {
+      "query": "Which ancient empire was centered on the city of Rome?",
+      "targetTitle": "Roman Empire",
+      "relevantEligible": 12,
+      "methods": {
+        "raw": {
+          "searchMs": 0.719386000000668,
+          "top": [
+            {
+              "index": 144,
+              "title": "Roman Empire",
+              "similarity": 0.5958883351917287
+            },
+            {
+              "index": 478,
+              "title": "Roman Empire",
+              "similarity": 0.5294652560620356
+            },
+            {
+              "index": 645,
+              "title": "Roman Empire",
+              "similarity": 0.5264182852027983
+            },
+            {
+              "index": 311,
+              "title": "Roman Empire",
+              "similarity": 0.515197998235478
+            },
+            {
+              "index": 979,
+              "title": "Roman Empire",
+              "similarity": 0.49985524617009347
+            },
+            {
+              "index": 812,
+              "title": "Roman Empire",
+              "similarity": 0.45276162251833657
+            },
+            {
+              "index": 1981,
+              "title": "Roman Empire",
+              "similarity": 0.45058942832328375
+            },
+            {
+              "index": 1647,
+              "title": "Roman Empire",
+              "similarity": 0.44949469667554826
+            },
+            {
+              "index": 1313,
+              "title": "Roman Empire",
+              "similarity": 0.4264656525001613
+            },
+            {
+              "index": 1480,
+              "title": "Roman Empire",
+              "similarity": 0.4040977543192424
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "centered": {
+          "searchMs": 0.7166890000007697,
+          "top": [
+            {
+              "index": 144,
+              "title": "Roman Empire",
+              "similarity": 0.5771359087025242
+            },
+            {
+              "index": 645,
+              "title": "Roman Empire",
+              "similarity": 0.5169606554448435
+            },
+            {
+              "index": 478,
+              "title": "Roman Empire",
+              "similarity": 0.5125759070878381
+            },
+            {
+              "index": 311,
+              "title": "Roman Empire",
+              "similarity": 0.5047772666329788
+            },
+            {
+              "index": 979,
+              "title": "Roman Empire",
+              "similarity": 0.48029247433276356
+            },
+            {
+              "index": 1647,
+              "title": "Roman Empire",
+              "similarity": 0.4360938217045461
+            },
+            {
+              "index": 1981,
+              "title": "Roman Empire",
+              "similarity": 0.43555122230862936
+            },
+            {
+              "index": 1313,
+              "title": "Roman Empire",
+              "similarity": 0.41110298021635067
+            },
+            {
+              "index": 812,
+              "title": "Roman Empire",
+              "similarity": 0.3904809544649198
+            },
+            {
+              "index": 1480,
+              "title": "Roman Empire",
+              "similarity": 0.3823570770060927
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 10,
+          "eligibleRecallAt10": 0.8333333333333334,
+          "neighbourOverlapAt10": 1
+        },
+        "whitened": {
+          "searchMs": 0.882766000000629,
+          "top": [
+            {
+              "index": 144,
+              "title": "Roman Empire",
+              "similarity": 0.3718845728280694
+            },
+            {
+              "index": 478,
+              "title": "Roman Empire",
+              "similarity": 0.3282028532050302
+            },
+            {
+              "index": 812,
+              "title": "Roman Empire",
+              "similarity": 0.2609835745654443
+            },
+            {
+              "index": 311,
+              "title": "Roman Empire",
+              "similarity": 0.21379286509331336
+            },
+            {
+              "index": 1647,
+              "title": "Roman Empire",
+              "similarity": 0.2092652402683024
+            },
+            {
+              "index": 979,
+              "title": "Roman Empire",
+              "similarity": 0.18913446840471357
+            },
+            {
+              "index": 1814,
+              "title": "Roman Empire",
+              "similarity": 0.18143403290581572
+            },
+            {
+              "index": 454,
+              "title": "France",
+              "similarity": 0.17947282832048905
+            },
+            {
+              "index": 788,
+              "title": "France",
+              "similarity": 0.1735079227394812
+            },
+            {
+              "index": 645,
+              "title": "Roman Empire",
+              "similarity": 0.16842454337171914
+            }
+          ],
+          "firstRelevantRank": 1,
+          "hits": 8,
+          "eligibleRecallAt10": 0.6666666666666666,
+          "neighbourOverlapAt10": 0.7
+        }
+      }
+    }
+  ]
+}
