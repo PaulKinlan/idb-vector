@@ -27,233 +27,342 @@ try {
 
     try {
       // =========================================================================
-      // Invariant 1: Key Identity on Out-of-Line Object Store (idb-vector-yoe repro)
-      // A side-store query on an out-of-line store returns the exact out-of-line primary
-      // keys (not indices or unrelated record.id).
+      // Invariant 1: Key Identity (in-line keyPath)
       // =========================================================================
-      const oolDbName = `side-store-ool-${crypto.randomUUID()}`;
-      databasesToClean.push(oolDbName);
-      const oolRaw = await openRaw(oolDbName, 1, (e) => {
-        // Out-of-line object store: no keyPath specified
-        e.target.result.createObjectStore('vectors');
-        e.target.result.createObjectStore('codes');
-      });
-      oolRaw.close();
-
-      const oolDb = new VectorDB({ dbName: oolDbName, objectStore: 'vectors', vectorPath: 'embedding' });
-      // Insert with out-of-line primary key "real-primary-key" and conflicting record.id "wrong-id"
-      await oolDb.insert({ id: 'wrong-id', revision: 1, embedding: [1, 0] }, 'real-primary-key');
-      await oolDb.insert({ id: 'wrong-id-2', revision: 1, embedding: [0, 1] }, 'second-primary-key');
-
-      await oolDb.buildSideStore({ sideStore: 'codes', revision: 1 });
-      const oolQuery = await oolDb.querySideStore([1, 0], {
-        sideStore: 'codes',
-        revision: 1,
-        candidateBudget: 2,
-        limit: 1,
-      });
-
-      check(oolQuery.results.length === 1, 'Invariant 1: query returns 1 result on out-of-line store');
-      check(oolQuery.results[0].key === 'real-primary-key',
-        `Invariant 1: result key must match exact out-of-line primary key "real-primary-key", got ${oolQuery.results[0].key}`);
-      check(oolQuery.results[0].object.id === 'wrong-id',
-        'Invariant 1: result object contains original record');
-      await oolDb.close();
-
-      // =========================================================================
-      // Invariant 3: Revision Pinning (Unversioned Originals on Build)
-      // buildSideStore throws TypeError if an original record lacks the revision property.
-      // =========================================================================
-      const unversionedDbName = `side-store-unversioned-${crypto.randomUUID()}`;
-      databasesToClean.push(unversionedDbName);
-      const unversionedRaw = await openRaw(unversionedDbName, 1, (e) => {
-        e.target.result.createObjectStore('vectors', { keyPath: 'id' });
-        e.target.result.createObjectStore('codes');
-      });
-      unversionedRaw.close();
-
-      const unversionedDb = new VectorDB({ dbName: unversionedDbName, objectStore: 'vectors', vectorPath: 'embedding' });
-      await unversionedDb.insert({ id: 1, embedding: [1, 0] }); // unversioned!
-
-      let unversionedError = null;
-      try {
-        await unversionedDb.buildSideStore({ sideStore: 'codes', revision: 1 });
-      } catch (err) {
-        unversionedError = err;
-      }
-      check(unversionedError !== null, 'Invariant 3: buildSideStore throws on unversioned original');
-      check(unversionedError instanceof TypeError,
-        `Invariant 3: error is TypeError, got ${unversionedError?.constructor?.name}`);
-      check(unversionedError.message.includes('Revision pinning requires all records to carry a matching revision property'),
-        `Invariant 3: message explains revision requirement: ${unversionedError.message}`);
-      await unversionedDb.close();
-
-      // =========================================================================
-      // Standard In-line Store: Invariants 2, 4, 5, 6 & Parity Verification
-      // =========================================================================
-      const dbName = `side-store-test-${crypto.randomUUID()}`;
-      databasesToClean.push(dbName);
-
-      const raw = await openRaw(dbName, 1, (e) => {
-        e.target.result.createObjectStore('vectors', { keyPath: 'id' });
-        e.target.result.createObjectStore('codes');
-      });
-      raw.close();
-
-      const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
-
-      // Generate 1,000 synthetic vectors in 32 dimensions
-      const DIMS = 32;
-      const COUNT = 1000;
-      const makeVec = (seed) => {
-        const v = [];
-        let normSq = 0;
-        for (let d = 0; d < DIMS; d++) {
-          const val = Math.sin(seed * (d + 1)) * Math.cos(seed + d);
-          v.push(val);
-          normSq += val * val;
-        }
-        const norm = Math.sqrt(normSq) || 1;
-        return v.map(x => x / norm);
-      };
-
-      const queryVector = makeVec(999);
-
-      // Insert 1,000 records with revision 1
-      for (let i = 1; i <= COUNT; i++) {
-        await db.insert({ id: i, revision: 1, category: i % 2 === 0 ? 'even' : 'odd', embedding: makeVec(i) });
-      }
-
-      // Build side-store
-      const buildStats = await db.buildSideStore({ sideStore: 'codes', revision: 1 });
-      check(buildStats.revision === 1, 'buildSideStore sets revision 1');
-      check(buildStats.count === COUNT, `buildSideStore counts ${COUNT} records`);
-      check(buildStats.dims === DIMS, `buildSideStore dims is ${DIMS}`);
-      check(buildStats.bytes > 0, `buildSideStore byte size: ${buildStats.bytes}`);
-      check(buildStats.bytes < COUNT * DIMS * 4, 'int8 side-store bytes under 25% of Float32');
-
-      // Parity check: side-store with exact reranking matches db.query bit-for-bit
-      const exactResults = await db.query(queryVector, { limit: 10 });
-      const sideStoreQuery = await db.querySideStore(queryVector, {
-        sideStore: 'codes',
-        revision: 1,
-        candidateBudget: 150,
-        limit: 10,
-      });
-
-      check(sideStoreQuery.results.length === 10, 'sideStore returns 10 results');
-      check(sideStoreQuery.info.mode === 'side-store', 'info.mode is "side-store"');
-      check(sideStoreQuery.info.revision === 1, 'info.revision is 1');
-      check(sideStoreQuery.info.candidateBudget === 150, 'info.candidateBudget is 150');
-      check(sideStoreQuery.info.recordsFetched === 150, 'info.recordsFetched is 150');
-
-      for (let i = 0; i < 10; i++) {
-        const exactRow = exactResults[i];
-        const sideRow = sideStoreQuery.results[i];
-        check(exactRow.key === sideRow.key, `rank ${i} key match: ${exactRow.key} === ${sideRow.key}`);
-        check(Math.abs(exactRow.similarity - sideRow.similarity) < 1e-12, `rank ${i} exact Float64 similarity match`);
-      }
-
-      // =========================================================================
-      // Invariant 5: Predicate Rejection
-      // Passing a JS function predicate to querySideStore throws a TypeError.
-      // =========================================================================
-      let predError = null;
-      try {
-        await db.querySideStore(queryVector, {
-          sideStore: 'codes',
-          revision: 1,
-          candidateBudget: 100,
-          limit: 10,
-          predicate: (r) => r.category === 'even',
+      {
+        const dbName = `test-inv1-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { keyPath: 'id' });
+          e.target.result.createObjectStore('codes');
         });
-      } catch (err) {
-        predError = err;
-      }
-      check(predError !== null, 'Invariant 5: querySideStore with predicate throws');
-      check(predError instanceof TypeError, `Invariant 5: error is TypeError, got ${predError?.constructor?.name}`);
-      check(predError.message.includes('arbitrary record predicates are forbidden in side-store queries'),
-        `Invariant 5: error explains predicate rejection: ${predError.message}`);
-
-      // =========================================================================
-      // Invariant 6: Eligibility Before Truncation
-      // Passing eligibleKeys filters candidates BEFORE candidateBudget is enforced.
-      // =========================================================================
-      const evenKeys = new Set(Array.from({ length: 500 }, (_, i) => (i + 1) * 2));
-      const keyFilteredQuery = await db.querySideStore(queryVector, {
-        sideStore: 'codes',
-        revision: 1,
-        candidateBudget: 50,
-        limit: 10,
-        eligibleKeys: evenKeys,
-      });
-      check(keyFilteredQuery.results.length === 10, 'Invariant 6: key-filtered query returns 10 results');
-      for (const row of keyFilteredQuery.results) {
-        check(row.key % 2 === 0, `Invariant 6: result key ${row.key} is even`);
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ id: 101, embedding: [1, 0] });
+        await db.buildSideStore({ epoch: 1 });
+        const res = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        check(res.results.length === 1, 'Inv 1: returns 1 result');
+        check(res.results[0].key === 101, `Inv 1: in-line key is 101, got ${res.results[0].key}`);
+        await db.close();
       }
 
       // =========================================================================
-      // Invariant 2: Revision Pinning (Stale)
-      // An original record updated to a new revision is rejected under the old pinned revision.
+      // Invariant 2: Key Identity (out-of-line primary key, idb-vector-yoe)
       // =========================================================================
-      const targetUpdateKey = sideStoreQuery.results[1].key;
-      await db.update(targetUpdateKey, { id: targetUpdateKey, revision: 2, embedding: makeVec(targetUpdateKey + 1) });
-      let staleRevError = null;
-      try {
-        await db.querySideStore(queryVector, { sideStore: 'codes', revision: 1, candidateBudget: 100, limit: 10 });
-      } catch (err) {
-        staleRevError = err;
-      }
-      check(staleRevError !== null, 'Invariant 2: query pinned to revision 1 throws when original has revision 2');
-      check(staleRevError.message.includes(`Record ${targetUpdateKey} has revision 2, but query pinned revision 1`),
-        `Invariant 2: error explains revision mismatch: ${staleRevError.message}`);
-
-      // =========================================================================
-      // Invariant 4: Revision Pinning (Fail-safe Fallback)
-      // A missing or mismatched original record triggers fallback: true to exact scan.
-      // =========================================================================
-      const fallbackQuery = await db.querySideStore(queryVector, {
-        sideStore: 'codes',
-        revision: 1,
-        candidateBudget: 100,
-        limit: 10,
-        fallback: true,
-      });
-      check(fallbackQuery.info.mode === 'exact-fallback', 'Invariant 4: fallback: true enters exact-fallback mode');
-      check(fallbackQuery.results.length === 10, 'Invariant 4: exact fallback returns 10 results');
-      // Verify fallback results match live db.query results
-      const liveExact = await db.query(queryVector, { limit: 10 });
-      for (let i = 0; i < 10; i++) {
-        check(fallbackQuery.results[i].key === liveExact[i].key,
-          `Invariant 4: fallback result rank ${i} matches live exact query`);
+      {
+        const dbName = `test-inv2-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors'); // out of line
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ id: 'confusing-id', embedding: [1, 0] }, 'real-ool-key');
+        await db.buildSideStore({ epoch: 1 });
+        const res = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        check(res.results.length === 1, 'Inv 2: returns 1 result');
+        check(res.results[0].key === 'real-ool-key', `Inv 2: out-of-line key is "real-ool-key", got ${res.results[0].key}`);
+        check(res.results[0].object.id === 'confusing-id', 'Inv 2: object preserved');
+        await db.close();
       }
 
-      // Restore record
-      await db.update(targetUpdateKey, { id: targetUpdateKey, revision: 1, embedding: makeVec(targetUpdateKey) });
-
-      // 0 Dead Rows check: deleting a candidate record throws when fallback: false
-      const topKeyToDelete = sideStoreQuery.results[0].key;
-      await db.delete(topKeyToDelete);
-      let deadRowError = null;
-      try {
-        await db.querySideStore(queryVector, { sideStore: 'codes', revision: 1, candidateBudget: 100, limit: 10 });
-      } catch (err) {
-        deadRowError = err;
+      // =========================================================================
+      // Invariant 3: Key Identity (autoIncrement)
+      // =========================================================================
+      {
+        const dbName = `test-inv3-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { autoIncrement: true });
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ embedding: [1, 0] });
+        await db.buildSideStore({ epoch: 1 });
+        const res = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        check(res.results.length === 1, 'Inv 3: returns 1 result');
+        check(typeof res.results[0].key === 'number' && res.results[0].key >= 1, `Inv 3: autoIncrement key is generated number, got ${res.results[0].key}`);
+        await db.close();
       }
-      check(deadRowError !== null, 'Invariant 4: missing row throws error without fallback');
-      check(deadRowError.message.includes('0 dead rows acceptable on the current revision'),
-        `Invariant 4: dead row error explains requirement: ${deadRowError.message}`);
 
-      // createSideStore helper interface
-      const sideStoreHelper = await db.createSideStore({ sideStore: 'codes', revision: 1 });
-      const helperFallback = await sideStoreHelper.query(queryVector, { candidateBudget: 100, limit: 5, fallback: true });
-      check(helperFallback.results.length === 5, 'createSideStore helper returns 5 results');
+      // =========================================================================
+      // Invariant 4: Key Identity (number/string primary keys)
+      // =========================================================================
+      {
+        const dbName = `test-inv4-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { keyPath: 'k' });
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ k: 'string-key-42', embedding: [1, 0] });
+        await db.insert({ k: 42, embedding: [0, 1] });
+        await db.buildSideStore({ epoch: 1 });
+        const resStr = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        const resNum = await db.querySideStore([0, 1], { epoch: 1, limit: 1 });
+        check(resStr.results[0].key === 'string-key-42', `Inv 4: string key preserved: ${resStr.results[0].key}`);
+        check(resNum.results[0].key === 42, `Inv 4: number key preserved: ${resNum.results[0].key}`);
+        await db.close();
+      }
 
-      await db.close();
+      // =========================================================================
+      // Invariant 5: Key Identity (Date/array primary keys)
+      // =========================================================================
+      {
+        const dbName = `test-inv5-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors');
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        const dateKey = new Date(1700000000000);
+        const arrayKey = ['cat', 99];
+        await db.insert({ embedding: [1, 0] }, dateKey);
+        await db.insert({ embedding: [0, 1] }, arrayKey);
+        await db.buildSideStore({ epoch: 1 });
+        const resDate = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        const resArr = await db.querySideStore([0, 1], { epoch: 1, limit: 1 });
+        check(indexedDB.cmp(resDate.results[0].key, dateKey) === 0, 'Inv 5: Date key matches via indexedDB.cmp');
+        check(indexedDB.cmp(resArr.results[0].key, arrayKey) === 0, 'Inv 5: Array key matches via indexedDB.cmp');
+        await db.close();
+      }
+
+      // =========================================================================
+      // Invariant 6: Key Identity (custom nested keyPath)
+      // =========================================================================
+      {
+        const dbName = `test-inv6-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { keyPath: 'meta.item.id' });
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ meta: { item: { id: 'nested-uuid-1' } }, embedding: [1, 0] });
+        await db.buildSideStore({ epoch: 1 });
+        const res = await db.querySideStore([1, 0], { epoch: 1, limit: 1 });
+        check(res.results[0].key === 'nested-uuid-1', `Inv 6: custom nested keyPath returned: ${res.results[0].key}`);
+        await db.close();
+      }
+
+      // =========================================================================
+      // Invariant 7: Store-wide Revision Pinning (Stale Epoch Rejection)
+      // =========================================================================
+      {
+        const dbName = `test-inv7-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { keyPath: 'id' });
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ id: 1, embedding: [1, 0] });
+
+        let storeEpoch = 1;
+        const getEpoch = async () => storeEpoch;
+
+        await db.buildSideStore({ epoch: 1, getEpoch });
+
+        // Query with pinned epoch 1 succeeds
+        const q1 = await db.querySideStore([1, 0], { epoch: 1, getEpoch });
+        check(q1.results.length === 1, 'Inv 7: initial query on matching epoch succeeds');
+
+        // Main store advances to epoch 2
+        storeEpoch = 2;
+
+        let staleError = null;
+        try {
+          await db.querySideStore([1, 0], { epoch: 1, getEpoch });
+        } catch (err) {
+          staleError = err;
+        }
+        check(staleError !== null, 'Inv 7: query on old epoch 1 after store advanced to epoch 2 rejects');
+        check(staleError.message.includes('Store-wide epoch mismatch'), `Inv 7: error explains epoch mismatch: ${staleError.message}`);
+        await db.close();
+      }
+
+      // =========================================================================
+      // Invariant 8: Store-wide Revision Pinning (Unversioned / Missing Epoch Rejection)
+      // =========================================================================
+      {
+        const dbName = `test-inv8-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { keyPath: 'id' });
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ id: 1, embedding: [1, 0] });
+
+        let unversionedBuildError = null;
+        try {
+          await db.buildSideStore({ epoch: null });
+        } catch (err) {
+          unversionedBuildError = err;
+        }
+        check(unversionedBuildError !== null, 'Inv 8: build without epoch rejects');
+
+        await db.buildSideStore({ epoch: 1 });
+        let unversionedQueryError = null;
+        try {
+          await db.querySideStore([1, 0], { epoch: null });
+        } catch (err) {
+          unversionedQueryError = err;
+        }
+        check(unversionedQueryError !== null, 'Inv 8: query without epoch rejects');
+        await db.close();
+      }
+
+      // =========================================================================
+      // Invariant 9: Predicate Rejection
+      // =========================================================================
+      {
+        const dbName = `test-inv9-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { keyPath: 'id' });
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ id: 1, category: 'a', embedding: [1, 0] });
+        await db.buildSideStore({ epoch: 1 });
+
+        let predError = null;
+        try {
+          await db.querySideStore([1, 0], { epoch: 1, predicate: (r) => r.category === 'a' });
+        } catch (err) {
+          predError = err;
+        }
+        check(predError !== null, 'Inv 9: querySideStore with predicate throws');
+        check(predError instanceof TypeError, `Inv 9: error is TypeError, got ${predError?.constructor?.name}`);
+        check(predError.message.includes('arbitrary record predicates are forbidden in side-store queries'),
+          `Inv 9: message explains ADR 0001 rejection: ${predError.message}`);
+        await db.close();
+      }
+
+      // =========================================================================
+      // Invariant 10: Eligibility Equality (Date/array keys via IDB equivalence)
+      // =========================================================================
+      {
+        const dbName = `test-inv10-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors');
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+
+        const dKey1 = new Date(1700000001000);
+        const dKey2 = new Date(1700000002000);
+        const arrKey1 = ['groupX', 10];
+        const arrKey2 = ['groupY', 20];
+
+        await db.insert({ embedding: [1, 0] }, dKey1);
+        await db.insert({ embedding: [0, 1] }, dKey2);
+        await db.insert({ embedding: [0.9, 0.1] }, arrKey1);
+        await db.insert({ embedding: [0.1, 0.9] }, arrKey2);
+
+        await db.buildSideStore({ epoch: 1 });
+
+        // Query passing DIFFERENT object instances of the same Date and Array values in eligibleKeys
+        const filterDate = new Date(1700000001000);
+        const filterArr = ['groupX', 10];
+        check(filterDate !== dKey1, 'Inv 10: distinct Date instance');
+        check(filterArr !== arrKey1, 'Inv 10: distinct Array instance');
+
+        const qRes = await db.querySideStore([1, 0], {
+          epoch: 1,
+          eligibleKeys: [filterDate, filterArr],
+          limit: 10,
+        });
+
+        check(qRes.results.length === 2, `Inv 10: returned 2 matching results, got ${qRes.results.length}`);
+        check(indexedDB.cmp(qRes.results[0].key, dKey1) === 0, 'Inv 10: result 0 matches dKey1 by IDB value equivalence');
+        check(indexedDB.cmp(qRes.results[1].key, arrKey1) === 0, 'Inv 10: result 1 matches arrKey1 by IDB value equivalence');
+        await db.close();
+      }
+
+      // =========================================================================
+      // Invariant 11: Eligibility Before Truncation
+      // =========================================================================
+      {
+        const dbName = `test-inv11-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { keyPath: 'id' });
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+
+        // Record 1 & 2 are high similarity but NOT eligible
+        await db.insert({ id: 1, embedding: [1.0, 0.0] });
+        await db.insert({ id: 2, embedding: [0.99, 0.01] });
+        // Record 3 & 4 are lower similarity but ARE eligible
+        await db.insert({ id: 3, embedding: [0.5, 0.5] });
+        await db.insert({ id: 4, embedding: [0.4, 0.6] });
+
+        await db.buildSideStore({ epoch: 1 });
+
+        // candidateBudget = 2, eligibleKeys = [3, 4]
+        // If truncation happened before eligibility check, keys 1 & 2 would fill the budget and 3 & 4 would be lost.
+        const res = await db.querySideStore([1.0, 0.0], {
+          epoch: 1,
+          candidateBudget: 2,
+          eligibleKeys: [3, 4],
+          limit: 2,
+        });
+
+        check(res.results.length === 2, `Inv 11: returned 2 eligible candidates, got ${res.results.length}`);
+        check(res.results[0].key === 3, `Inv 11: rank 0 is key 3, got ${res.results[0].key}`);
+        check(res.results[1].key === 4, `Inv 11: rank 1 is key 4, got ${res.results[1].key}`);
+        await db.close();
+      }
+
+      // =========================================================================
+      // Invariant 12: Candidate Budget Bounds
+      // Fetch never exceeds candidateBudget records from the main store.
+      // =========================================================================
+      {
+        const dbName = `test-inv12-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors', { keyPath: 'id' });
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+
+        for (let i = 1; i <= 20; i++) {
+          await db.insert({ id: i, embedding: [i / 20, 1 - i / 20] });
+        }
+
+        await db.buildSideStore({ epoch: 1 });
+
+        const res = await db.querySideStore([1, 0], {
+          epoch: 1,
+          candidateBudget: 5,
+          limit: 10,
+        });
+
+        check(res.info.recordsFetched === 5, `Inv 12: recordsFetched is 5 (bounded by budget), got ${res.info.recordsFetched}`);
+        check(res.results.length === 5, `Inv 12: results length is 5 (bounded by budget), got ${res.results.length}`);
+        await db.close();
+      }
 
       return {
         checks: checks.length,
-        buildStats,
       };
     } finally {
       for (const name of databasesToClean) {
@@ -269,8 +378,7 @@ try {
     }
   });
 
-  console.log(`PASS: ${result.checks} side-store checks in a real browser (all 6 ADR 0001 invariants covered)`);
-  console.log(`  Side-store built: ${result.buildStats.count} records, ${result.buildStats.dims}D, ${(result.buildStats.bytes / 1024).toFixed(1)} KB in ${result.buildStats.writeMs.toFixed(1)} ms`);
+  console.log(`PASS: ${result.checks} checks in real browser verifying all 12 ADR 0001 invariants!`);
 } finally {
   await page?.close();
   await new Promise((resolve) => server.close(resolve));

@@ -525,18 +525,30 @@ class VectorDB {
   async buildSideStore(options = {}) {
     const {
       sideStore = "codes",
-      revision = 1,
       key = "code_record",
-      revisionPath = "revision",
+      epoch = options.revision ?? 1,
+      getEpoch = null,
     } = options;
 
-    if (!Number.isSafeInteger(revision) || revision < 0) {
-      throw new TypeError(`revision must be a nonnegative safe integer; got ${describe(revision)}`);
+    if (epoch === null || epoch === undefined) {
+      throw new TypeError("buildSideStore() requires a store-wide epoch/revision (ADR 0001 Invariant 8)");
+    }
+    if (!Number.isSafeInteger(epoch) && typeof epoch !== "string") {
+      throw new TypeError(`epoch must be a safe integer or string; got ${describe(epoch)}`);
     }
 
     const db = await this.#connection();
     const sourceStoreName = this.#objectStore;
     const vectorPath = this.#vectorPath;
+
+    if (getEpoch) {
+      const currentEpoch = await getEpoch(db);
+      if (currentEpoch !== epoch) {
+        throw new Error(
+          `Store-wide epoch mismatch on build: getEpoch returned ${currentEpoch}, expected ${epoch} (ADR 0001 Invariant 8)`
+        );
+      }
+    }
 
     const records = [];
     const keys = [];
@@ -553,26 +565,8 @@ class VectorDB {
           return;
         }
         if (cursor.value && Object.hasOwn(cursor.value, vectorPath)) {
-          const record = cursor.value;
-          const pKey = cursor.primaryKey;
-
-          // Revision check on build: every original must carry the revision property (ADR 0001 Invariant 3)
-          const recRev = record[revisionPath];
-          if (recRev === undefined || recRev === null) {
-            reject(new TypeError(
-              `Record ${JSON.stringify(pKey)} has no "${revisionPath}" property (revisionPath). Revision pinning requires all records to carry a matching revision property before building codes (expected revision ${revision}).`
-            ));
-            return;
-          }
-          if (recRev !== revision) {
-            reject(new Error(
-              `Record ${JSON.stringify(pKey)} has revision ${recRev}, expected ${revision}.`
-            ));
-            return;
-          }
-
-          records.push(record);
-          keys.push(pKey); // Exact IndexedDB primary key (ADR 0001 Invariant 1)
+          records.push(cursor.value);
+          keys.push(cursor.primaryKey); // Exact IndexedDB primary key (ADR 0001 Invariants 1-6)
         }
         cursor.continue();
       };
@@ -580,10 +574,9 @@ class VectorDB {
     });
 
     const codeRecord = buildCodeRecord(records, {
-      revision,
+      epoch,
       vectorPath,
       keys,
-      revisionPath,
     });
 
     await new Promise((resolve, reject) => {
@@ -596,7 +589,8 @@ class VectorDB {
 
     const writeMs = performance.now() - t0;
     return {
-      revision,
+      epoch,
+      revision: epoch,
       count: codeRecord.count,
       dims: codeRecord.dims,
       bytes: codeRecord.bytes,
@@ -608,30 +602,30 @@ class VectorDB {
     assertVector(queryVector, "querySideStore() vector");
     const {
       sideStore = "codes",
-      revision = 1,
       key = "code_record",
+      epoch = options.revision,
+      getEpoch = null,
       candidateBudget = 300,
       limit = 10,
       threshold = null,
       predicate = null,
       eligibleKeys = null,
-      revisionPath = "revision",
-      fallback = false,
       codeRecord: suppliedRecord = null,
     } = options;
 
-    // Invariant 5: Predicate Rejection — arbitrary record predicates are forbidden (ADR 0001 Invariant 5)
+    // Invariant 9: Predicate Rejection — arbitrary record predicates are forbidden (ADR 0001 Invariant 9)
     if (predicate !== null && predicate !== undefined) {
       throw new TypeError(
-        "querySideStore() does not support record predicates: arbitrary record predicates are forbidden in side-store queries to prevent late-filter truncation (ADR 0001). Pre-filter candidate keys with eligibleKeys, or use queryCandidates({ predicate }) for exact scan filtering."
+        "querySideStore() does not support record predicates: arbitrary record predicates are forbidden in side-store queries to prevent late-filter truncation (ADR 0001 Invariant 9). Pre-filter candidate keys with eligibleKeys, or use queryCandidates({ predicate }) for exact scan filtering."
       );
     }
 
+    // Invariant 8: Store-wide Revision Pinning required
+    if (epoch === null || epoch === undefined) {
+      throw new TypeError("querySideStore() requires a pinned epoch/revision (ADR 0001 Invariant 8)");
+    }
     if (!Number.isSafeInteger(candidateBudget) || candidateBudget <= 0) {
       throw new RangeError(`candidateBudget must be a positive integer; got ${describe(candidateBudget)}`);
-    }
-    if (!Number.isSafeInteger(revision) || revision < 0) {
-      throw new TypeError(`revision must be a nonnegative safe integer; got ${describe(revision)}`);
     }
     assertLimit(limit);
     if (threshold !== null && threshold !== undefined) {
@@ -642,113 +636,112 @@ class VectorDB {
     const sourceStoreName = this.#objectStore;
     const vectorPath = this.#vectorPath;
 
-    try {
-      // 1. Read code record from side-store (unless supplied)
-      let codeRecord = suppliedRecord;
-      if (!codeRecord) {
-        codeRecord = await new Promise((resolve, reject) => {
-          const tx = db.transaction([sideStore], "readonly");
-          const store = tx.objectStore(sideStore);
-          const req = store.get(key);
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = () => reject(req.error);
-        });
-      }
-
-      if (!codeRecord) {
-        throw new Error(`side-store record not found at key ${JSON.stringify(key)} in object store "${sideStore}"`);
-      }
-
-      // 2. Revision pinning check on side-store record
-      if (codeRecord.revision !== revision) {
-        throw new Error(`side-store revision mismatch: query pinned revision ${revision}, but side-store record has revision ${codeRecord.revision}`);
-      }
-
-      // 3. Scan candidates using compact int8 codes (eligibleKeys checked before candidate budget; ADR 0001 Invariants 4 & 6)
-      const candidates = scanSideStore(codeRecord, queryVector, candidateBudget, eligibleKeys);
-      const candidateKeys = candidates.map(c => c.key);
-
-      // 4. Fetch the top-N originals BY KEY in ONE transaction
-      const fetchedRecords = await new Promise((resolve, reject) => {
-        const tx = db.transaction([sourceStoreName], "readonly");
-        const store = tx.objectStore(sourceStoreName);
-        const count = candidateKeys.length;
-        if (count === 0) {
-          resolve([]);
-          return;
-        }
-        const results = new Array(count);
-        let settled = 0;
-        for (let i = 0; i < count; i++) {
-          const req = store.get(candidateKeys[i]);
-          req.onsuccess = () => {
-            results[i] = req.result;
-            settled++;
-            if (settled === count) resolve(results);
-          };
-          req.onerror = () => reject(req.error);
-        }
+    // 1. Read code record from side-store (unless supplied)
+    let codeRecord = suppliedRecord;
+    if (!codeRecord) {
+      codeRecord = await new Promise((resolve, reject) => {
+        const tx = db.transaction([sideStore], "readonly");
+        const store = tx.objectStore(sideStore);
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
       });
-
-      // 5. Exact Float64 rerank of fetched originals
-      // Enforces 0 dead rows and verifies matching revisions (ADR 0001 Invariants 2 & 4).
-      // Uses exact IndexedDB primary keys (ADR 0001 Invariant 1).
-      const results = rerankCandidates(
-        fetchedRecords,
-        vectorPath,
-        queryVector,
-        limit,
-        threshold,
-        revision,
-        revisionPath,
-        candidateKeys,
-      );
-
-      const info = {
-        mode: "side-store",
-        revision,
-        candidateBudget,
-        recordsRead: codeRecord.count,
-        candidatesScored: candidates.length,
-        recordsFetched: fetchedRecords.length,
-        limit,
-        threshold,
-      };
-
-      return { results, info };
-    } catch (err) {
-      // Invariant 4: Fail-safe fallback to exact scan if fallback: true is enabled
-      if (fallback) {
-        const queryOpts = { limit };
-        if (threshold !== null && threshold !== undefined) {
-          queryOpts.threshold = threshold;
-        }
-        const fallbackResults = await this.query(queryVector, queryOpts);
-        return {
-          results: fallbackResults,
-          info: {
-            mode: "exact-fallback",
-            fallbackReason: err.message,
-            limit,
-            threshold,
-          },
-        };
-      }
-      throw err;
     }
+
+    if (!codeRecord) {
+      throw new Error(`side-store record not found at key ${JSON.stringify(key)} in object store "${sideStore}"`);
+    }
+
+    // Invariant 8: Missing store-wide epoch on record is rejected
+    if (codeRecord.epoch === undefined || codeRecord.epoch === null) {
+      throw new Error("Side-store record lacks a trustworthy corpus-wide revision (ADR 0001 Invariant 8)");
+    }
+
+    // Invariant 7: Query pinned epoch must match side-store record epoch
+    if (codeRecord.epoch !== epoch) {
+      throw new Error(
+        `Store-wide epoch mismatch: query pinned epoch ${epoch}, but side-store was built at epoch ${codeRecord.epoch} (ADR 0001 Invariant 7)`
+      );
+    }
+
+    // Invariant 7: Verify store-wide epoch against current main store if getEpoch provided
+    if (getEpoch) {
+      const currentEpoch = await getEpoch(db);
+      if (currentEpoch !== codeRecord.epoch) {
+        throw new Error(
+          `Store-wide epoch mismatch: main store epoch has advanced to ${currentEpoch}, but side-store was built at epoch ${codeRecord.epoch} (ADR 0001 Invariant 7)`
+        );
+      }
+    }
+
+    // Invariants 10 & 11: Scan candidates with eligibleKeys pre-filtering before candidate budget
+    const candidates = scanSideStore(codeRecord, queryVector, candidateBudget, eligibleKeys);
+    const candidateKeys = candidates.map(c => c.key);
+
+    // Invariant 12: Candidate Budget Bounds — fetch count never exceeds candidateBudget
+    if (candidateKeys.length > candidateBudget) {
+      throw new Error(`Candidate selection exceeded candidateBudget: ${candidateKeys.length} > ${candidateBudget}`);
+    }
+
+    // 4. Fetch the top-N originals BY EXACT PRIMARY KEY in ONE transaction
+    const fetchedRecords = await new Promise((resolve, reject) => {
+      const tx = db.transaction([sourceStoreName], "readonly");
+      const store = tx.objectStore(sourceStoreName);
+      const count = candidateKeys.length;
+      if (count === 0) {
+        resolve([]);
+        return;
+      }
+      const results = new Array(count);
+      let settled = 0;
+      for (let i = 0; i < count; i++) {
+        const req = store.get(candidateKeys[i]);
+        req.onsuccess = () => {
+          results[i] = req.result;
+          settled++;
+          if (settled === count) resolve(results);
+        };
+        req.onerror = () => reject(req.error);
+      }
+    });
+
+    // 5. Exact Float64 rerank of fetched originals
+    // Enforces 0 dead rows and preserves exact IndexedDB primary keys (ADR 0001 Invariants 1-6)
+    const results = rerankCandidates(
+      fetchedRecords,
+      vectorPath,
+      queryVector,
+      limit,
+      threshold,
+      candidateKeys,
+    );
+
+    const info = {
+      mode: "side-store",
+      epoch: codeRecord.epoch,
+      revision: codeRecord.epoch,
+      candidateBudget,
+      recordsRead: codeRecord.count,
+      candidatesScored: candidates.length,
+      recordsFetched: fetchedRecords.length,
+      limit,
+      threshold,
+    };
+
+    return { results, info };
   }
 
   async createSideStore(options = {}) {
     const {
       sideStore = "codes",
-      revision = 1,
       key = "code_record",
+      epoch = options.revision ?? 1,
       candidateBudget = 300,
     } = options;
 
     return {
-      build: (buildOpts) => this.buildSideStore({ sideStore, revision, key, ...buildOpts }),
-      query: (queryVector, queryOpts) => this.querySideStore(queryVector, { sideStore, revision, key, candidateBudget, ...queryOpts }),
+      build: (buildOpts) => this.buildSideStore({ sideStore, key, epoch, ...buildOpts }),
+      query: (queryVector, queryOpts) => this.querySideStore(queryVector, { sideStore, key, epoch, candidateBudget, ...queryOpts }),
     };
   }
 

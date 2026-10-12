@@ -9,24 +9,37 @@ export function vectorNorm(vector) {
   return Math.sqrt(sumSq) || 1;
 }
 
+// Canonical key serialization preserving IndexedDB key equivalence for Date, Array, Number, String, and Binary keys (ADR 0001 Invariant 10).
+export function canonicalKey(key) {
+  if (typeof key === 'number') return `n:${key}`;
+  if (typeof key === 'string') return `s:${key}`;
+  if (key instanceof Date) return `d:${key.getTime()}`;
+  if (Array.isArray(key)) return `a:[${key.map(canonicalKey).join(',')}]`;
+  if (key instanceof ArrayBuffer || ArrayBuffer.isView(key)) {
+    const bytes = new Uint8Array(key.buffer ?? key);
+    return `b:${Array.from(bytes).join('.')}`;
+  }
+  return `raw:${JSON.stringify(key)}`;
+}
+
 // Builds an INT8 affine code record with per-dimension min/scale tables and precomputed L2 norms.
 // Exact primary keys must be provided via options.keys (matching cursor.primaryKey, ADR 0001).
 export function buildCodeRecord(records, options = {}) {
   const {
-    revision = 1,
+    epoch = options.revision ?? 1,
     vectorPath = 'embedding',
     keys: explicitKeys = null,
-    revisionPath = 'revision',
   } = options;
 
-  if (!Number.isSafeInteger(revision) || revision < 0) {
-    throw new TypeError(`revision must be a nonnegative safe integer; got ${revision}`);
+  if (epoch === null || epoch === undefined) {
+    throw new TypeError('buildCodeRecord() requires a store-wide epoch/revision (ADR 0001 Invariant 8)');
   }
 
   const count = records.length;
   if (count === 0) {
     return {
-      revision,
+      epoch,
+      revision: epoch,
       count: 0,
       dims: 0,
       keys: [],
@@ -53,7 +66,7 @@ export function buildCodeRecord(records, options = {}) {
   const maxs = new Float32Array(dims);
   maxs.fill(-Infinity);
 
-  // First pass: extract primary keys, verify revision property, compute L2 norms, find per-dimension min and max
+  // First pass: extract primary keys, compute L2 norms, find per-dimension min and max
   for (let i = 0; i < count; i++) {
     const rec = records[i];
     const key = explicitKeys ? explicitKeys[i] : (rec.key ?? rec.id);
@@ -61,19 +74,6 @@ export function buildCodeRecord(records, options = {}) {
       throw new Error(`Record at index ${i} has no identifiable primary key`);
     }
     keys[i] = key;
-
-    // Revision check on build: every original must carry the revision property (ADR 0001 Invariant 3)
-    const recRev = rec[revisionPath];
-    if (recRev === undefined || recRev === null) {
-      throw new TypeError(
-        `Record ${JSON.stringify(key)} has no "${revisionPath}" property (revisionPath). Revision pinning requires all records to carry a matching revision property before building codes (expected revision ${revision}).`
-      );
-    }
-    if (recRev !== revision) {
-      throw new Error(
-        `Record ${JSON.stringify(key)} has revision ${recRev}, expected ${revision}.`
-      );
-    }
 
     const vec = rec[vectorPath] ?? rec.vector;
     if (!vec || vec.length !== dims) {
@@ -112,7 +112,8 @@ export function buildCodeRecord(records, options = {}) {
   const bytes = codes.byteLength + norms.byteLength + mins.byteLength + scales.byteLength;
 
   return {
-    revision,
+    epoch,
+    revision: epoch,
     count,
     dims,
     keys,
@@ -142,7 +143,8 @@ export function sq8QueryWeights(queryVector, mins, scales) {
 }
 
 // Scan int8 codes to select at most candidateBudget eligible candidates.
-// Intersects eligibleKeys BEFORE the candidate budget (ADR 0001 Invariant 6).
+// Intersects eligibleKeys BEFORE candidate budget truncation (ADR 0001 Invariant 11).
+// Uses canonical key serialization to match Date and Array keys by value (ADR 0001 Invariant 10).
 export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, eligibleKeys = null) {
   const { count, dims, keys, norms, mins, scales, codes } = codeRecord;
   if (count === 0 || candidateBudget <= 0) return [];
@@ -157,23 +159,27 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
   const budget = Math.min(candidateBudget, count);
   const candidates = new SortedArray(budget, 'score');
 
-  let eligibleSet = null;
+  let eligibleCanonicalSet = null;
   let isKeyEligible = null;
   if (eligibleKeys !== null && eligibleKeys !== undefined) {
-    if (eligibleKeys instanceof Set) {
-      eligibleSet = eligibleKeys;
-    } else if (Array.isArray(eligibleKeys)) {
-      eligibleSet = new Set(eligibleKeys);
-    } else if (typeof eligibleKeys === 'function') {
+    if (typeof eligibleKeys === 'function') {
       isKeyEligible = eligibleKeys;
+    } else {
+      eligibleCanonicalSet = new Set();
+      const iterable = eligibleKeys instanceof Set || Array.isArray(eligibleKeys)
+        ? eligibleKeys
+        : [eligibleKeys];
+      for (const k of iterable) {
+        eligibleCanonicalSet.add(canonicalKey(k));
+      }
     }
   }
 
   for (let i = 0; i < count; i++) {
     const key = keys[i];
 
-    // Eligibility check before candidate scoring/truncation (ADR 0001 Invariant 6)
-    if (eligibleSet !== null && !eligibleSet.has(key)) {
+    // Eligibility check before candidate scoring/truncation (ADR 0001 Invariant 11 & 10)
+    if (eligibleCanonicalSet !== null && !eligibleCanonicalSet.has(canonicalKey(key))) {
       continue;
     }
     if (isKeyEligible !== null && !isKeyEligible(key)) {
@@ -200,8 +206,7 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
 }
 
 // Exact Float64 cosine rerank over fetched original records.
-// - Verifies 0 dead rows on the current pinned revision.
-// - Verifies that each fetched original record carries a matching revision (ADR 0001 Invariant 2).
+// - Enforces 0 dead rows on the current pinned revision.
 // - Preserves exact IndexedDB primary keys via candidateKeys (ADR 0001 Invariant 1).
 export function rerankCandidates(
   fetchedRecords,
@@ -209,8 +214,6 @@ export function rerankCandidates(
   queryVector,
   limit = 10,
   threshold = null,
-  expectedRevision = null,
-  revisionPath = 'revision',
   candidateKeys = null,
 ) {
   let queryNormSq = 0;
@@ -231,21 +234,6 @@ export function rerankCandidates(
     const key = candidateKeys ? candidateKeys[i] : (record.key ?? record.id);
     if (key === undefined) {
       throw new Error(`Candidate record at index ${i} has no identifiable primary key`);
-    }
-
-    // Revision check: each fetched original must have a matching revision (ADR 0001 Invariant 2)
-    if (expectedRevision !== null && expectedRevision !== undefined) {
-      const recordRev = record[revisionPath];
-      if (recordRev === undefined || recordRev === null) {
-        throw new Error(
-          `Record ${JSON.stringify(key)} has no "${revisionPath}" property; revision cannot be verified for pinned revision ${expectedRevision}`
-        );
-      }
-      if (recordRev !== expectedRevision) {
-        throw new Error(
-          `Record ${JSON.stringify(key)} has revision ${recordRev}, but query pinned revision ${expectedRevision}`
-        );
-      }
     }
 
     const vector = record[vectorPath];
@@ -274,3 +262,4 @@ export function rerankCandidates(
 
   return Array.from(top.slice(0, limit));
 }
+
