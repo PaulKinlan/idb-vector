@@ -8,7 +8,7 @@
     "url": "https://github.com/PaulKinlan/idb-vector"
   },
   "scripts": {
-    "test": "node tests/browser.mjs && node tests/validation.mjs",
+    "test": "node tests/browser.mjs && node tests/validation.mjs && node tests/candidates.mjs",
     "test:fast": "node --test tests/unit/*.test.mjs",
     "start": "serve",
     "demo": "node tools/demo-server.mjs",
@@ -20,6 +20,8 @@
     "test:wikipedia": "node tests/wikipedia-demo.mjs",
     "test:packed": "node tests/packed-snapshot.mjs",
     "test:validation": "node tests/validation.mjs",
+    "test:candidates": "node tests/candidates.mjs",
+    "measure:candidates": "node tests/candidates.mjs --measure",
     "measure:packed": "node tests/packed-read.mjs",
     "build:research": "node tools/build-research.mjs",
     "test:research": "node tests/research.mjs"

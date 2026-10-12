@@ -242,7 +242,11 @@ No model downloads, new dependencies or fixed ports are required.
 
 `npm test` drives the demo in installed Chromium and then runs `tests/validation.mjs`, which
 drives the numeric/options/path contract (refusals, error classes and messages, no partial
-writes) in the same browser; `npm run test:validation` runs only the contract battery.
+writes) in the same browser, plus `tests/candidates.mjs`, which checks candidate queries against a
+full eligible-set oracle (selectivity, range endpoints, compound keys, duplicate index keys,
+missing metadata, caller-owned schemas). `npm run test:validation` and `npm run test:candidates`
+run one battery each; `npm run measure:candidates` adds the index build/write/storage measurement,
+which is kept out of `npm test` because it writes 40,000 records.
 `npm run measure` reproduces the 1k/10k/100k browser study. See
 [the analysis](reports/browser-analysis.md) for exact
 trees, conditions, raw evidence, correctness findings and the Beads improvement plan.
