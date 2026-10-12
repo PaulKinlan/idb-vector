@@ -190,6 +190,9 @@ better-scoring eligible record was dropped. A value outside `[-1, 1]` is refused
 silently returning nothing, and an invalid one rejects with `TypeError`/`RangeError`.
 - `info.recordsScored` is that eligible count: the records that passed the predicate and the
 threshold and were ranked. `results.length` is `min(limit, recordsScored)`.
+- **Ties.** Records with equal similarity keep the order they were read in: store key order for a
+full scan, index order for an index read. Truncation to `limit` therefore keeps the earliest-read
+records of a tie group, so the same store and the same spec always produce the same top-k.
 - `info.recordsRead === 0` means the candidate spec read nothing at all; `recordsRead > 0` with
 `recordsScored === 0` means candidates existed and **none** of them was eligible. Those are
 different answers and are reported separately.
