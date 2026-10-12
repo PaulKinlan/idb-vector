@@ -96,7 +96,11 @@ function normalizeCandidateOptions(options) {
   }
   const { limit = 10, threshold = null, index = null, range = null, predicate = null } = options;
   assertLimit(limit);
-  if (threshold !== null) assertThreshold(threshold);
+  // `threshold` is a scalar option like `limit`, not one of the candidate spec fields that document
+  // null as "none": omit it for no threshold. Accepting null here would silently drop a threshold
+  // that a caller computed as null by mistake (query() already refuses it), and the two entry points
+  // must agree on what they accept.
+  if (options.threshold !== undefined) assertThreshold(threshold);
   if (index !== null && (typeof index !== "string" || index.length === 0)) {
     throw new TypeError(`queryCandidates() index must be a non-empty string naming one index on the object store; got ${describe(index)}`);
   }
@@ -402,6 +406,11 @@ class VectorDB {
       },
       predicate: selection.predicate !== null,
       threshold,
+      // The promise, not the cost: true only when every record in the store was a candidate, so the
+      // returned top-k is the exact global eligible top-k. `fullScanRequired` states whether the
+      // spec forced that read; today the two are true under the same condition, and they are
+      // separate fields because a future bounded source may be exhaustive on purpose (kuc.6).
+      candidateSetComplete: selection.fullScanRequired === true,
       recordsRead: 0,
       recordsScored: 0,
       fullScanRequired: selection.fullScanRequired,
