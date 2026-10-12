@@ -1,0 +1,26 @@
+{
+  "annotation": "Manually authored 2026-10-12 from page titles and topic descriptions; page-level relevance (all 12 excerpts on a target page eligible), not independently judged passage qrels. No query was copied from corpus text. An exploratory check, not evidence for a default change.",
+  "split": "Unique page titles in demo/data/passages-2000.json in corpus order; title index modulo 4 = 0 is held-out evaluation candidate; remaining titles are transform-fit-only training corpus. Query and held-out candidate vectors are never used to fit preprocessing.",
+  "queries": [
+    { "query": "Which scientific field studies stars, planets and the universe?", "title": "Astronomy" },
+    { "query": "How do living things interact with their environments?", "title": "Ecology" },
+    { "query": "What field studies ancient human societies by excavating artifacts?", "title": "Archaeology" },
+    { "query": "What art form applies pigments to a surface to create an image?", "title": "Painting" },
+    { "query": "What process teaches knowledge and skills in schools?", "title": "Education" },
+    { "query": "What mathematics describes how likely an event is?", "title": "Probability" },
+    { "query": "How can information be encoded to keep messages confidential?", "title": "Cryptography" },
+    { "query": "What field trains algorithms to learn patterns from data?", "title": "Machine learning" },
+    { "query": "What hyperlinked information system uses websites and browsers?", "title": "World Wide Web" },
+    { "query": "How is information quantified using entropy and communication channels?", "title": "Information theory" },
+    { "query": "What theory describes matter at atomic and subatomic scales?", "title": "Quantum mechanics" },
+    { "query": "What is a gravitationally bound collection of billions of stars?", "title": "Galaxy" },
+    { "query": "Which planets orbit our sun and what is their planetary system called?", "title": "Solar System" },
+    { "query": "What process changes inherited traits across generations of living organisms?", "title": "Evolution" },
+    { "query": "How do plants turn sunlight into chemical energy?", "title": "Photosynthesis" },
+    { "query": "What is the long-term warming of Earth's climate from greenhouse gases?", "title": "Climate change" },
+    { "query": "How is sunlight converted into electrical power?", "title": "Solar power" },
+    { "query": "Which organ pumps blood through the circulatory system?", "title": "Heart" },
+    { "query": "What is the study of food and nutrients needed by organisms?", "title": "Nutrition" },
+    { "query": "Which ancient empire was centered on the city of Rome?", "title": "Roman Empire" }
+  ]
+}
