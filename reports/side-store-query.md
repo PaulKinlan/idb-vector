@@ -9,10 +9,10 @@ leg inside one query, per query, and compares it with the exact read paths in th
 Research only: **`index.js` is untouched by this bead** and no side-store is implemented in the
 library. Reproduce with `node tools/evaluate-side-store-query.mjs` (headless Chromium).
 `IDB_KUC9_SMOKE=1` runs the same code path on a 2,000-row corpus in about a minute, which is how
-the driver itself is checked; a smoke run writes its report to a temp path and never to
-`reports/`. `IDB_VECTOR_SIDE_STORE_REPORT=reports/side-store-query.json` refreshes the committed
-report, deliberately. The pure parts are in `test-harness/side-store.js`, covered by
-`tests/unit/side-store.test.mjs` in the fast tier.
+the driver itself is checked. Either run writes its report to a temp path by default, so a gate can
+never be tripped by a tracked write; `IDB_VECTOR_SIDE_STORE_REPORT=reports/side-store-query.json`
+refreshes the committed report, deliberately. The pure parts are in `test-harness/side-store.js`,
+covered by `tests/unit/side-store.test.mjs` in the fast tier.
 
 **How to read this report.** Part 1 is the unpredicated read-per-query measurement and stands on
 its own: its numbers, its cold phase and its conclusion can be reviewed and used without Part 2.

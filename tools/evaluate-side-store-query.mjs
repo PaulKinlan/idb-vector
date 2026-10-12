@@ -22,10 +22,13 @@ const specs = process.env.IDB_KUC9_SMOKE
     { name: 'uniform-100k-384', count: 100000, dims: 384, seed: 43, budgets: [100, 300], repetitions: 2 },
   ];
 const smoke = Boolean(process.env.IDB_KUC9_SMOKE);
-// A smoke run writes to a temp path: it is a check of the driver, and a tracked write during a gate
-// records STALE even when the bytes are identical (idb-vector-2ox). The full-run path is the
-// committed evidence and is written deliberately.
-const jsonPath = smoke ? join(os.tmpdir(), 'idb-vector-side-store-query-smoke.json') : 'reports/side-store-query.json';
+// A gate-reachable driver must not write a tracked file (fleet-check's worktree digest fingerprints
+// every tracked file, so an in-place write records STALE even when the content is identical -
+// idb-vector-2ox). Both the smoke and the full run default to a temp path, and
+// IDB_VECTOR_SIDE_STORE_REPORT opts into a specific one - reports/side-store-query.json when the
+// committed evidence is being regenerated on purpose (idb-vector-c5h).
+const jsonPath = process.env.IDB_VECTOR_SIDE_STORE_REPORT
+  || join(os.tmpdir(), smoke ? 'idb-vector-side-store-query-smoke.json' : 'idb-vector-side-store-query.json');
 // One profile for the whole run: the warm phase writes its databases into it, and the cold phase
 // reopens that same profile in a NEW browser process. A cold query is therefore one that a process
 // which did not write the store runs before anything else (idb-vector-thu, round 2).
