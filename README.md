@@ -191,8 +191,11 @@ vector dataset, choose a query vector and see nearest neighbours and timings. Th
 experimental metadata-index and paged-scan comparisons do not change the library API.
 No model downloads, new dependencies or fixed ports are required.
 
-`npm test` drives the demo in installed Chromium; `npm run measure` reproduces the
-1k/10k/100k browser study. See [the analysis](reports/browser-analysis.md) for exact
+`npm test` drives the demo in installed Chromium and then runs `tests/validation.mjs`, which
+drives the numeric/options/path contract (refusals, error classes and messages, no partial
+writes) in the same browser; `npm run test:validation` runs only the contract battery.
+`npm run measure` reproduces the 1k/10k/100k browser study. See
+[the analysis](reports/browser-analysis.md) for exact
 trees, conditions, raw evidence, correctness findings and the Beads improvement plan.
 The demonstration uses disposable databases and can consume significant space at 100k
 vectors; see the analysis for cleanup and unverified boundaries.
