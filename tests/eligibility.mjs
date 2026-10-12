@@ -881,6 +881,9 @@ try {
     await refusal('unknown minSimilarity option rejected',
       () => valDB.queryCandidates(testVec, { minSimilarity: 0.5 }),
       { type: TypeError, includes: ['queryCandidates() option "minSimilarity" is not supported', 'limit, threshold, index, range, predicate'] });
+    await refusal('removed pageSize option on queryCandidates rejected',
+      () => valDB.queryCandidates(testVec, { pageSize: 1000 }),
+      { type: TypeError, includes: ['queryCandidates() option "pageSize" is not supported', 'limit, threshold, index, range, predicate'] });
 
     // (d) Range / predicate / index / limit refusals from candidates.mjs
     await refusal('limit 0 rejected',
@@ -1025,7 +1028,7 @@ try {
     // which is the late-filter trap: results that look filtered because the caller asked for it.
     await refusal('query predicate option refused',
       () => valDB.query(testVec, { predicate: (r) => r.tag === 'v1' }),
-      { type: TypeError, includes: ['query() option "predicate" is not supported', 'limit, threshold, pageSize', 'queryCandidates()'] });
+      { type: TypeError, includes: ['query() option "predicate" is not supported', 'limit, threshold', 'queryCandidates()'] });
     await refusal('query index option refused',
       () => valDB.query(testVec, { index: 'tag' }),
       { type: TypeError, includes: ['query() option "index" is not supported', 'queryCandidates()'] });
@@ -1034,7 +1037,10 @@ try {
       { type: TypeError, includes: ['query() option "range" is not supported', 'queryCandidates()'] });
     await refusal('query unknown option refused',
       () => valDB.query(testVec, { minSimilarity: 0.5 }),
-      { type: TypeError, includes: ['query() option "minSimilarity" is not supported', 'limit, threshold, pageSize'] });
+      { type: TypeError, includes: ['query() option "minSimilarity" is not supported', 'limit, threshold'] });
+    await refusal('query removed pageSize option refused',
+      () => valDB.query(testVec, { pageSize: 1000 }),
+      { type: TypeError, includes: ['query() option "pageSize" is not supported', 'limit, threshold'] });
     // The guidance is real, not decorative: the predicate query() refused selects candidates on the
     // candidate path, and it selects exactly the record the caller meant.
     const guided = await valDB.queryCandidates(testVec, { predicate: (r) => r.tag === 'v1', limit: 5 });

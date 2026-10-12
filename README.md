@@ -213,39 +213,16 @@ accepted it. Exact reranking of a pruned candidate set is not exact global retri
 library does not label it as such. `info.fullScanRequired` states the same thing from the cost
 side ("did this spec force a full read?") and is `true` under exactly the same condition today;
 they are separate fields because a future bounded source may be exhaustive on purpose.
-## Read strategies: a cursor, or an optional paged scan
+## Read strategy: cursor scan and hoisted query norm
 
-`query()` and `queryCandidates()` read with a cursor by default. Passing `pageSize` reads the store
-in bounded pages instead; `info.readMode` and `info.pageSize` say which strategy ran.
+`query()` and `queryCandidates()` read with a cursor over the object store or candidate index within a single transaction:
 
-```javascript
-// Whole-store scan, read 500 records at a time instead of one cursor step per record.
-const { results, info } = await db.queryCandidates(queryVector, { limit: 10, pageSize: 500 });
-// info.readMode === "paged", info.pageSize === 500, info.mode === "full-scan"
-```
-
-- **Same snapshot either way.** Every page runs in the **one** transaction the query opened, so the
-whole query sees a single consistent view: a writer on another connection cannot tear the read by
-committing between pages. A paged read is not a live read - if you need writes to be visible, run a
-new query.
-- **Resumed by key, not by count.** A page continues from the last key it read with an exclusive
-lower bound, so paging is exact for the arbitrary primary keys IndexedDB allows - numbers, strings,
-dates, and array/compound keys. It never assumes keys are sequential or that a key can be
-incremented.
-- **One implementation of the rules.** Both strategies share the same per-record rules, so paging
-cannot drift from the cursor: a record with no vector at `vectorPath` is skipped, an invalid or
-wrong-dimension record is refused by key, and eligibility (the predicate) is decided before ranking.
-- **At most `pageSize` records are held at once**, which is the memory bound it advertises.
-- **`pageSize` is refused with an index or a key range** (`TypeError` naming the mode): an index can
-repeat one key across records and a key range would have to be intersected with every page bound,
-so paging either could skip a record. Those reads keep the cursor path.
-- **When paging pays (measured, 2-vCPU VM, Chrome, 100k records, limit 10):** with small
-records it wins - 8-dimensional vectors, `pageSize: 5000`: 956 ms versus 1693 ms for the cursor
-(1.8x); with large records it does not - 128-dimensional vectors: 4212 ms versus 4188 ms (parity),
-and 5655 ms with `pageSize: 1000`, which is slower than the cursor because each page deserializes
-up to 1000 full records at once. Batching pays when the per-record cursor overhead is large
-relative to the record payload, so choose a page size of thousands for large vectors or keep the
-cursor. Absolute times move with machine load; re-measure with `npm run measure:paged`.
+- **Single snapshot isolation.** Every query runs in the **one** transaction the query opened, so the
+whole query sees a single consistent view: a concurrent writer on another connection cannot tear the read.
+A query is not a live subscription - if you need subsequent writes to be visible, run a new query.
+- **One implementation of the rules.** The cursor path applies consistent per-record rules: a record with
+no vector at `vectorPath` is skipped, an invalid or wrong-dimension record is refused by key, and eligibility
+(the predicate) is decided before ranking.
 - **The query vector's norm is computed once per query**, not once per record. Hoisting it does not
 change any result: the per-record arithmetic and its accumulation order are identical, so scores are
 bit-for-bit what they were. Prior versions recomputed it for every record scored, which at 100k
@@ -310,16 +287,17 @@ snapshot behavior, exact scores, rollback and optional whitening in Chromium.
 
 Run `npm run demo` (Node 22+) and open the loopback URL it prints. Create a synthetic
 vector dataset, choose a query vector and see nearest neighbours and timings. The
-experimental metadata-index and paged-scan comparisons do not change the library API.
+experimental metadata-index comparisons do not change the library API.
 No model downloads, new dependencies or fixed ports are required.
 
 `npm test` drives the demo in installed Chromium and then runs `tests/validation.mjs`, which
 drives the numeric/options/path contract (refusals, error classes and messages, no partial
-writes) in the same browser, plus `tests/candidates.mjs`, which checks candidate queries against a
+writes) in the same browser, `tests/candidates.mjs`, which checks candidate queries against a
 full eligible-set oracle (selectivity, range endpoints, compound keys, duplicate index keys,
-missing metadata, caller-owned schemas). `npm run test:validation` and `npm run test:candidates`
-run one battery each; `npm run measure:candidates` adds the index build/write/storage measurement,
-which is kept out of `npm test` because it writes 40,000 records.
+missing metadata, caller-owned schemas), `tests/eligibility.mjs`, and `tests/snapshot-isolation.mjs`,
+which tests snapshot isolation during queries. `npm run test:validation`, `npm run test:candidates`,
+`npm run test:eligibility`, and `npm run test:isolation` run one battery each; `npm run measure:candidates`
+adds the index build/write/storage measurement, which is kept out of `npm test` because it writes 40,000 records.
 `npm run measure` reproduces the 1k/10k/100k browser study. See
 [the analysis](reports/browser-analysis.md) for exact
 trees, conditions, raw evidence, correctness findings and the Beads improvement plan.
