@@ -140,6 +140,37 @@ function storedVectorError(vectorPath, key, vector, queryVectorLength) {
   return new TypeError(`${where} overflows cosine similarity: every coordinate is finite but the score is not. Scale that vector to a sane magnitude or delete it, then query again.`);
 }
 
+// A caller-owned object store can use an IN-LINE key (`keyPath`). IndexedDB then rejects a key
+// argument to put(): the record carries its own key. The value the caller names must be the one
+// the record holds, or update() would silently write a different record than the caller asked for.
+function keyPathValue(record, keyPath) {
+  const paths = Array.isArray(keyPath) ? keyPath : [keyPath];
+  const values = paths.map(path => path.split(".").reduce(
+    (value, name) => (value === null || value === undefined ? undefined : value[name]), record));
+  return Array.isArray(keyPath) ? values : values[0];
+}
+
+function sameKey(a, b) {
+  try {
+    return indexedDB.cmp(a, b) === 0;
+  } catch {
+    return false;
+  }
+}
+
+function updateRequest(store, key, object) {
+  const keyPath = store.keyPath;
+  if (keyPath === null) return store.put(object, key);
+  const carried = keyPathValue(object, keyPath);
+  if (carried === undefined) {
+    throw new TypeError(`update() record has no value at this store's in-line keyPath ${JSON.stringify(keyPath)}; the store takes the key from the record itself`);
+  }
+  if (sameKey(carried, key) === false) {
+    throw new TypeError(`update() key ${JSON.stringify(key)} does not match the value this store's in-line keyPath ${JSON.stringify(keyPath)} carries (${JSON.stringify(carried)}); the store writes the key the record carries`);
+  }
+  return store.put(object);
+}
+
 function cosineSimilarity(a, b) {
   const dotProduct = a.reduce((sum, aVal, idx) => sum + aVal * b[idx], 0);
   const aMagnitude = Math.sqrt(a.reduce((sum, aVal) => sum + aVal * aVal, 0));
@@ -297,7 +328,7 @@ class VectorDB {
     const transaction = db.transaction([storeName], "readwrite");
     const store = transaction.objectStore(storeName);
 
-    const request = store.put(object, key);
+    const request = updateRequest(store, key, object);
 
     return committed(transaction, request);
   }
