@@ -120,16 +120,36 @@ try {
         check(row.similarity >= 0.8, `row similarity >= threshold: ${row.similarity}`);
       }
 
-      // 5. Predicate filtering
-      const predQuery = await db.querySideStore(queryVector, {
+      // 5. Predicate refusal and eligibleKeys pre-filtering (idb-vector-fa2)
+      let predError = null;
+      try {
+        await db.querySideStore(queryVector, {
+          sideStore: 'codes',
+          revision: 1,
+          candidateBudget: 150,
+          limit: 10,
+          predicate: (r) => r.category === 'even',
+        });
+      } catch (err) {
+        predError = err;
+      }
+      check(predError !== null, 'querySideStore with predicate throws TypeError');
+      check(predError instanceof TypeError, `predicate throws TypeError, got ${predError?.constructor?.name}`);
+      check(predError.message.includes('does not support record predicates'), `error explains record predicates unsupported: ${predError.message}`);
+      check(predError.message.includes('queryCandidates'), `error directs callers to queryCandidates: ${predError.message}`);
+
+      // eligibleKeys pre-filters candidates before candidate selection (predicate-before-candidate)
+      const evenKeys = new Set(Array.from({ length: 500 }, (_, i) => (i + 1) * 2));
+      const keyFilteredQuery = await db.querySideStore(queryVector, {
         sideStore: 'codes',
         revision: 1,
-        candidateBudget: 150,
+        candidateBudget: 50,
         limit: 10,
-        predicate: (r) => r.category === 'even',
+        eligibleKeys: evenKeys,
       });
-      for (const row of predQuery.results) {
-        check(row.object.category === 'even', `row matches predicate: ${row.object.category}`);
+      check(keyFilteredQuery.results.length === 10, `key-filtered query returned 10 results, got ${keyFilteredQuery.results.length}`);
+      for (const row of keyFilteredQuery.results) {
+        check(row.key % 2 === 0, `key-filtered row is even: key ${row.key}`);
       }
 
       // 6. createSideStore helper interface
@@ -138,7 +158,22 @@ try {
       check(helperQuery.results.length === 5, 'createSideStore helper query returns 5 results');
       check(helperQuery.results[0].key === exactResults[0].key, 'helper query rank 0 matches exact');
 
-      // 7. 0 dead rows enforcement: deleting a candidate record causes subsequent query to throw
+      // 7. Stale original record revision mismatch refusal (idb-vector-abl)
+      const targetUpdateKey = sideStoreQuery.results[1].key;
+      await db.update(targetUpdateKey, { id: targetUpdateKey, revision: 2, embedding: [0, 1] });
+      let staleRevError = null;
+      try {
+        await db.querySideStore(queryVector, { sideStore: 'codes', revision: 1, candidateBudget: 100, limit: 10 });
+      } catch (err) {
+        staleRevError = err;
+      }
+      check(staleRevError !== null, 'query pinned to revision 1 throws when original has revision 2');
+      check(staleRevError.message.includes(`Record ${targetUpdateKey} has revision 2, but query pinned revision 1`),
+        `error explains record revision mismatch: ${staleRevError.message}`);
+      // Restore record revision
+      await db.update(targetUpdateKey, { id: targetUpdateKey, revision: 1, embedding: makeVec(targetUpdateKey) });
+
+      // 8. 0 dead rows enforcement: deleting a candidate record causes subsequent query to throw
       const topKeyToDelete = sideStoreQuery.results[0].key;
       await db.delete(topKeyToDelete);
       let deadRowError = null;

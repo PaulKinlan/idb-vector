@@ -166,8 +166,9 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
 }
 
 // Exact Float64 cosine rerank over fetched original records.
-// Verifies 0 dead rows on the current pinned revision.
-export function rerankCandidates(fetchedRecords, vectorPath, queryVector, limit = 10, threshold = null, predicate = null) {
+// Verifies 0 dead rows on the current pinned revision, and verifies that fetched
+// original records match the pinned revision when they carry a revision property (criterion 4).
+export function rerankCandidates(fetchedRecords, vectorPath, queryVector, limit = 10, threshold = null, expectedRevision = null, revisionPath = 'revision') {
   let queryNormSq = 0;
   for (let d = 0; d < queryVector.length; d++) {
     queryNormSq += queryVector[d] * queryVector[d];
@@ -183,8 +184,14 @@ export function rerankCandidates(fetchedRecords, vectorPath, queryVector, limit 
       throw new Error(`Candidate record at index ${i} is missing or deleted; 0 dead rows acceptable on the current revision`);
     }
 
-    if (predicate !== null && typeof predicate === 'function') {
-      if (!predicate(record)) continue;
+    const key = record.id ?? record.key ?? i;
+
+    // Revision check: the record carries a revision; a query pins one and must refuse a record from another revision (acceptance criterion 4)
+    if (expectedRevision !== null && expectedRevision !== undefined) {
+      const recordRev = record[revisionPath];
+      if (recordRev !== undefined && recordRev !== expectedRevision) {
+        throw new Error(`Record ${JSON.stringify(key)} has revision ${recordRev}, but query pinned revision ${expectedRevision}`);
+      }
     }
 
     const vector = record[vectorPath];
@@ -208,7 +215,6 @@ export function rerankCandidates(fetchedRecords, vectorPath, queryVector, limit 
       continue;
     }
 
-    const key = record.id ?? record.key ?? i;
     top.insert({ object: record, key, similarity });
   }
 

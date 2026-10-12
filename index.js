@@ -599,8 +599,15 @@ class VectorDB {
       threshold = null,
       predicate = null,
       eligibleKeys = null,
+      revisionPath = "revision",
       codeRecord: suppliedRecord = null,
     } = options;
+
+    if (predicate !== null && predicate !== undefined) {
+      throw new TypeError(
+        'querySideStore() does not support record predicates: evaluating arbitrary record properties before candidate selection requires reading all records, which defeats the side-store (measured slower than queryCandidates()). Use queryCandidates({ predicate }) to evaluate predicates over original records, or pass eligibleKeys to pre-filter candidate keys.'
+      );
+    }
 
     if (!Number.isSafeInteger(candidateBudget) || candidateBudget <= 0) {
       throw new RangeError(`candidateBudget must be a positive integer; got ${describe(candidateBudget)}`);
@@ -611,9 +618,6 @@ class VectorDB {
     assertLimit(limit);
     if (threshold !== null && threshold !== undefined) {
       assertThreshold(threshold);
-    }
-    if (predicate !== null && predicate !== undefined && typeof predicate !== "function") {
-      throw new TypeError(`querySideStore() predicate must be a function; got ${describe(predicate)}`);
     }
 
     const db = await this.#connection();
@@ -668,14 +672,15 @@ class VectorDB {
     });
 
     // 5. Exact Float64 rerank of fetched originals
-    // Checks that 0 dead rows exist on the current pinned revision
+    // Checks that 0 dead rows exist and that fetched originals match the pinned revision
     const results = rerankCandidates(
       fetchedRecords,
       vectorPath,
       queryVector,
       limit,
       threshold,
-      predicate,
+      revision,
+      revisionPath,
     );
 
     const info = {

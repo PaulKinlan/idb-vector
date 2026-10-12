@@ -85,15 +85,15 @@ test('scanSideStore filters candidates before scoring (predicate-before-candidat
   assert.equal(candidatesFn[0].key, 2);
 });
 
-test('rerankCandidates computes exact Float64 scores and enforces 0 dead rows', () => {
+test('rerankCandidates computes exact Float64 scores and enforces 0 dead rows and revision match', () => {
   const query = [1.0, 0.0];
   const fetched = [
-    { id: 10, embedding: [1.0, 0.0] },
-    { id: 20, embedding: [0.0, 1.0] },
-    { id: 30, embedding: [0.70710678, 0.70710678] },
+    { id: 10, revision: 1, embedding: [1.0, 0.0] },
+    { id: 20, revision: 1, embedding: [0.0, 1.0] },
+    { id: 30, revision: 1, embedding: [0.70710678, 0.70710678] },
   ];
 
-  const results = rerankCandidates(fetched, 'embedding', query, 2);
+  const results = rerankCandidates(fetched, 'embedding', query, 2, null, 1);
   assert.equal(results.length, 2);
   assert.equal(results[0].key, 10);
   assert.ok(Math.abs(results[0].similarity - 1.0) < 1e-9);
@@ -102,30 +102,34 @@ test('rerankCandidates computes exact Float64 scores and enforces 0 dead rows', 
 
   // Enforces 0 dead rows on the current pinned revision
   const fetchedWithDeadRow = [
-    { id: 10, embedding: [1.0, 0.0] },
+    { id: 10, revision: 1, embedding: [1.0, 0.0] },
     undefined, // dead row
   ];
   assert.throws(
-    () => rerankCandidates(fetchedWithDeadRow, 'embedding', query, 2),
+    () => rerankCandidates(fetchedWithDeadRow, 'embedding', query, 2, null, 1),
     /0 dead rows acceptable on the current revision/
+  );
+
+  // Enforces revision match on fetched records
+  const fetchedWithStaleRev = [
+    { id: 10, revision: 2, embedding: [1.0, 0.0] }, // record updated to rev 2
+  ];
+  assert.throws(
+    () => rerankCandidates(fetchedWithStaleRev, 'embedding', query, 2, null, 1),
+    /Record 10 has revision 2, but query pinned revision 1/
   );
 });
 
-test('rerankCandidates respects threshold and predicate', () => {
+test('rerankCandidates respects threshold', () => {
   const query = [1.0, 0.0];
   const fetched = [
-    { id: 1, category: 'keep', embedding: [1.0, 0.0] },
-    { id: 2, category: 'drop', embedding: [0.99, 0.01] },
-    { id: 3, category: 'keep', embedding: [0.5, 0.5] },
+    { id: 1, revision: 1, embedding: [1.0, 0.0] },
+    { id: 2, revision: 1, embedding: [0.99, 0.01] },
+    { id: 3, revision: 1, embedding: [0.5, 0.5] },
   ];
 
-  // Predicate filtering
-  const predResults = rerankCandidates(fetched, 'embedding', query, 10, null, r => r.category === 'keep');
-  assert.equal(predResults.length, 2);
-  assert.deepEqual(predResults.map(r => r.key), [1, 3]);
-
   // Threshold filtering
-  const threshResults = rerankCandidates(fetched, 'embedding', query, 10, 0.8);
+  const threshResults = rerankCandidates(fetched, 'embedding', query, 10, 0.8, 1);
   assert.equal(threshResults.length, 2);
   assert.deepEqual(threshResults.map(r => r.key), [1, 2]);
 });
