@@ -406,7 +406,7 @@ class VectorDB {
       const candidateHint = CANDIDATE_OPTION_KEYS.includes(key)
         ? " Use queryCandidates() to select candidates with an index, key range or predicate."
         : "";
-      throw new TypeError(`query() option ${describe(key)} is not supported; query() options are ${QUERY_OPTION_KEYS.join(" and ")}.${candidateHint}`);
+      throw new TypeError(`query() option ${describe(key)} is not supported; query() options are ${QUERY_OPTION_KEYS.join(", ")}.${candidateHint}`);
     }
 
     const limit = assertLimit(options?.limit === undefined ? 10 : options.limit);
