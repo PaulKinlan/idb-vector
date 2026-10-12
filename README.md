@@ -239,6 +239,13 @@ wrong-dimension record is refused by key, and eligibility (the predicate) is dec
 - **`pageSize` is refused with an index or a key range** (`TypeError` naming the mode): an index can
 repeat one key across records and a key range would have to be intersected with every page bound,
 so paging either could skip a record. Those reads keep the cursor path.
+- **When paging pays (measured, 2-vCPU VM, Chrome, 100k records, limit 10):** with small
+records it wins - 8-dimensional vectors, `pageSize: 5000`: 956 ms versus 1693 ms for the cursor
+(1.8x); with large records it does not - 128-dimensional vectors: 4212 ms versus 4188 ms (parity),
+and 5655 ms with `pageSize: 1000`, which is slower than the cursor because each page deserializes
+up to 1000 full records at once. Batching pays when the per-record cursor overhead is large
+relative to the record payload, so choose a page size of thousands for large vectors or keep the
+cursor. Absolute times move with machine load; re-measure with `npm run measure:paged`.
 - **The query vector's norm is computed once per query**, not once per record. Hoisting it does not
 change any result: the per-record arithmetic and its accumulation order are identical, so scores are
 bit-for-bit what they were. Prior versions recomputed it for every record scored, which at 100k

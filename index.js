@@ -83,6 +83,11 @@ function assertPageSize(pageSize) {
   if (!Number.isSafeInteger(pageSize) || pageSize <= 0) {
     throw new RangeError(`pageSize must be a positive integer; got ${describe(pageSize)}`);
   }
+  // IndexedDB takes the count as a 32-bit unsigned long, so a larger page size fails inside the
+  // binding with an unhelpful message instead of the limit this library promises.
+  if (pageSize > 0xffff_ffff) {
+    throw new RangeError(`pageSize must be at most 4294967295 (IndexedDB reads an unsigned 32-bit count); got ${describe(pageSize)}`);
+  }
   return pageSize;
 }
 
@@ -98,7 +103,7 @@ const QUERY_OPTION_KEYS = ["limit", "threshold", "pageSize"];
 const NO_CANDIDATES = { index: null, range: null, predicate: null };
 
 function normalizeCandidateOptions(options) {
-  if (options === undefined || options === null) return { limit: 10, threshold: null, candidates: { ...NO_CANDIDATES } };
+  if (options === undefined || options === null) return { limit: 10, threshold: null, pageSize: null, candidates: { ...NO_CANDIDATES } };
   if (!isRecord(options)) {
     throw new TypeError(`queryCandidates() options must be an object such as { index: "category", threshold: 0.5 }; got ${describe(options)}`);
   }
