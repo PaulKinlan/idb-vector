@@ -121,6 +121,11 @@ refused: cosine similarity against a zero vector is `NaN`, and a stored `NaN` sc
 ahead of real matches.
 - **`limit`** must be a positive integer. Omitting it — or passing `{}`, as in
 `query([1, 0], {})` — means `limit: 10`, never "no limit".
+- **Options are an allow-list.** `query()` accepts `limit` and `threshold` and **refuses any other
+option by name** — `query(vector, { predicate: fn })` is a `TypeError`, not an unfiltered ranking.
+When the refused option names a candidate source (`index`, `range` or `predicate`) the message says
+to use `queryCandidates()` instead. A query that looks filtered must never silently return
+unfiltered results (`idb-vector-5a8`).
 - **Dimensions.** Every vector in one object store must have the same length as the vectors you query
 it with. A record whose vector is present but has another length (or is otherwise invalid) makes
 `query()` **reject and name that record's key**; it is never silently skipped. Fix the record or

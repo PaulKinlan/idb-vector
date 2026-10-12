@@ -82,6 +82,7 @@ function assertThreshold(value) {
 // discloses `fullScanRequired`, because "fewer results than asked" must not be read as "no more
 // matches" when the corpus was restricted.
 const CANDIDATE_OPTION_KEYS = ["limit", "threshold", "index", "range", "predicate"];
+const QUERY_OPTION_KEYS = ["limit", "threshold"];
 const NO_CANDIDATES = { index: null, range: null, predicate: null };
 
 function normalizeCandidateOptions(options) {
@@ -360,6 +361,17 @@ class VectorDB {
   async query(queryVector, options) {
     if (options !== undefined && options !== null && !isRecord(options)) {
       throw new TypeError(`query() options must be an object such as { limit: 10 }; got ${describe(options)}`);
+    }
+
+    // query() accepts an allow-list. Ignoring an unknown key is how a caller ends up believing they
+    // filtered a query that never was: `query(vector, { predicate: fn })` would return an unfiltered
+    // ranking that looks filtered.
+    for (const key of Object.keys(options ?? {})) {
+      if (QUERY_OPTION_KEYS.includes(key)) continue;
+      const candidateHint = CANDIDATE_OPTION_KEYS.includes(key)
+        ? " Use queryCandidates() to select candidates with an index, key range or predicate."
+        : "";
+      throw new TypeError(`query() option ${describe(key)} is not supported; query() options are ${QUERY_OPTION_KEYS.join(" and ")}.${candidateHint}`);
     }
 
     const limit = assertLimit(options?.limit === undefined ? 10 : options.limit);

@@ -1019,6 +1019,32 @@ try {
     check((await getAllRaw(valDbName)).length === 6, 'promise: a refused threshold left the store unchanged');
 
     // =========================================================================================
+    // 10. query() option allow-list: an ignored filter is never silently ignored (idb-vector-5a8)
+    // =========================================================================================
+    // Before this, query(vector, { predicate: fn }) returned the UNFILTERED top-k with no error,
+    // which is the late-filter trap: results that look filtered because the caller asked for it.
+    await refusal('query predicate option refused',
+      () => valDB.query(testVec, { predicate: (r) => r.tag === 'v1' }),
+      { type: TypeError, includes: ['query() option "predicate" is not supported', 'limit and threshold', 'queryCandidates()'] });
+    await refusal('query index option refused',
+      () => valDB.query(testVec, { index: 'tag' }),
+      { type: TypeError, includes: ['query() option "index" is not supported', 'queryCandidates()'] });
+    await refusal('query range option refused',
+      () => valDB.query(testVec, { range: IDBKeyRange.only(1) }),
+      { type: TypeError, includes: ['query() option "range" is not supported', 'queryCandidates()'] });
+    await refusal('query unknown option refused',
+      () => valDB.query(testVec, { minSimilarity: 0.5 }),
+      { type: TypeError, includes: ['query() option "minSimilarity" is not supported', 'limit and threshold'] });
+    // The guidance is real, not decorative: the predicate query() refused selects candidates on the
+    // candidate path, and it selects exactly the record the caller meant.
+    const guided = await valDB.queryCandidates(testVec, { predicate: (r) => r.tag === 'v1', limit: 5 });
+    check(guided.results.length === 1 && guided.results[0].key === 1, `the predicate query() refused selects exactly one candidate through queryCandidates(), got ${guided.results.length}`);
+    // Allow-listed options still work, and a refused call writes nothing.
+    const allowed = await valDB.query(testVec, { limit: 2, threshold: -1 });
+    check(allowed.length === 2, `query() still accepts limit and threshold, got ${allowed.length} results`);
+    check((await getAllRaw(valDbName)).length === 6, 'query() option refusals left the store unchanged');
+
+    // =========================================================================================
     // Cleanup
     // =========================================================================================
     for (const db of dbInstances) {
