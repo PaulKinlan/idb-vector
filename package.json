@@ -30,6 +30,6 @@
   },
   "devDependencies": {
     "marked": "17.0.4",
-    "serve": "^14.2.0"
+    "serve": "^14.2.5"
   }
 }
