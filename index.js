@@ -1,6 +1,8 @@
 import { SortedArray } from "./utils/sortedarray.js";
 import { createPackedSnapshot } from "./utils/packed-snapshot.js";
+import { buildCodeRecord, scanSideStore, rerankCandidates } from "./utils/side-store.js";
 export { diagnose, fitWhitening } from "./utils/geometry.js";
+export { buildCodeRecord, scanSideStore, rerankCandidates } from "./utils/side-store.js";
 
 const DB_DEFAUlTS = {
   dbName: "vectorDB",
@@ -514,6 +516,195 @@ class VectorDB {
   // Explicitly stale until refresh(); default query() remains authoritative.
   async createSnapshot(options) {
     return createPackedSnapshot(await this.#connection(), this.#objectStore, this.#vectorPath, options, cosineSimilarity);
+  }
+
+  // Opt-in int8 code side-store with bounded exact rerank (read-per-query path, idb-vector-kuc.10).
+  // Caller-owned, never default, never silently built.
+  // Codes order candidates only; final scores come from an exact Float64 rerank of fetched originals.
+  // Recommended for unfiltered non-resident workloads; selective filtered queries should use queryCandidates().
+  async buildSideStore(options = {}) {
+    const {
+      sideStore = "codes",
+      revision = 1,
+      key = "code_record",
+      keyPath = "id",
+    } = options;
+
+    if (!Number.isSafeInteger(revision) || revision < 0) {
+      throw new TypeError(`revision must be a nonnegative safe integer; got ${describe(revision)}`);
+    }
+
+    const db = await this.#connection();
+    const sourceStoreName = this.#objectStore;
+    const vectorPath = this.#vectorPath;
+
+    const records = [];
+    const t0 = performance.now();
+
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction([sourceStoreName], "readonly");
+      const store = tx.objectStore(sourceStoreName);
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor) {
+          resolve();
+          return;
+        }
+        if (cursor.value && Object.hasOwn(cursor.value, vectorPath)) {
+          const record = cursor.value;
+          if (record[keyPath] === undefined && cursor.primaryKey !== undefined) {
+            records.push({ ...record, [keyPath]: cursor.primaryKey });
+          } else {
+            records.push(record);
+          }
+        }
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    const codeRecord = buildCodeRecord(records, {
+      revision,
+      vectorPath,
+      keyPath,
+    });
+
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction([sideStore], "readwrite");
+      const store = tx.objectStore(sideStore);
+      const putReq = store.put(codeRecord, key);
+      putReq.onsuccess = () => resolve();
+      putReq.onerror = () => reject(putReq.error);
+    });
+
+    const writeMs = performance.now() - t0;
+    return {
+      revision,
+      count: codeRecord.count,
+      dims: codeRecord.dims,
+      bytes: codeRecord.bytes,
+      writeMs,
+    };
+  }
+
+  async querySideStore(queryVector, options = {}) {
+    assertVector(queryVector, "querySideStore() vector");
+    const {
+      sideStore = "codes",
+      revision = 1,
+      key = "code_record",
+      candidateBudget = 300,
+      limit = 10,
+      threshold = null,
+      predicate = null,
+      eligibleKeys = null,
+      codeRecord: suppliedRecord = null,
+    } = options;
+
+    if (!Number.isSafeInteger(candidateBudget) || candidateBudget <= 0) {
+      throw new RangeError(`candidateBudget must be a positive integer; got ${describe(candidateBudget)}`);
+    }
+    if (!Number.isSafeInteger(revision) || revision < 0) {
+      throw new TypeError(`revision must be a nonnegative safe integer; got ${describe(revision)}`);
+    }
+    assertLimit(limit);
+    if (threshold !== null && threshold !== undefined) {
+      assertThreshold(threshold);
+    }
+    if (predicate !== null && predicate !== undefined && typeof predicate !== "function") {
+      throw new TypeError(`querySideStore() predicate must be a function; got ${describe(predicate)}`);
+    }
+
+    const db = await this.#connection();
+    const sourceStoreName = this.#objectStore;
+    const vectorPath = this.#vectorPath;
+
+    // 1. Read code record from side-store (unless supplied)
+    let codeRecord = suppliedRecord;
+    if (!codeRecord) {
+      codeRecord = await new Promise((resolve, reject) => {
+        const tx = db.transaction([sideStore], "readonly");
+        const store = tx.objectStore(sideStore);
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    if (!codeRecord) {
+      throw new Error(`side-store record not found at key ${JSON.stringify(key)} in object store "${sideStore}"`);
+    }
+
+    // 2. Revision pinning check: refuse records from another revision
+    if (codeRecord.revision !== revision) {
+      throw new Error(`side-store revision mismatch: query pinned revision ${revision}, but side-store record has revision ${codeRecord.revision}`);
+    }
+
+    // 3. Scan candidates using compact int8 codes (predicate-before-candidate if eligibleKeys supplied)
+    const candidates = scanSideStore(codeRecord, queryVector, candidateBudget, eligibleKeys);
+    const candidateKeys = candidates.map(c => c.key);
+
+    // 4. Fetch the top-N originals BY KEY in ONE transaction
+    const fetchedRecords = await new Promise((resolve, reject) => {
+      const tx = db.transaction([sourceStoreName], "readonly");
+      const store = tx.objectStore(sourceStoreName);
+      const count = candidateKeys.length;
+      if (count === 0) {
+        resolve([]);
+        return;
+      }
+      const results = new Array(count);
+      let settled = 0;
+      for (let i = 0; i < count; i++) {
+        const req = store.get(candidateKeys[i]);
+        req.onsuccess = () => {
+          results[i] = req.result;
+          settled++;
+          if (settled === count) resolve(results);
+        };
+        req.onerror = () => reject(req.error);
+      }
+    });
+
+    // 5. Exact Float64 rerank of fetched originals
+    // Checks that 0 dead rows exist on the current pinned revision
+    const results = rerankCandidates(
+      fetchedRecords,
+      vectorPath,
+      queryVector,
+      limit,
+      threshold,
+      predicate,
+    );
+
+    const info = {
+      mode: "side-store",
+      revision,
+      candidateBudget,
+      recordsRead: codeRecord.count,
+      candidatesScored: candidates.length,
+      recordsFetched: fetchedRecords.length,
+      limit,
+      threshold,
+    };
+
+    return { results, info };
+  }
+
+  async createSideStore(options = {}) {
+    const {
+      sideStore = "codes",
+      revision = 1,
+      key = "code_record",
+      keyPath = "id",
+      candidateBudget = 300,
+    } = options;
+
+    return {
+      build: (buildOpts) => this.buildSideStore({ sideStore, revision, key, keyPath, ...buildOpts }),
+      query: (queryVector, queryOpts) => this.querySideStore(queryVector, { sideStore, revision, key, candidateBudget, ...queryOpts }),
+    };
   }
 
   get objectStore() {

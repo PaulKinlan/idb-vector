@@ -254,6 +254,31 @@ reject with `InvalidStateError`. An external version upgrade also closes the con
 on `versionchange`, so the application should create a new instance to use the new version.
 See [format, resource bounds, evidence and caveats](reports/packed-snapshot.md).
 
+## Optional int8 code side-store with bounded exact rerank (new API)
+
+An **opt-in, caller-owned side-store** speeds up non-resident workloads where reading original records from disk per query is the primary bottleneck. At 100k records x 128 dimensions, int8 codes cost 25% of the original Float32 bytes (12.8 MB vs 51.2 MB), cutting query read time by 2.6-2.7x.
+
+- **Exact ranking contract:** Int8 codes order candidates only. Final scores are always computed via an exact Float64 rerank of fetched original records; the API never returns approximate scores.
+- **Bounded single-transaction fetch:** Fetches the top-N candidate originals (default `candidateBudget <= 300`, which achieves recall@10 1.000 across benchmarks) in a single readonly IndexedDB transaction.
+- **Revision pinning:** Every code record carries a revision number; queries pin a revision and refuse mismatched or stale records with 0 dead rows acceptable on the current revision.
+- **Opt-in only:** Caller-owned, never silently built, and only beneficial when working sets are read from storage per query (resident workloads gain nothing from quantization overhead).
+- **Unfiltered workloads only:** The side-store wins when scanning large unfiltered datasets from disk (2.6-2.7x faster). For filtered queries (e.g. 1% selective predicates), reading and scanning the small eligible candidate set directly with `queryCandidates()` is faster (67.4 ms vs 72.3 ms with codes); do not use the side-store for selective filtered queries.
+
+```javascript
+// 1. Build the side-store into a caller-created object store (e.g. "codes")
+const stats = await db.buildSideStore({ sideStore: "codes", revision: 1 });
+console.log(`Built ${stats.count} codes (${(stats.bytes / 1024).toFixed(1)} KB) in ${stats.writeMs.toFixed(1)} ms`);
+
+// 2. Query with bounded exact rerank
+const { results, info } = await db.querySideStore(queryVector, {
+  sideStore: "codes",
+  revision: 1,
+  candidateBudget: 150, // default <= 300
+  limit: 10,
+});
+// results contain exact Float64 scores from reranked original records
+```
+
 ## Optional geometry diagnostic and whitening (new API)
 
 ```javascript
