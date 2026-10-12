@@ -7,8 +7,11 @@ rerank, and compared with the exact scan over the same vectors. Full samples, br
 hardware identity, commit and per-corpus detail are in
 [quantized-candidate-pass.json](quantized-candidate-pass.json).
 
-Reproduce with `node tools/evaluate-quantized-pass.mjs` (headless Chromium, ~3.5 minutes; it
-writes `reports/quantized-candidate-pass.json` — preserve this report when repeating).
+Reproduce with `node tools/evaluate-quantized-pass.mjs` (headless Chromium, ~3.5 minutes).
+`IDB_VECTOR_QUANTIZED_SMOKE=1` runs tiny corpora in seconds, which checks the driver itself. The
+driver writes its report to a temp path by default so a gate can never be tripped by a tracked
+write; `IDB_VECTOR_QUANTIZED_REPORT=reports/quantized-candidate-pass.json` refreshes the committed
+report, and that path should be requested deliberately (preserve this report when repeating).
 The pure module is `test-harness/quantized-pass.js`, driven by
 `tests/unit/quantized-pass.test.mjs` in the fast tier (`npm run test:fast`).
 
