@@ -1,9 +1,5 @@
 import { experiment } from './experiment.js';
 const status = document.querySelector('#status'), results = document.querySelector('#results');
-// TODO(baseline/view-transitions): drop the feature detect and call document.startViewTransition
-// directly once View Transitions are Baseline Widely Available; the class-scoped card
-// styling in index.html is already ignored where unsupported.
-const swap = update => (document.startViewTransition ? document.startViewTransition(update) : update());
 const number = n => n.toFixed(3);
 function element(tag, text, parent) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; parent?.append(node); return node; }
 function render(report) {
@@ -22,12 +18,11 @@ function render(report) {
   }
   element('h2', 'One-time engine setup', results);
   for (const [name, item] of Object.entries(report.engines)) element('p', `${name}: ${item.unavailable || `setup ${number(item.setupMs)} ms (includes upload/copy ${number(item.uploadMs)} ms)`}${item.adapter ? `; adapter ${JSON.stringify(item.adapter)}` : ''}`, results);
-  for (const [queryIndex, query] of report.queries.entries()) {
+  for (const query of report.queries) {
     element('h2', `Query: ${query.query}`, results);
     const cards = element('div', undefined, results); cards.className = 'cards';
     for (const [name, result] of Object.entries(query.results)) {
       const card = element('article', undefined, cards), c = result.comparison;
-      card.style.viewTransitionName = `card-${queryIndex}-${name}`;
       element('h3', name, card);
       element('p', `${number(result.ms)} ms; ordered match: ${c.orderedTopKMatch}; overlap: ${c.overlap}; max score error: ${c.maxAbsoluteScoreError.toExponential(3)} (${c.scoreErrorScope})`, card);
       element('pre', result.top.map(x => `${x.id}: ${x.score.toPrecision(9)}`).join('\n'), card);
@@ -39,10 +34,10 @@ document.querySelector('#controls').addEventListener('submit', async event => {
   document.querySelector('#run').disabled = true;
   document.querySelector('#download').hidden = true;
   window.computeReport = null; window.computeError = null;
-  swap(() => results.replaceChildren());
+  results.replaceChildren();
   try {
     const report = await experiment({ count: Number(document.querySelector('#count').value), dim: Number(document.querySelector('#dim').value), onProgress: text => { status.textContent = text; } });
-    window.computeReport = report; swap(() => render(report));
+    window.computeReport = report; render(report);
     const agreement = report.queries.every(q => Object.values(q.results).every(r => r.comparison.orderedTopKMatch));
     status.textContent = `Complete. ${agreement ? 'All available paths agree on ordered top-k.' : 'Top-k divergence detected; inspect results.'} ${report.engines.gpu.unavailable ? `WebGPU unavailable: ${report.engines.gpu.unavailable}` : ''}`;
     document.querySelector('#download').hidden = false;

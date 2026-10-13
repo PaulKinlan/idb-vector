@@ -2,10 +2,6 @@ import { VectorDB } from '../index.js';
 import { browserLabel } from './ua.js';
 import { loadManifest, verifyBytes } from './integrity.js';
 const $ = id => document.getElementById(id);
-// TODO(baseline/view-transitions): drop the feature detect and call document.startViewTransition
-// directly once View Transitions are Baseline Widely Available; the class-scoped card
-// styling in style.css is already ignored where unsupported.
-const swap = update => (document.startViewTransition ? document.startViewTransition(update) : update());
 const dbName = 'idb-vector-wikipedia-minilm-v1';
 let encoder, vectorDB, count = 0, busy = false;
 const db = await new Promise((resolve, reject) => {
@@ -141,7 +137,7 @@ $('search').addEventListener('submit', async event => {
   const query = $('query').value.trim();
   if (!query) return;
   controls(true);
-  swap(() => $('results').replaceChildren());
+  $('results').replaceChildren();
   $('query-timing').textContent = 'Encoding question on this device…';
   try {
     const start = performance.now();
@@ -150,7 +146,6 @@ $('search').addEventListener('submit', async event => {
     const results = await vectorDB.query(vector, { limit: 5 });
     const end = performance.now();
     $('query-timing').textContent = `Question encoding ${(encoded - start).toFixed(1)} ms · IndexedDB search ${(end - encoded).toFixed(1)} ms · total ${(end - start).toFixed(1)} ms. ${condition()}`;
-    const items = [];
     for (const { object, similarity } of results) {
       const li = document.createElement('li'), heading = document.createElement('h3'), link = document.createElement('a');
       link.textContent = object.title;
@@ -166,10 +161,8 @@ $('search').addEventListener('submit', async event => {
       attribution.textContent = 'Wikipedia contributors / history';
       attribution.className = 'detail';
       li.append(heading, text, score, attribution);
-      li.style.viewTransitionName = `result-${items.length}`;
-      items.push(li);
+      $('results').append(li);
     }
-    swap(() => $('results').replaceChildren(...items));
   } catch (error) { $('query-timing').textContent = `Search failed: ${error.message}. Try loading again.`; }
   finally { controls(false); }
 });
@@ -189,7 +182,7 @@ $('clear').addEventListener('click', async () => {
       await Promise.all(matching.map(request => cache.delete(request)));
     }
     count = 0;
-    swap(() => $('results').replaceChildren());
+    $('results').replaceChildren();
     $('status').textContent = 'Stored passages, vectors and model cache removed. The running model remains in memory until you close this tab.';
     $('storage').textContent = '';
     $('load-timing').textContent = 'Load timing will appear here.';
