@@ -60,7 +60,8 @@ export async function withVerifiedAssets(manifest, fn, { base = import.meta.url,
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const response = await original(input, init);
-    const url = typeof input === 'string' ? new URL(input, base).href : input.url;
+    // fetch() accepts string, Request or URL input; Request exposes .url, URL exposes .href.
+    const url = typeof input === 'string' ? new URL(input, base).href : (input?.href ?? input.url);
     const scope = prefixes.find(scope => url.startsWith(scope.prefix));
     if (!scope) return response; // Outside the vendored prefixes: not ours to judge.
     const path = scope.path + decodeURI(url.slice(scope.prefix.length));

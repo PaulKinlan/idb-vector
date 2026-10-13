@@ -93,6 +93,31 @@ test('withVerifiedAssets fails closed on tampered and unpinned vendored files', 
   }
 });
 
+test('withVerifiedAssets handles string, Request and URL inputs without crashing', async () => {
+  const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = input => { seen.push(String(input instanceof Request ? input.url : input)); return Promise.resolve(response(licenseBytes)); };
+  try {
+    await withVerifiedAssets(manifest, async () => {
+      // URL object, out of scope: must pass through (previously crashed reading .url).
+      await fetch(new URL('https://other.example/data/passages-250.json'));
+      // URL object, in scope and pinned: must verify.
+      await fetch(new URL('https://demo.example/demo/vendor/ONNXRUNTIME-LICENSE'));
+      // Request object, in scope and pinned: must verify.
+      await fetch(new Request('https://demo.example/demo/vendor/ONNXRUNTIME-LICENSE'));
+      return 'done';
+    }, { base: BASE, scopes: [{ url: './vendor/', path: 'vendor/' }] });
+    assert.deepEqual(seen, [
+      'https://other.example/data/passages-250.json',
+      'https://demo.example/demo/vendor/ONNXRUNTIME-LICENSE',
+      'https://demo.example/demo/vendor/ONNXRUNTIME-LICENSE',
+    ]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test('withVerifiedAssets restores fetch even when the callback throws', async () => {
   const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
   const realFetch = globalThis.fetch;

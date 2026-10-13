@@ -14,7 +14,10 @@ export async function createEncoder(progress_callback) {
     if (!runtimeResponse.ok) throw new Error(`Runtime download failed (${runtimeResponse.status})`);
     const runtimeBytes = new Uint8Array(await runtimeResponse.arrayBuffer());
     await verifyBytes(manifest, 'vendor/transformers.min.js', runtimeBytes, 'the vendored runtime');
-    const { pipeline, env } = await import(URL.createObjectURL(new Blob([runtimeBytes], { type: 'text/javascript' })));
+    const blobUrl = URL.createObjectURL(new Blob([runtimeBytes], { type: 'text/javascript' }));
+    let runtimeModule;
+    try { runtimeModule = await import(blobUrl); } finally { URL.revokeObjectURL(blobUrl); }
+    const { pipeline, env } = runtimeModule;
     env.allowRemoteModels = false;
     env.localModelPath = new URL('./models/', import.meta.url).href;
     env.backends.onnx.wasm.wasmPaths = new URL('./vendor/', import.meta.url).href;
