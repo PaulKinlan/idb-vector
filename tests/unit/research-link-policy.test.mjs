@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { permittedCitation } from './lib/research-link-policy.mjs';
+import { permittedCitation } from '../lib/research-link-policy.mjs';
 
 for (const url of ['https://github.com/example', 'https://arxiv.org/html/2407.01972',
   'https://www.vldb.org/pvldb/']) assert.equal(permittedCitation(url), true, url);
