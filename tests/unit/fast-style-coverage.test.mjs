@@ -10,8 +10,10 @@ const gate = readFileSync(resolve('tools/fast-gate.sh'), 'utf8');
 const run = (cwd, cmd, args) => execFileSync(cmd, args, { cwd, encoding: 'utf8' }).trim();
 
 test('the fast gate invokes the CSS/HTML reporter before unit suites', () => {
-  assert.ok(gate.includes('bash tools/report-fast-style-coverage.sh'));
-  assert.ok(gate.indexOf('bash tools/report-fast-style-coverage.sh') < gate.indexOf('npm run test:fast'));
+  // A comment mentioning the command is not wiring: require an executable line.
+  const invocation = /^bash tools\/report-fast-style-coverage\.sh$/m.exec(gate);
+  assert.ok(invocation, 'fast gate must actually invoke the CSS/HTML reporter');
+  assert.ok(invocation.index < gate.indexOf('npm run test:fast'));
 });
 
 test('a CSS-only or HTML-only commit is explicitly unmapped, never a silent pass', () => {
