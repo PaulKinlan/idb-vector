@@ -5,6 +5,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { Marked } from 'marked';
 import { launch } from './lib/cdp.mjs';
+import { permittedCitation } from './lib/research-link-policy.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const source = await readFile(resolve(root, 'research/architecture.md'), 'utf8');
@@ -103,8 +104,13 @@ try {
     await Promise.all(Array.from({ length: 4 }, async () => {
       while (pending.length) {
         const url = pending.shift();
+        if (!permittedCitation(url)) {
+          responses.push({ url, error: 'Citation host not allowlisted; not fetched' });
+          continue;
+        }
         try {
-          const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+          // Never follow a publisher redirect into an unapproved network target.
+          const response = await fetch(url, { signal: AbortSignal.timeout(20000), redirect: 'manual' });
           responses.push({ url, finalUrl: response.url, status: response.status });
           await response.body?.cancel();
         } catch (error) { responses.push({ url, error: error.message }); }

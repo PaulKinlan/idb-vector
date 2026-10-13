@@ -62,7 +62,13 @@ export async function wasmEngine(values, dim) {
   const started = performance.now();
   const response = await fetch(new URL('./cosine.wasm', import.meta.url));
   if (!response.ok) throw new Error(`WASM fetch: ${response.status}`);
-  const { instance } = await WebAssembly.instantiate(await response.arrayBuffer());
+  const wasmBytes = await response.arrayBuffer();
+  // SHA-256 of the committed demo/compute/cosine.wasm; reject altered bytes before execution.
+  const expected = 'a0c8c33b448f77ed76498de4ce7a990a8a35505aa69703677dd19199a2eb7457';
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', wasmBytes))]
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+  if (digest !== expected) throw new Error('WASM integrity check failed');
+  const { instance } = await WebAssembly.instantiate(wasmBytes);
   const { memory, score, __heap_base } = instance.exports;
   const base = (__heap_base.value + 15) & ~15;
   const q = base + values.byteLength, out = q + dim * 4, count = values.length / dim;

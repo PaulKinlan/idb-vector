@@ -44,6 +44,23 @@ silently overwriting the database.
 - `assets.json`: exact byte counts and SHA-256 checksums for distributed model,
   runtime, corpus and associated license files.
 
+### Integrity boundary
+
+The separate compute experiment pins `compute/cosine.wasm` with a SHA-256 check
+in `compute/engines.js` before instantiation; update the digest intentionally
+when recompiling it. The main demo's runtime, model and corpus are self-hosted
+and pinned by repository commit, source revision and `assets.json` for
+**release-time verification**, not by browser-enforced SRI. In particular,
+`assets.json` is not a runtime trust anchor: the browser does not check those
+hashes before the Transformers.js loader evaluates its vendored JS or uses its
+WASM/model. GitHub Pages does not give this repository control of response CSP
+headers, and a meta CSP cannot enforce all header directives; a broad policy
+could break the offline inference flow. This is an explicit accepted residual
+risk for this public, opt-in demo (no credentials or private data); a stronger
+policy requires a tested loader that verifies immutable assets before execution
+and/or hosting with configurable headers. Do not treat the checksum manifest as
+browser-enforced integrity.
+
 The quantized model is about 23 MB, WASM/runtime about 11 MB, and the larger
 2,000-passage text/vector bundle about 4.5 MB. These deliberate, one-time downloads
 allow genuinely new free-text questions without a network API. Both corpus sizes
