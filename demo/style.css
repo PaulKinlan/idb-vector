@@ -22,6 +22,8 @@ progress { display: block; width: 100%; margin: 16px 0; accent-color: var(--acce
 .query-row { display: flex; gap: 12px; flex-wrap: wrap; }
 input { flex: 1 1 250px; min-width: 0; }
 ol { padding-left: 24px; }
+#results { view-transition-name: results; }
+#results li { view-transition-class: card; }
 li { padding: 16px 0; border-top: 1px solid light-dark(#d5dfd9, #40564f); }
 li h3, li p { margin: 6px 0; }
 footer { margin: 32px 0; }
