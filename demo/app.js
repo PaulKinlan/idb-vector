@@ -1,4 +1,5 @@
 import { VectorDB } from '../index.js';
+import { browserLabel } from './ua.js';
 const $ = id => document.getElementById(id);
 const dbName = 'idb-vector-wikipedia-minilm-v1';
 let encoder, vectorDB, count = 0, busy = false;
@@ -36,7 +37,7 @@ async function readMeta() {
     request.onerror = () => reject(request.error);
   });
 }
-function condition() { return `${count.toLocaleString()} passages × 384 dimensions · quantized MiniLM · ${navigator.userAgent}`; }
+function condition() { return `${count.toLocaleString()} passages × 384 dimensions · quantized MiniLM · ${browserLabel()}`; }
 function loadTiming(meta) {
   $('load-timing').textContent = `Load ${meta.totalMs.toFixed(0)} ms total · download/model setup ${meta.setupMs.toFixed(0)} ms · database commit ${meta.writeMs.toFixed(0)} ms. ${meta.count} passages × 384 dimensions. ${meta.browser}`;
 }
@@ -101,7 +102,7 @@ $('load').addEventListener('click', async () => {
           };
         }
         // Persist identity in the same transaction; timing is recorded after commit separately.
-        tx.objectStore('meta').put({ count: selected, totalMs: 0, setupMs, writeMs: 0, browser: navigator.userAgent }, 'loaded');
+        tx.objectStore('meta').put({ count: selected, totalMs: 0, setupMs, writeMs: 0, browser: browserLabel() }, 'loaded');
       } catch (error) {
         tx.abort();
         await done.catch(() => {});
@@ -109,7 +110,7 @@ $('load').addEventListener('click', async () => {
       }
       await done;
       count = selected;
-      const meta = { count, totalMs: performance.now() - started, setupMs, writeMs: performance.now() - writing, browser: navigator.userAgent };
+      const meta = { count, totalMs: performance.now() - started, setupMs, writeMs: performance.now() - writing, browser: browserLabel() };
       const timingTx = db.transaction('meta', 'readwrite'), timingDone = transactionDone(timingTx);
       timingTx.objectStore('meta').put(meta, 'loaded');
       await timingDone;
