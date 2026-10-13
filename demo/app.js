@@ -1,5 +1,6 @@
 import { VectorDB } from '../index.js';
 import { browserLabel } from './ua.js';
+import { loadManifest, verifyBytes } from './integrity.js';
 const $ = id => document.getElementById(id);
 // TODO(baseline/view-transitions): drop the feature detect and call document.startViewTransition
 // directly once View Transitions are Baseline Widely Available; the class-scoped card
@@ -84,11 +85,17 @@ $('load').addEventListener('click', async () => {
     } else {
       $('status').textContent = `Downloading ${selected.toLocaleString()} passages and their vectors…`;
       $('progress').removeAttribute('value');
+      // Corpus bytes are checked against the pinned manifest before use.
+      const manifest = await loadManifest();
       const responses = await Promise.all([fetch(`./data/passages-${selected}.json`), fetch(`./data/vectors-${selected}.f32`)]);
       if (responses.some(r => !r.ok)) throw new Error('Corpus download failed. Connect to the network and retry.');
-      const passages = await responses[0].json(), bytes = await responses[1].arrayBuffer();
-      if (passages.length !== selected || bytes.byteLength !== selected * 384 * 4) throw new Error('Corpus size mismatch');
-      const vectors = new Float32Array(bytes);
+      const passageBytes = new Uint8Array(await responses[0].arrayBuffer());
+      const vectorBytes = new Uint8Array(await responses[1].arrayBuffer());
+      await verifyBytes(manifest, `data/passages-${selected}.json`, passageBytes, 'the passage corpus');
+      await verifyBytes(manifest, `data/vectors-${selected}.f32`, vectorBytes, 'the corpus vectors');
+      const passages = JSON.parse(new TextDecoder().decode(passageBytes));
+      if (passages.length !== selected || vectorBytes.byteLength !== selected * 384 * 4) throw new Error('Corpus size mismatch');
+      const vectors = new Float32Array(vectorBytes.buffer);
       if (!vectors.every(Number.isFinite)) throw new Error('Invalid corpus vector');
       const setupMs = performance.now() - started, writing = performance.now();
       // One atomic replacement. A failed/aborted load preserves the previous corpus.
