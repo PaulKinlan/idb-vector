@@ -1,4 +1,5 @@
 import { VectorDB } from '../../index.js';
+import { browserLabel } from '../ua.js';
 import { corpus, cpuScores, topK, compare, wasmEngine, gpuEngine } from './engines.js';
 
 const request = req => new Promise((resolve, reject) => {
@@ -23,7 +24,7 @@ export async function experiment({ count = 100000, dim = 128, onProgress = () =>
   const values = corpus(count, dim), name = `idb-vector-compute-${crypto.randomUUID()}`;
   const report = {
     started: new Date().toISOString(), count, dim, bytes: values.byteLength, corpus: 'Synthetic LCG uniform [-1,1), seed 42, Float32',
-    browser: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency,
+    browser: browserLabel(), hardwareConcurrency: navigator.hardwareConcurrency,
     conditions: 'Fresh database; warm OS caches possible; one write/read per backend, three queries, rotated engine order, no unreported warmup. Full CPU score readback and common JS top-k. No embeddings/model timing.',
     storage: {}, engines: {}, queries: [],
   };

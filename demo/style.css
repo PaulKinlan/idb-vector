@@ -5,6 +5,8 @@ main { max-width: 900px; margin: auto; padding: 24px; }
 header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-weight: 650; }
 h1 { font-size: clamp(2rem, 6vw, 3.5rem); line-height: 1.12; letter-spacing: -.04em; margin: 48px 0 16px; }
 h2 { font-size: 1.2rem; }
+h1, h2, li h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
 .lead { font-size: 1.25rem; }
 section, aside { border: 1px solid light-dark(#c8d6ce, #48605a); border-radius: 12px; padding: 22px; margin: 24px 0; background: light-dark(#fff, #192725); }
 a { color: var(--accent); }

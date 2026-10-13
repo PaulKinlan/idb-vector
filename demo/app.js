@@ -1,4 +1,6 @@
 import { VectorDB } from '../index.js';
+import { browserLabel } from './ua.js';
+import { loadManifest, verifyBytes } from './integrity.js';
 const $ = id => document.getElementById(id);
 const dbName = 'idb-vector-wikipedia-minilm-v1';
 let encoder, vectorDB, count = 0, busy = false;
@@ -36,7 +38,7 @@ async function readMeta() {
     request.onerror = () => reject(request.error);
   });
 }
-function condition() { return `${count.toLocaleString()} passages × 384 dimensions · quantized MiniLM · ${navigator.userAgent}`; }
+function condition() { return `${count.toLocaleString()} passages × 384 dimensions · quantized MiniLM · ${browserLabel()}`; }
 function loadTiming(meta) {
   $('load-timing').textContent = `Load ${meta.totalMs.toFixed(0)} ms total · download/model setup ${meta.setupMs.toFixed(0)} ms · database commit ${meta.writeMs.toFixed(0)} ms. ${meta.count} passages × 384 dimensions. ${meta.browser}`;
 }
@@ -79,11 +81,17 @@ $('load').addEventListener('click', async () => {
     } else {
       $('status').textContent = `Downloading ${selected.toLocaleString()} passages and their vectors…`;
       $('progress').removeAttribute('value');
+      // Corpus bytes are checked against the pinned manifest before use.
+      const manifest = await loadManifest();
       const responses = await Promise.all([fetch(`./data/passages-${selected}.json`), fetch(`./data/vectors-${selected}.f32`)]);
       if (responses.some(r => !r.ok)) throw new Error('Corpus download failed. Connect to the network and retry.');
-      const passages = await responses[0].json(), bytes = await responses[1].arrayBuffer();
-      if (passages.length !== selected || bytes.byteLength !== selected * 384 * 4) throw new Error('Corpus size mismatch');
-      const vectors = new Float32Array(bytes);
+      const passageBytes = new Uint8Array(await responses[0].arrayBuffer());
+      const vectorBytes = new Uint8Array(await responses[1].arrayBuffer());
+      await verifyBytes(manifest, `data/passages-${selected}.json`, passageBytes, 'the passage corpus');
+      await verifyBytes(manifest, `data/vectors-${selected}.f32`, vectorBytes, 'the corpus vectors');
+      const passages = JSON.parse(new TextDecoder().decode(passageBytes));
+      if (passages.length !== selected || vectorBytes.byteLength !== selected * 384 * 4) throw new Error('Corpus size mismatch');
+      const vectors = new Float32Array(vectorBytes.buffer);
       if (!vectors.every(Number.isFinite)) throw new Error('Invalid corpus vector');
       const setupMs = performance.now() - started, writing = performance.now();
       // One atomic replacement. A failed/aborted load preserves the previous corpus.
@@ -101,7 +109,7 @@ $('load').addEventListener('click', async () => {
           };
         }
         // Persist identity in the same transaction; timing is recorded after commit separately.
-        tx.objectStore('meta').put({ count: selected, totalMs: 0, setupMs, writeMs: 0, browser: navigator.userAgent }, 'loaded');
+        tx.objectStore('meta').put({ count: selected, totalMs: 0, setupMs, writeMs: 0, browser: browserLabel() }, 'loaded');
       } catch (error) {
         tx.abort();
         await done.catch(() => {});
@@ -109,7 +117,7 @@ $('load').addEventListener('click', async () => {
       }
       await done;
       count = selected;
-      const meta = { count, totalMs: performance.now() - started, setupMs, writeMs: performance.now() - writing, browser: navigator.userAgent };
+      const meta = { count, totalMs: performance.now() - started, setupMs, writeMs: performance.now() - writing, browser: browserLabel() };
       const timingTx = db.transaction('meta', 'readwrite'), timingDone = transactionDone(timingTx);
       timingTx.objectStore('meta').put(meta, 'loaded');
       await timingDone;
@@ -169,7 +177,9 @@ $('clear').addEventListener('click', async () => {
     if ('caches' in window && await caches.has('transformers-cache')) {
       const cache = await caches.open('transformers-cache');
       const prefix = new URL('./models/', import.meta.url).href;
-      for (const request of await cache.keys()) if (request.url.startsWith(prefix)) await cache.delete(request);
+      // Deletes are independent per entry: run them together instead of one round-trip at a time.
+      const matching = (await cache.keys()).filter(request => request.url.startsWith(prefix));
+      await Promise.all(matching.map(request => cache.delete(request)));
     }
     count = 0;
     $('results').replaceChildren();

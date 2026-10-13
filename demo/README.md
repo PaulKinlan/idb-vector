@@ -42,24 +42,31 @@ silently overwriting the database.
   character spans and may start/end mid-sentence. `data/source.json` records the
   snapshot date, selection and byte counts. No private data is included.
 - `assets.json`: exact byte counts and SHA-256 checksums for distributed model,
-  runtime, corpus and associated license files.
+  runtime, corpus and associated license files — enforced at load time by
+  `demo/integrity.js`, whose own constant pins the manifest.
 
 ### Integrity boundary
 
 The separate compute experiment pins `compute/cosine.wasm` with a SHA-256 check
 in `compute/engines.js` before instantiation; update the digest intentionally
-when recompiling it. The main demo's runtime, model and corpus are self-hosted
-and pinned by repository commit, source revision and `assets.json` for
-**release-time verification**, not by browser-enforced SRI. In particular,
-`assets.json` is not a runtime trust anchor: the browser does not check those
-hashes before the Transformers.js loader evaluates its vendored JS or uses its
-WASM/model. GitHub Pages does not give this repository control of response CSP
+when recompiling it. The main demo enforces `assets.json` at runtime in the
+browser (`demo/integrity.js`): the manifest's own SHA-256 is pinned as a
+constant in that file, so the repository commit that ships the code is the
+trust root. On Load, corpus downloads are checked against the manifest before
+parsing; the vendored Transformers.js runtime is fetched, verified, and then
+executed from exactly those verified bytes (blob import, no second network
+load between check and use); and every response served under `vendor/` or
+`models/` — the ONNX runtime WASM, tokenizer, config and the quantized model —
+must match its pin or the load fails closed. Repeat loads that Transformers.js
+serves from its Cache API reuse bytes that were verified by this path on their
+first guarded download. The residual, deliberately accepted: the page's own
+HTML/CSS/JS, the manifest constant itself, and anything a same-origin script
+writes into that cache are pinned only by repository commit and GitHub Pages
+TLS. GitHub Pages does not give this repository control of response CSP
 headers, and a meta CSP cannot enforce all header directives; a broad policy
-could break the offline inference flow. This is an explicit accepted residual
-risk for this public, opt-in demo (no credentials or private data); a stronger
-policy requires a tested loader that verifies immutable assets before execution
-and/or hosting with configurable headers. Do not treat the checksum manifest as
-browser-enforced integrity.
+could break the offline inference flow. This remains an opt-in public demo
+with no credentials or private data. Do not treat the checksum manifest alone
+as integrity — the runtime check above is the enforcement.
 
 The quantized model is about 23 MB, WASM/runtime about 11 MB, and the larger
 2,000-passage text/vector bundle about 4.5 MB. These deliberate, one-time downloads
