@@ -26,6 +26,9 @@ export function assertExact(ids, truth) {
 const percentile = (values, p) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1];
 
 export async function run(name, method, status) {
+  // Match the corpus names accepted by the measurement driver before constructing a fetch path.
+  if (typeof name !== 'string' || !/^(glove25|wiki-api)-[0-9]+$/.test(name)) throw new Error('Invalid corpus name');
+  if (method !== 'library' && method !== 'ivf') throw new Error('Invalid measurement method');
   const base = `/data/${name}/`;
   const manifest = await (await fetch(base + 'manifest.json')).json();
   const [vectorBuffer, cellBuffer] = await Promise.all(['vectors.f32', 'cells.u32'].map(async file => {
