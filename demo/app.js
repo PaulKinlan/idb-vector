@@ -170,7 +170,9 @@ $('clear').addEventListener('click', async () => {
     if ('caches' in window && await caches.has('transformers-cache')) {
       const cache = await caches.open('transformers-cache');
       const prefix = new URL('./models/', import.meta.url).href;
-      for (const request of await cache.keys()) if (request.url.startsWith(prefix)) await cache.delete(request);
+      // Deletes are independent per entry: run them together instead of one round-trip at a time.
+      const matching = (await cache.keys()).filter(request => request.url.startsWith(prefix));
+      await Promise.all(matching.map(request => cache.delete(request)));
     }
     count = 0;
     $('results').replaceChildren();
