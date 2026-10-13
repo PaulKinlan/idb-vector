@@ -1,0 +1,4 @@
+/* The demo's shared palette: one source of truth consumed by the wikipedia
+   demo (style.css) and the compute lab (compute/index.html). Page-specific
+   colours stay in the page's own stylesheet. */
+:root { color-scheme: light dark; --accent: light-dark(#075b56, #73e0cc); --line: light-dark(#c8d6ce, #48605a); --line-soft: light-dark(#d5dfd9, #40564f); }
