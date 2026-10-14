@@ -173,6 +173,37 @@ test('guard fails closed on unpinned same-origin paths outside vendor and models
   } finally { globalThis.fetch = realFetch; }
 });
 
+test('query-bearing pinned paths verify bytes while page-owned blob and data URLs pass through', async () => {
+  const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
+  const realFetch = globalThis.fetch;
+  const blobUrl = URL.createObjectURL(new Blob([new Uint8Array([1])]));
+  globalThis.fetch = input => Promise.resolve(response(String(input).startsWith('https:') ? licenseBytes : new Uint8Array([1])));
+  try {
+    await withVerifiedAssets(manifest, async () => {
+      assert.equal((await fetch('https://demo.example/demo/vendor/ONNXRUNTIME-LICENSE?rev=2#fragment')).status, 200);
+      assert.equal((await fetch(blobUrl)).status, 200);
+      assert.equal((await fetch('data:text/plain,example')).status, 200);
+      await assert.rejects(() => fetch('https://demo.example/demo/vendor/unknown.js?rev=2'), /not pinned/);
+    }, { base: BASE });
+  } finally { URL.revokeObjectURL(blobUrl); globalThis.fetch = realFetch; }
+});
+
+test('overlapping guards reject ambiguous relative bases without a document', async () => {
+  const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.resolve(response(licenseBytes));
+  try {
+    await withVerifiedAssets(manifest, async () => {
+      await assert.rejects(
+        () => withVerifiedAssets(manifest, () => fetch('./vendor/ONNXRUNTIME-LICENSE'), { base: 'https://other.example/demo/encoder.js' }),
+        /overlapping guards with different bases require a document/,
+      );
+      assert.equal((await fetch('./vendor/ONNXRUNTIME-LICENSE')).status, 200);
+    }, { base: BASE });
+    assert.notEqual(globalThis.fetch, realFetch);
+  } finally { globalThis.fetch = realFetch; }
+});
+
 test('withVerifiedAssets restores fetch even when the callback throws', async () => {
   const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
   const realFetch = globalThis.fetch;

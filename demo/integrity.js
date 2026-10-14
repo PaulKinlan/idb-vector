@@ -65,22 +65,32 @@ export async function withVerifiedAssets(manifest, fn, { base = import.meta.url,
     root,
     prefixes: scopes.map(scope => ({ prefix: new URL(scope.url, base).href, path: scope.path })),
   };
+  // Without a document, fetch() has no shared base for relative strings.
+  // Two different roots cannot be interpreted unambiguously by one global wrapper.
+  if (!globalThis.document && [...activeGuards].some(active => active.root !== root)) {
+    throw new Error('Integrity: overlapping guards with different bases require a document');
+  }
   if (!activeGuards.size) {
     originalFetch = globalThis.fetch;
     guardedFetch = async (input, init) => {
       // Resolve relative strings against the active demo root. URL and Request
       // inputs already carry absolute URLs; callers use the same root in practice.
-      const url = new URL(typeof input === 'string' ? input : (input?.href ?? input.url), globalThis.document?.baseURI ?? root).href;
+      const url = new URL(typeof input === 'string' ? input : (input?.href ?? input.url), globalThis.document?.baseURI ?? root);
       // Bind the guards at request start: completion can outlive the callback.
       const guards = [...activeGuards], fetchImpl = originalFetch;
       const response = await fetchImpl(input, init);
       for (const { manifest, origin, root, prefixes } of guards) {
-        const scope = prefixes.find(scope => url.startsWith(scope.prefix));
+        // blob:/data: bytes are page-owned, not network responses from the demo
+        // origin (blob: can nevertheless report that origin in Chromium).
+        if (url.protocol === 'blob:' || url.protocol === 'data:') continue;
+        // Pins identify asset paths, not cache-busting query strings or fragments.
+        const assetUrl = url.origin + url.pathname;
+        const scope = prefixes.find(scope => assetUrl.startsWith(scope.prefix));
         // A vendored module can fetch another same-origin path: do not let that
         // escape verification just because it is outside vendor/ or models/.
-        if (!scope && new URL(url).origin !== origin) continue;
-        const path = scope ? scope.path + decodeURI(url.slice(scope.prefix.length))
-          : decodeURI(url.startsWith(root) ? url.slice(root.length) : url);
+        if (!scope && url.origin !== origin) continue;
+        const path = scope ? scope.path + decodeURI(assetUrl.slice(scope.prefix.length))
+          : decodeURI(assetUrl.startsWith(root) ? assetUrl.slice(root.length) : assetUrl);
         await verifyBytes(manifest, path, new Uint8Array(await response.clone().arrayBuffer()));
       }
       return response;

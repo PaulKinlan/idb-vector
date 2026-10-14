@@ -7,6 +7,21 @@ let page;
 try {
   page = await launch();
   await page.goto(url);
+  const guarded = await page.evaluate(async () => {
+    const { loadManifest, withVerifiedAssets } = await import('./integrity.js');
+    const manifest = await loadManifest();
+    const blob = URL.createObjectURL(new Blob(['local bytes']));
+    try {
+      return await withVerifiedAssets(manifest, async () => {
+        const local = await fetch(blob);
+        const pinned = await fetch('./vendor/ONNXRUNTIME-LICENSE?revision=2');
+        let unpinnedRejected = false;
+        try { await fetch('./vendor/unknown.js?revision=2'); } catch { unpinnedRejected = true; }
+        return { local: await local.text(), pinned: pinned.ok, unpinnedRejected };
+      });
+    } finally { URL.revokeObjectURL(blob); }
+  });
+  assert.deepEqual(guarded, { local: 'local bytes', pinned: true, unpinnedRejected: true });
   // A surviving meta record must not certify a separately cleared vector store.
   await page.evaluate(async () => {
     const request = indexedDB.open('idb-vector-wikipedia-minilm-v1');
@@ -54,7 +69,7 @@ try {
   const invalidStorage = await page.evaluate(() => document.querySelector('#storage').textContent);
   assert.match(invalidStorage, /incomplete or invalid \(250 of 250 vectors\)/);
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true);
-  console.log(JSON.stringify({ storage, ...result, invalidStorage }));
+  console.log(JSON.stringify({ guarded, storage, ...result, invalidStorage }));
 } finally {
   await page?.close();
   await new Promise(resolve => server.close(resolve));
