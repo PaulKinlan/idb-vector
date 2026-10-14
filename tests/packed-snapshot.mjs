@@ -64,6 +64,11 @@ try {
     check(snapshot.mode === 'live' && snapshot.reason === 'unsupported-key-or-vector', 'invalid records evict packed cache');
     check(liveRows.some(row => row.key === 'string-key'), 'fallback retains supported string key');
     check(liveRows.every(row => Number.isFinite(row.similarity) && ![20, 21, 22, 23, 24, 26].includes(row.key)), 'fallback excludes invalid vector and nonfinite similarity');
+    // Later tests call the strict VectorDB.query(), which must reject malformed stored rows.
+    // Restore this shared fixture before testing transaction aborts and whitening.
+    const cleanupTx = raw.transaction('vectors', 'readwrite'), cleanupDone = complete(cleanupTx);
+    for (const key of [20, 21, 22, 23, 24, 26]) cleanupTx.objectStore('vectors').delete(key);
+    await cleanupDone;
     snapshot.close();
     let rejected = false; try { await snapshot.query([1, 0]); } catch { rejected = true; }
     check(rejected && snapshot.bytes === 0 && snapshot.mode === 'closed', 'close releases memory');

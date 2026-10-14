@@ -191,16 +191,18 @@ test('query-bearing pinned paths verify bytes while page-owned blob and data URL
 test('overlapping guards reject ambiguous relative bases without a document', async () => {
   const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
   const realFetch = globalThis.fetch;
-  globalThis.fetch = () => Promise.resolve(response(licenseBytes));
+  const mockFetch = () => Promise.resolve(response(licenseBytes));
+  globalThis.fetch = mockFetch;
   try {
     await withVerifiedAssets(manifest, async () => {
       await assert.rejects(
         () => withVerifiedAssets(manifest, () => fetch('./vendor/ONNXRUNTIME-LICENSE'), { base: 'https://other.example/demo/encoder.js' }),
         /overlapping guards with different bases require a document/,
       );
+      assert.notEqual(globalThis.fetch, mockFetch, 'outer guard remains installed after inner rejection');
       assert.equal((await fetch('./vendor/ONNXRUNTIME-LICENSE')).status, 200);
     }, { base: BASE });
-    assert.notEqual(globalThis.fetch, realFetch);
+    assert.equal(globalThis.fetch, mockFetch, 'outer guard restores the original fetch');
   } finally { globalThis.fetch = realFetch; }
 });
 
