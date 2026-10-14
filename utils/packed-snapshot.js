@@ -1,6 +1,8 @@
 import { SortedArray } from './sortedarray.js';
 import { moments } from './geometry.js';
 
+const finiteVector = vector => Array.isArray(vector) && Array.from(vector).every(Number.isFinite);
+
 // Layout version 1 (in-memory only): Float64 [numeric key, length, ...coordinates].
 // Blocks never split a record. Used length is separate from allocated capacity.
 export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes }, cosine) {
@@ -32,8 +34,7 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
             try { stats.add(vector); } catch (error) { diagnosticError = error.message; stats = null; }
           }
           if (!reason && !closed) {
-            if (typeof cursor.key !== 'number' || !Number.isFinite(cursor.key) || !Array.isArray(vector) ||
-                !Array.from(vector).every(Number.isFinite)) evict('unsupported-key-or-vector');
+            if (typeof cursor.key !== 'number' || !Number.isFinite(cursor.key) || !finiteVector(vector)) evict('unsupported-key-or-vector');
             else {
               const length = vector.length + 2;
               let block = blocks.at(-1);
@@ -77,7 +78,8 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
           if (length === query.length) {
             let dot = 0, norm = 0;
             for (let i = 0; i < length; i++) { const value = block.data[offset+i]; dot += query[i]*value; norm += value*value; }
-            top.insert({ key, similarity: dot / (queryNorm * Math.sqrt(norm)) });
+            const similarity = dot / (queryNorm * Math.sqrt(norm));
+            if (Number.isFinite(similarity)) top.insert({ key, similarity });
           }
           offset += length;
         }
@@ -88,8 +90,12 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
         request.onsuccess = () => {
           const cursor = request.result;
           if (!cursor) return;
-          const vector = cursor.value[vectorPath];
-          if (vector.length === query.length) top.insert({ key: cursor.key, similarity: cosine(query, vector) });
+          const vector = cursor.value?.[vectorPath];
+          // A live fallback retains string keys, but invalid vectors must never poison top-k.
+          if (finiteVector(vector) && vector.length === query.length) {
+            const similarity = cosine(query, vector);
+            if (Number.isFinite(similarity)) top.insert({ key: cursor.key, similarity });
+          }
           cursor.continue();
         };
         tx.oncomplete = () => resolve({ mode: 'live', results: top.slice(0, limit) });

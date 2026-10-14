@@ -9,10 +9,9 @@
 //    repository commit that ships this code — the same anchoring as the
 //    compute lab's cosine.wasm pin in compute/engines.js.
 //  - verifyBytes() checks one fetched payload against its manifest entry.
-//  - withVerifiedAssets() installs a scoped fetch guard for a callback: every
-//    response served under ./vendor/ or ./models/ during that callback must
-//    match its pin, or the request fails closed. Not reentrant — one scope at
-//    a time, which is all the demo's sequential Load path needs.
+//  - withVerifiedAssets() guards fetches during asset setup. Same-origin
+//    responses must match a pin, including loads outside ./vendor/ and
+//    ./models/; overlapping callbacks share one guard until the last exits.
 //
 // Repeat loads that Transformers.js serves from its Cache API reuse bytes that
 // were verified on their first guarded download. Not covered: the page's own
@@ -55,18 +54,56 @@ export async function verifyBytes(manifest, path, bytes, label = path) {
   return entry;
 }
 
+const activeGuards = new Set();
+let originalFetch, guardedFetch;
+
 export async function withVerifiedAssets(manifest, fn, { base = import.meta.url, scopes = [{ url: './vendor/', path: 'vendor/' }, { url: './models/', path: 'models/' }] } = {}) {
-  const prefixes = scopes.map(scope => ({ prefix: new URL(scope.url, base).href, path: scope.path }));
-  const original = globalThis.fetch;
-  globalThis.fetch = async (input, init) => {
-    const response = await original(input, init);
-    // fetch() accepts string, Request or URL input; Request exposes .url, URL exposes .href.
-    const url = typeof input === 'string' ? new URL(input, base).href : (input?.href ?? input.url);
-    const scope = prefixes.find(scope => url.startsWith(scope.prefix));
-    if (!scope) return response; // Outside the vendored prefixes: not ours to judge.
-    const path = scope.path + decodeURI(url.slice(scope.prefix.length));
-    await verifyBytes(manifest, path, new Uint8Array(await response.clone().arrayBuffer()));
-    return response;
+  const root = new URL('.', base).href;
+  const guard = {
+    manifest,
+    origin: new URL(base).origin,
+    root,
+    prefixes: scopes.map(scope => ({ prefix: new URL(scope.url, base).href, path: scope.path })),
   };
-  try { return await fn(); } finally { globalThis.fetch = original; }
+  // Without a document, fetch() has no shared base for relative strings.
+  // Two different roots cannot be interpreted unambiguously by one global wrapper.
+  if (!globalThis.document && [...activeGuards].some(active => active.root !== root)) {
+    throw new Error('Integrity: overlapping guards with different bases require a document');
+  }
+  if (!activeGuards.size) {
+    originalFetch = globalThis.fetch;
+    guardedFetch = async (input, init) => {
+      // Resolve relative strings against the active demo root. URL and Request
+      // inputs already carry absolute URLs; callers use the same root in practice.
+      const url = new URL(typeof input === 'string' ? input : (input?.href ?? input.url), globalThis.document?.baseURI ?? root);
+      // Bind the guards at request start: completion can outlive the callback.
+      const guards = [...activeGuards], fetchImpl = originalFetch;
+      const response = await fetchImpl(input, init);
+      for (const { manifest, origin, root, prefixes } of guards) {
+        // blob:/data: bytes are page-owned, not network responses from the demo
+        // origin (blob: can nevertheless report that origin in Chromium).
+        if (url.protocol === 'blob:' || url.protocol === 'data:') continue;
+        // Pins identify asset paths, not cache-busting query strings or fragments.
+        const assetUrl = url.origin + url.pathname;
+        const scope = prefixes.find(scope => assetUrl.startsWith(scope.prefix));
+        // A vendored module can fetch another same-origin path: do not let that
+        // escape verification just because it is outside vendor/ or models/.
+        if (!scope && url.origin !== origin) continue;
+        const path = scope ? scope.path + decodeURI(assetUrl.slice(scope.prefix.length))
+          : decodeURI(assetUrl.startsWith(root) ? assetUrl.slice(root.length) : assetUrl);
+        await verifyBytes(manifest, path, new Uint8Array(await response.clone().arrayBuffer()));
+      }
+      return response;
+    };
+    globalThis.fetch = guardedFetch;
+  }
+  activeGuards.add(guard);
+  try { return await fn(); }
+  finally {
+    activeGuards.delete(guard);
+    if (!activeGuards.size) {
+      if (globalThis.fetch === guardedFetch) globalThis.fetch = originalFetch;
+      originalFetch = guardedFetch = undefined;
+    }
+  }
 }

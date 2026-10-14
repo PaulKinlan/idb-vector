@@ -57,7 +57,10 @@ parsing; the vendored Transformers.js runtime is fetched, verified, and then
 executed from exactly those verified bytes (blob import, no second network
 load between check and use); and every response served under `vendor/` or
 `models/` — the ONNX runtime WASM, tokenizer, config and the quantized model —
-must match its pin or the load fails closed. Repeat loads that Transformers.js
+must match its pin or the load fails closed. During guarded model setup, other
+same-origin fetches must also match a manifest pin; overlapping setup callbacks
+keep verification active until the last one exits. Cross-origin traffic is
+outside this demo's integrity boundary. Repeat loads that Transformers.js
 serves from its Cache API reuse bytes that were verified by this path on their
 first guarded download. The residual, deliberately accepted: the page's own
 HTML/CSS/JS, the manifest constant itself, and anything a same-origin script

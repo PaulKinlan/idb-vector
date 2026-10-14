@@ -50,6 +50,30 @@ try {
     await snapshot.refresh();
     check(snapshot.mode === 'live' && snapshot.reason === 'unsupported-key-or-vector', 'nonnumeric keys fall back');
     check(JSON.stringify((await snapshot.query([1, 0])).results) === JSON.stringify(keysScores(await db.query([1, 0]))), 'fallback preserves string key');
+    const invalidTx = raw.transaction('vectors', 'readwrite'), invalidDone = complete(invalidTx);
+    const invalidStore = invalidTx.objectStore('vectors');
+    invalidStore.put({ embedding: [NaN, 0] }, 20);
+    invalidStore.put({ embedding: [Infinity, 0] }, 21);
+    invalidStore.put({ embedding: '10' }, 22);
+    invalidStore.put({ title: 'missing vector' }, 23);
+    invalidStore.put({ embedding: [0, 0] }, 24);
+    invalidStore.put({ embedding: [1] }, 26);
+    await invalidDone;
+    const invalidKeys = [20, 21, 22, 23, 24, 26];
+    try {
+      await snapshot.refresh();
+      const liveRows = (await snapshot.query([1, 0])).results;
+      check(snapshot.mode === 'live' && snapshot.reason === 'unsupported-key-or-vector', 'invalid records evict packed cache');
+      check(liveRows.some(row => row.key === 'string-key'), 'fallback retains supported string key');
+      check(liveRows.every(row => Number.isFinite(row.similarity) && !invalidKeys.includes(row.key)), 'fallback excludes invalid vector and nonfinite similarity');
+    } finally {
+      // Later tests call the strict VectorDB.query(): remove malformed rows even if an assertion fails.
+      const cleanupTx = raw.transaction('vectors', 'readwrite'), cleanupDone = complete(cleanupTx);
+      for (const key of invalidKeys) cleanupTx.objectStore('vectors').delete(key);
+      await cleanupDone;
+    }
+    const cleanStore = raw.transaction('vectors').objectStore('vectors');
+    check((await Promise.all(invalidKeys.map(key => req(cleanStore.get(key))))).every(value => value === undefined), 'malformed fixture rows were removed');
     snapshot.close();
     let rejected = false; try { await snapshot.query([1, 0]); } catch { rejected = true; }
     check(rejected && snapshot.bytes === 0 && snapshot.mode === 'closed', 'close releases memory');
