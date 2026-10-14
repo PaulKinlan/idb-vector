@@ -244,7 +244,9 @@ snapshot.close(); // release packed buffers
 ```
 
 Over budget, allocation failure or unsupported keys/vectors evicts the cache and uses
-the live cursor without truncating the corpus. Inspect `snapshot.reason` and `bytes`.
+the live cursor without truncating valid records. Live fallback preserves string keys,
+but skips missing, malformed or non-finite vectors and undefined cosine scores
+instead of ranking them. Inspect `snapshot.reason` and `bytes`.
 The budget covers retained packed buffers, **not all browser heap or arbitrary source
 metadata**. Float64 preserves existing JS-number precision; vectors are not normalized
 on write. Writes resolve after transaction completion, not merely request success.
