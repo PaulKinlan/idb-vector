@@ -31,12 +31,24 @@ function transactionDone(tx) {
     tx.onerror = () => {}; // The abort event is the final outcome.
   });
 }
-async function readMeta() {
-  return new Promise((resolve, reject) => {
-    const request = db.transaction('meta').objectStore('meta').get('loaded');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+async function readStored() {
+  // Metadata and every vector are observed in one read transaction. Count alone
+  // cannot detect a same-size store containing a malformed record.
+  const tx = db.transaction(['meta', 'vectors']);
+  const done = transactionDone(tx);
+  const meta = tx.objectStore('meta').get('loaded');
+  const cursor = tx.objectStore('vectors').openCursor();
+  let vectors = 0, valid = true;
+  cursor.onsuccess = () => {
+    const row = cursor.result;
+    if (!row) return;
+    vectors++;
+    const embedding = row.value?.embedding;
+    if (!Array.isArray(embedding) || embedding.length !== 384 || !Array.from(embedding).every(Number.isFinite)) valid = false;
+    row.continue();
+  };
+  await done;
+  return { meta: meta.result, vectors, valid };
 }
 function condition() { return `${count.toLocaleString()} passages × 384 dimensions · quantized MiniLM · ${browserLabel()}`; }
 function loadTiming(meta) {
@@ -45,12 +57,16 @@ function loadTiming(meta) {
 if (db) {
   vectorDB = new VectorDB({ dbName, vectorPath: 'embedding' });
   try {
-    const meta = await readMeta();
+    const { meta, vectors, valid } = await readStored();
     if (meta) {
-      count = meta.count;
-      $('size').value = String(count);
-      $('storage').textContent = `${count.toLocaleString()} passages already stored on this device. Press Load to restore the language model in this page.`;
-      loadTiming(meta);
+      $('size').value = String(meta.count);
+      if (valid && vectors === meta.count) {
+        count = meta.count;
+        $('storage').textContent = `${count.toLocaleString()} passages already stored on this device. Press Load to restore the language model in this page.`;
+        loadTiming(meta);
+      } else {
+        $('storage').textContent = `Stored corpus is incomplete or invalid (${vectors.toLocaleString()} of ${meta.count.toLocaleString()} vectors). Press Load to download it again.`;
+      }
     }
   } catch (error) { $('status').textContent = `Cannot read saved data: ${error.message}. Remove local data and retry.`; }
 }
@@ -73,8 +89,8 @@ $('load').addEventListener('click', async () => {
         }
       });
     }
-    const saved = await readMeta();
-    if (saved?.count === selected) {
+    const { meta: saved, vectors: storedVectors, valid } = await readStored();
+    if (saved?.count === selected && storedVectors === selected && valid) {
       count = selected;
       $('status').textContent = `Ready: restored ${count.toLocaleString()} stored passages. This open page can now search offline.`;
       $('load-timing').textContent = `Restore ${Math.round(performance.now() - started)} ms (model setup + stored metadata). Original load: ${saved.totalMs.toFixed(0)} ms; database commit ${saved.writeMs.toFixed(0)} ms. ${condition()}`;

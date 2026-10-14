@@ -118,6 +118,61 @@ test('withVerifiedAssets handles string, Request and URL inputs without crashing
   }
 });
 
+test('overlapping scopes keep verification active until the last callback exits', async () => {
+  const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
+  const realFetch = globalThis.fetch;
+  const mockFetch = () => Promise.resolve(response(new Uint8Array(3)));
+  globalThis.fetch = mockFetch;
+  let finishFirst, finishSecond;
+  const firstGate = new Promise(resolve => { finishFirst = resolve; });
+  const secondGate = new Promise(resolve => { finishSecond = resolve; });
+  try {
+    const first = withVerifiedAssets(manifest, () => firstGate, { base: BASE });
+    const second = withVerifiedAssets(manifest, async () => {
+      await secondGate;
+      await assert.rejects(() => fetch('https://demo.example/demo/vendor/ONNXRUNTIME-LICENSE'), /is 3 bytes, expected 1073/);
+    }, { base: BASE });
+    finishFirst();
+    await first;
+    assert.notEqual(globalThis.fetch, mockFetch, 'first callback cannot remove second guard');
+    finishSecond();
+    await second;
+    assert.equal(globalThis.fetch, mockFetch, 'last callback restores the original fetch');
+  } finally {
+    finishFirst(); finishSecond();
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('an in-flight response stays guarded after its callback exits', async () => {
+  const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
+  const realFetch = globalThis.fetch;
+  let release;
+  globalThis.fetch = () => new Promise(resolve => { release = () => resolve(response(new Uint8Array(3))); });
+  try {
+    let pending;
+    await withVerifiedAssets(manifest, () => {
+      pending = fetch('https://demo.example/demo/vendor/ONNXRUNTIME-LICENSE');
+    }, { base: BASE });
+    const rejected = assert.rejects(pending, /is 3 bytes, expected 1073/);
+    release();
+    await rejected;
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('guard fails closed on unpinned same-origin paths outside vendor and models', async () => {
+  const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.resolve(response(new Uint8Array(3)));
+  try {
+    await withVerifiedAssets(manifest, async () => {
+      await assert.rejects(() => fetch('https://demo.example/demo/unknown.js'), /not pinned/);
+      await assert.rejects(() => fetch('https://demo.example/outside-demo.js'), /not pinned/);
+      await assert.rejects(() => fetch('https://demo.example/demo/data/passages-250.json'), /is 3 bytes, expected/);
+    }, { base: BASE });
+  } finally { globalThis.fetch = realFetch; }
+});
+
 test('withVerifiedAssets restores fetch even when the callback throws', async () => {
   const manifest = await loadManifest(() => Promise.resolve(response(manifestBytes)), 'x');
   const realFetch = globalThis.fetch;
