@@ -26,6 +26,8 @@ test('GloVe evidence retains independent source and recomputed-slice oracles', (
     assert.ok(report.finishedAt, 'completed full-size IVF requires a finished report');
     assert.doesNotMatch(markdown, /\| 1,183,514 \| IVF \| —/,
       'completed full-size IVF cannot retain an unmeasured table row');
+    assert.doesNotMatch(markdown, /Incomplete full-size IVF/,
+      'completed full-size IVF cannot retain the incomplete-run paragraph');
   } else {
     assert.equal(report.finishedAt, undefined, 'unfinished full-size IVF requires partial-report marker');
     assert.match(markdown, /Incomplete full-size IVF/);
