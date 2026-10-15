@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const report = JSON.parse(await readFile(new URL('../reports/real-glove-2026-10-15.json', import.meta.url)));
+const wiki = JSON.parse(await readFile(new URL('../reports/real-wiki-2026-10-15.json', import.meta.url)));
 const markdown = await readFile(new URL('../reports/real-vectors-2026-10-15.md', import.meta.url), 'utf8');
 const approximate = (value, decimals) => value.toFixed(decimals);
 
@@ -69,5 +70,49 @@ test('every published GloVe row matches 40 browser measurements and manifest tru
     }
   }
   assert.match(markdown, /Incomplete full-size IVF/);
-  assert.match(markdown, /PENDING MEASUREMENT/);
+});
+
+test('Wikipedia paid corpus is bounded and report numbers match the successful browser run', () => {
+  assert.ok(wiki.finishedAt);
+  assert.equal(wiki.runs.length, 2);
+  const corpus = wiki.corpora[0];
+  assert.equal(corpus.name, 'wiki-api-10000');
+  assert.equal(corpus.source.model, 'text-embedding-3-small');
+  assert.equal(corpus.source.dimensions, 256);
+  assert.equal(corpus.source.rows, 10040);
+  assert.equal(corpus.source.articles.length, 167);
+  assert.equal(corpus.source.shipsGroundTruth, false);
+  assert.equal(corpus.truth.length, 40);
+  assert.equal(corpus.source.tokenUsage, 949845);
+  assert.ok(corpus.source.estimatedCostUSD <= corpus.source.maxEstimatedUSD);
+  assert.equal(corpus.source.estimatedCostUSD, 0.0189969);
+  const section = markdown.split('## Wikipedia API embeddings\n')[1];
+  assert.ok(section);
+  assert.match(section, /independently recomputed exact float64 cosine/i);
+  assert.match(section, /0\.0189969 estimated/);
+  assert.doesNotMatch(section, /PENDING MEASUREMENT/);
+  for (const run of wiki.runs) {
+    assert.equal(run.measurements.length, run.method === 'ivf' ? 160 : 40);
+    assert.ok(run.disk.logicalBytes > 0);
+    for (const summary of run.summary) {
+      const samples = run.measurements.filter(sample => sample.nprobe === summary.nprobe);
+      assert.equal(samples.length, 40);
+      for (const sample of samples) {
+        const truth = corpus.truth[sample.query];
+        assert.equal(sample.recallAt10, sample.ids.filter(id => truth.ids.includes(id)).length / 10);
+        if (run.method === 'library' || summary.nprobe === 64) assert.equal(sample.tieAwareRecallAt10, 1);
+      }
+      const label = run.method === 'library' ? 'Exact cursor' : `IVF / ${summary.nprobe}`;
+      const row = section.split('\n').find(line => line.startsWith(`| 10,000 | ${label} |`));
+      assert.ok(row, `missing Wikipedia row ${label}`);
+      const cells = row.split('|').slice(1, -1).map(cell => cell.trim());
+      assert.equal(cells[2], approximate(summary.p50Ms, 1));
+      assert.equal(cells[3], approximate(summary.p95Ms, 1));
+      assert.equal(cells[4], approximate(summary.recallAt10, 4));
+      assert.equal(cells[5], new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(summary.meanCandidates));
+      assert.equal(cells[6], approximate(run.buildMs, 1));
+      assert.equal(cells[7], approximate(run.totalBuildMs, 1));
+      assert.equal(cells[8], approximate(run.disk.logicalBytes / 1e6, 2));
+    }
+  }
 });
