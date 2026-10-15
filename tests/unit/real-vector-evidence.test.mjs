@@ -2,16 +2,35 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const report = JSON.parse(await readFile(new URL('../reports/real-glove-2026-10-15.json', import.meta.url)));
-const wiki = JSON.parse(await readFile(new URL('../reports/real-wiki-2026-10-15.json', import.meta.url)));
-const markdown = await readFile(new URL('../reports/real-vectors-2026-10-15.md', import.meta.url), 'utf8');
+const report = JSON.parse(await readFile(new URL('../../reports/real-glove-2026-10-15.json', import.meta.url)));
+const wiki = JSON.parse(await readFile(new URL('../../reports/real-wiki-2026-10-15.json', import.meta.url)));
+const markdown = await readFile(new URL('../../reports/real-vectors-2026-10-15.md', import.meta.url), 'utf8');
 const approximate = (value, decimals) => value.toFixed(decimals);
 
 // This validates committed measurements and the published numbers, not machine-specific timing.
 test('GloVe evidence retains independent source and recomputed-slice oracles', () => {
-  assert.equal(report.runs.length, 5); // Full-size IVF is deliberately not presented as complete.
-  assert.equal(report.finishedAt, undefined);
   assert.equal(report.corpora.length, 3);
+  const requiredRuns = [
+    ['glove25-10000', 'library'], ['glove25-10000', 'ivf'],
+    ['glove25-100000', 'library'], ['glove25-100000', 'ivf'],
+    ['glove25-1183514', 'library'],
+  ];
+  for (const [corpus, method] of requiredRuns) {
+    assert.equal(report.runs.filter(run => run.corpus === corpus && run.method === method).length, 1,
+      `missing or duplicate ${corpus}/${method}`);
+  }
+  assert.equal(new Set(report.runs.map(run => `${run.corpus}/${run.method}`)).size, report.runs.length,
+    'duplicate browser run');
+  const fullIvf = report.runs.find(run => run.corpus === 'glove25-1183514' && run.method === 'ivf');
+  if (fullIvf) {
+    assert.ok(report.finishedAt, 'completed full-size IVF requires a finished report');
+    assert.doesNotMatch(markdown, /\| 1,183,514 \| IVF \| —/,
+      'completed full-size IVF cannot retain an unmeasured table row');
+  } else {
+    assert.equal(report.finishedAt, undefined, 'unfinished full-size IVF requires partial-report marker');
+    assert.match(markdown, /Incomplete full-size IVF/);
+    assert.match(markdown, /\| 1,183,514 \| IVF \| —/);
+  }
   for (const corpus of report.corpora) {
     assert.equal(corpus.source.realVectors, true);
     assert.equal(corpus.source.sha256, '51004cb0ae962159f0db507a51fec2b395de14b166f55976c89f16bd2f8b6391');
@@ -69,7 +88,6 @@ test('every published GloVe row matches 40 browser measurements and manifest tru
       assert.equal(cells[8], approximate(run.disk.logicalBytes / 1e6, 2));
     }
   }
-  assert.match(markdown, /Incomplete full-size IVF/);
 });
 
 test('Wikipedia paid corpus is bounded and report numbers match the successful browser run', () => {
