@@ -36,7 +36,13 @@ try {
     db.close();
   });
   await page.goto(url);
-  const storage = await page.evaluate(() => document.querySelector('#storage').textContent);
+  // #storage is written by an async IndexedDB inspection after load. Reading it straight after goto
+  // is a race: under load the evaluate saw '' and the full gate failed on this line (2026-10-15,
+  // c1dd88d). Wait for the message the assertion is about, as the #status read below already does.
+  const storage = await page.waitFor(() => {
+    const text = document.querySelector('#storage').textContent;
+    return /incomplete or invalid \(0 of 250 vectors\)/.test(text) ? text : '';
+  }, { label: 'incomplete storage message after reload', timeout: 60000 });
   assert.match(storage, /incomplete or invalid \(0 of 250 vectors\)/);
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true);
   await page.screenshot('/tmp/idb-demo-incomplete-before.png');
@@ -66,7 +72,10 @@ try {
     db.close();
   });
   await page.goto(url);
-  const invalidStorage = await page.evaluate(() => document.querySelector('#storage').textContent);
+  const invalidStorage = await page.waitFor(() => {
+    const text = document.querySelector('#storage').textContent;
+    return /incomplete or invalid \(250 of 250 vectors\)/.test(text) ? text : '';
+  }, { label: 'invalid storage message after reload', timeout: 60000 });
   assert.match(invalidStorage, /incomplete or invalid \(250 of 250 vectors\)/);
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true);
   console.log(JSON.stringify({ guarded, storage, ...result, invalidStorage }));
