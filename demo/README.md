@@ -14,6 +14,12 @@ shows load time, database commit time, query encoding time and search time; corp
 size, dimension, model and browser appear beside the measurements. Similarity is
 not answer confidence. No ANN or relevance improvement is claimed.
 
+The separate [compute and storage lab](./compute/) at `/demo/compute/` compares the
+same cosine search across the library's IndexedDB cursor, in-memory JavaScript,
+WASM-SIMD and WebGPU on a synthetic corpus, plus IndexedDB record/packed and OPFS
+layouts. It is an experiment with its own method notes, not part of this demo's
+flow, and it does not change the library.
+
 ## Offline boundary
 
 After loading, **the open page** can encode previously unseen questions and search

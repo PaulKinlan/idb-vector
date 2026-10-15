@@ -11,8 +11,11 @@ export async function serve() {
       res.writeHead(404).end(); return;
     }
     try {
-      const body = await readFile(new URL(name, root));
-      res.setHeader('Content-Type', ({ js: 'text/javascript', html: 'text/html', css: 'text/css', json: 'application/json', wasm: 'application/wasm' })[name.split('.').pop()] || 'application/octet-stream');
+      // GitHub Pages serves index.html for a trailing-slash directory URL, so the harness must too:
+      // otherwise a real /demo/compute/ link fails locally while working in production.
+      const file = name.endsWith('/') ? `${name}index.html` : name;
+      const body = await readFile(new URL(file, root));
+      res.setHeader('Content-Type', ({ js: 'text/javascript', html: 'text/html', css: 'text/css', json: 'application/json', wasm: 'application/wasm' })[file.split('.').pop()] || 'application/octet-stream');
       res.end(body);
     } catch { res.writeHead(404).end(); }
   });

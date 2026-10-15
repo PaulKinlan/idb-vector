@@ -20,6 +20,7 @@
     "test:wikipedia": "node tests/wikipedia-demo.mjs",
     "test:demo-restore": "node tests/demo-restore-trust.mjs",
     "test:packed": "node tests/packed-snapshot.mjs",
+    "test:compute": "node tests/compute.mjs",
     "test:validation": "node tests/validation.mjs",
     "test:candidates": "node tests/candidates.mjs",
     "test:eligibility": "node tests/eligibility.mjs",

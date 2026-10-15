@@ -7,18 +7,27 @@ import { launch } from './lib/cdp.mjs';
 const output = process.env.COMPUTE_OUTPUT || '/tmp/idb-vector-compute';
 await mkdir(output, { recursive: true });
 const local = process.env.COMPUTE_URL ? null : await serve();
-const url = process.env.COMPUTE_URL || local.url.replace('/demo/index.html', '/demo/compute/index.html');
+const url = process.env.COMPUTE_URL || local.url;
 const browserArgs = process.env.COMPUTE_BROWSER_ARGS ? JSON.parse(process.env.COMPUTE_BROWSER_ARGS) : [];
 const page = await launch({ browserArgs });
 try {
   const conditions = {
     commit: execFileSync('git', ['rev-parse', 'HEAD']).toString().trim(),
     diff: execFileSync('git', ['diff', '--stat']).toString().trim(),
-    url, browserArgs, browser: await page.send('Browser.getVersion'),
+    entryUrl: url, browserArgs, browser: await page.send('Browser.getVersion'),
     hardware: { cpu: os.cpus()[0].model, logicalCpus: os.cpus().length, ram: os.totalmem(), platform: os.platform(), release: os.release() },
     loadStart: os.loadavg(), started: new Date().toISOString(),
   };
   await page.goto(url);
+  if (local) {
+    // The lab is a public page: reach it the way a visitor does, from the demo footer. A missing or
+    // broken link then fails this check instead of leaving the lab published but unreachable.
+    const link = 'footer a[href="./compute/"]';
+    assert.ok(await page.evaluate(sel => !!document.querySelector(sel), link), 'the demo page has no compute lab link');
+    await page.click(link);
+    await page.waitFor(() => /(^|\/)demo\/compute\/(index\.html)?$/.test(location.pathname) && !!document.querySelector('#run'), { label: 'compute lab navigation' });
+  }
+  conditions.url = await page.evaluate(() => location.href);
   // Drive native controls, not a call to the benchmark function.
   await page.click('#run');
   await page.waitFor(() => window.computeReport || window.computeError, { timeout: 240000 });
