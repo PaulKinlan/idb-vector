@@ -1,0 +1,124 @@
+{
+  "mutant": {
+    "orderedTopKMatch": false,
+    "overlap": 0,
+    "maxAbsoluteScoreError": 2,
+    "scoreErrorScope": "all corpus scores"
+  },
+  "match": {
+    "orderedTopKMatch": true,
+    "overlap": 1,
+    "maxAbsoluteScoreError": 1.1920928955078125e-7,
+    "scoreErrorScope": "all corpus scores"
+  },
+  "ties": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "nearTies": {
+    "reference": [
+      {
+        "id": 11,
+        "score": 0.9999999999995
+      },
+      {
+        "id": 10,
+        "score": 0.999999999998
+      },
+      {
+        "id": 9,
+        "score": 0.9999999999955
+      },
+      {
+        "id": 8,
+        "score": 0.999999999992
+      },
+      {
+        "id": 7,
+        "score": 0.9999999999875
+      },
+      {
+        "id": 6,
+        "score": 0.999999999982
+      },
+      {
+        "id": 5,
+        "score": 0.9999999999755
+      },
+      {
+        "id": 4,
+        "score": 0.999999999968
+      },
+      {
+        "id": 3,
+        "score": 0.9999999999595
+      },
+      {
+        "id": 2,
+        "score": 0.99999999995
+      }
+    ],
+    "wasm": {
+      "top": [
+        {
+          "id": 0,
+          "score": 1
+        },
+        {
+          "id": 1,
+          "score": 1
+        },
+        {
+          "id": 2,
+          "score": 1
+        },
+        {
+          "id": 3,
+          "score": 1
+        },
+        {
+          "id": 4,
+          "score": 1
+        },
+        {
+          "id": 5,
+          "score": 1
+        },
+        {
+          "id": 6,
+          "score": 1
+        },
+        {
+          "id": 7,
+          "score": 1
+        },
+        {
+          "id": 8,
+          "score": 1
+        },
+        {
+          "id": 9,
+          "score": 1
+        }
+      ],
+      "comparison": {
+        "orderedTopKMatch": false,
+        "overlap": 0.8,
+        "maxAbsoluteScoreError": 7.199996154838573e-11,
+        "scoreErrorScope": "all corpus scores"
+      }
+    },
+    "gpu": {
+      "unavailable": "requestAdapter returned null"
+    },
+    "float32SpacingBelowOne": 5.960464477539063e-8
+  }
+}

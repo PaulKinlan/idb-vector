@@ -172,28 +172,31 @@ limitation; it does not extend the result to other devices or real embeddings.
 
 ## Re-verification on a different host (2026-10-15)
 
-Source **a879d4cd** — main roughly three weeks after the measurements above, which
-pinned `e40cede` and `2dc4108`. **Neither run below is comparable with those tables**:
+Source **632cfd6e** — the commit that links this lab from the demo footer, roughly
+three weeks after the measurements above, which pinned `e40cede` and `2dc4108`.
+**Neither run below is comparable with those tables**:
 this is the fleet VM, not the Ryzen 9955HX. Host Intel Xeon Platinum 8259CL,
 **2 logical CPUs, 8.3 GB RAM**, Chrome **155.0.8059.39**; load/provenance in the JSON.
-Evidence: [default](refresh-default/measurement.json) and
-[Vulkan](refresh-vulkan/measurement.json), with the runnable checks in the sibling
-`checks.json` of each. Purpose is to confirm the lab still runs end-to-end and that its
-**semantics** reproduce on today's tree; it is not a new hardware measurement.
+The host was also sharing CPU with another lane's heavy job, so the absolute times
+below are worse than an idle machine's. Evidence: [default](refresh-default/measurement.json)
+and [Vulkan](refresh-vulkan/measurement.json), with the runnable checks in the sibling
+`checks.json` of each — both record an empty tracked diff. Purpose is to confirm the lab
+still runs end-to-end and that its **semantics** reproduce on today's tree; it is not a
+new hardware measurement.
 
 - **Semantics reproduced exactly.** All three seeded queries keep ordered top-10
   agreement in every available path; the near-tie fixture again gives overlap **0.8**
   and maximum absolute error **7.199996154838573e-11** for both SIMD and the GPU path;
   the negated-score mutant is still rejected; every storage roundtrip is exact. Both
-  runs exit 0 (default 62 s, Vulkan 64 s).
+  runs exit 0, driving the real Run button after following the demo footer link.
 - **The GPU path here is a software rasteriser.** The explicit Vulkan flags select an
   adapter reporting `vendor: google`, `architecture: swiftshader`,
-  `isFallbackAdapter: true` — there is no hardware adapter on this VM. Its **94–136 ms**
-  queries and **181 ms** upload are a software-adapter result and must not be read
+  `isFallbackAdapter: true` — there is no hardware adapter on this VM. Its **86–125 ms**
+  queries and **141 ms** upload are a software-adapter result and must not be read
   against the RDNA-2 numbers above. Default mode again returns
   `requestAdapter returned null`.
-- **Timings are host-bound and much slower** at 2 shared vCPUs: library 3.4–4.2 s and
-  records write 39.5–42.8 s versus 0.9–1.0 s and 5.1 s on the earlier host. Compare
+- **Timings are host-bound and much slower** at 2 shared vCPUs: library 2.9–5.4 s and
+  records write 29.6–33.8 s versus 0.9–1.0 s and 5.1 s on the earlier host. Compare
   ratios and outcomes here, never the absolute milliseconds.
 
 Not established by this run: a new hardware measurement, any comparison between the
