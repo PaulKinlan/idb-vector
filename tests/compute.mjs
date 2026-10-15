@@ -7,18 +7,27 @@ import { launch } from './lib/cdp.mjs';
 const output = process.env.COMPUTE_OUTPUT || '/tmp/idb-vector-compute';
 await mkdir(output, { recursive: true });
 const local = process.env.COMPUTE_URL ? null : await serve();
-const url = process.env.COMPUTE_URL || local.url.replace('/demo/index.html', '/demo/compute/index.html');
+const url = process.env.COMPUTE_URL || local.url;
 const browserArgs = process.env.COMPUTE_BROWSER_ARGS ? JSON.parse(process.env.COMPUTE_BROWSER_ARGS) : [];
 const page = await launch({ browserArgs });
 try {
   const conditions = {
     commit: execFileSync('git', ['rev-parse', 'HEAD']).toString().trim(),
     diff: execFileSync('git', ['diff', '--stat']).toString().trim(),
-    url, browserArgs, browser: await page.send('Browser.getVersion'),
+    entryUrl: url, browserArgs, browser: await page.send('Browser.getVersion'),
     hardware: { cpu: os.cpus()[0].model, logicalCpus: os.cpus().length, ram: os.totalmem(), platform: os.platform(), release: os.release() },
     loadStart: os.loadavg(), started: new Date().toISOString(),
   };
   await page.goto(url);
+  if (local) {
+    // The lab is a public page: reach it the way a visitor does, from the demo footer. A missing or
+    // broken link then fails this check instead of leaving the lab published but unreachable.
+    const link = 'footer a[href="./compute/"]';
+    assert.ok(await page.evaluate(sel => !!document.querySelector(sel), link), 'the demo page has no compute lab link');
+    await page.click(link);
+    await page.waitFor(() => /(^|\/)demo\/compute\/(index\.html)?$/.test(location.pathname) && !!document.querySelector('#run'), { label: 'compute lab navigation' });
+  }
+  conditions.url = await page.evaluate(() => location.href);
   // Drive native controls, not a call to the benchmark function.
   await page.click('#run');
   await page.waitFor(() => window.computeReport || window.computeError, { timeout: 240000 });
@@ -82,5 +91,13 @@ try {
     assert.ok(result.comparison.maxAbsoluteScoreError < checks.nearTies.float32SpacingBelowOne);
   }
   await writeFile(`${output}/checks.json`, JSON.stringify(checks, null, 2));
+  if (local) {
+    // The lab is linked back to the demo. Its "../" back-link is a directory URL, which the local
+    // harness only serves if it resolves a trailing slash to index.html the way GitHub Pages does;
+    // this runs LAST because the checks above import ./engines.js relative to the lab page.
+    await page.clearViewport();
+    await page.click('main > p a[href="../"]');
+    await page.waitFor(() => /(^|\/)demo\/(index\.html)?$/.test(location.pathname) && !!document.querySelector('#load'), { label: 'demo back-link' });
+  }
   console.log(JSON.stringify({ output, gpu: report.engines.gpu, storage: report.storage, queries: report.queries.map(q => Object.fromEntries(Object.entries(q.results).map(([k,v]) => [k, v.ms]))) }, null, 2));
 } finally { await page.close(); if (local) await new Promise(resolve => local.server.close(resolve)); }

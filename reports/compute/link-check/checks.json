@@ -1,0 +1,37 @@
+{
+  "entryUrl": "http://127.0.0.1:42885/idb-vector/demo/index.html",
+  "forwardSelector": "footer a[href=\"./compute/\"]",
+  "backSelector": "main > p a[href=\"../\"]",
+  "link": {
+    "text": "Compute & storage lab",
+    "href": "http://127.0.0.1:42885/idb-vector/demo/compute/",
+    "width": 167.734375,
+    "height": 16,
+    "visible": true,
+    "colour": "rgb(7, 91, 86)",
+    "textDecorationLine": "underline",
+    "fontSize": "14.45px"
+  },
+  "colourScheme": {
+    "light": "rgb(7, 91, 86)",
+    "dark": "rgb(115, 224, 204)"
+  },
+  "navigated": {
+    "path": "/idb-vector/demo/compute/",
+    "title": "Cosine compute and storage lab · idb-vector",
+    "h1": "Same vectors. Four paths. Three storage layouts."
+  },
+  "computeNarrow": {
+    "scrollWidth": 390,
+    "innerWidth": 390
+  },
+  "backLink": {
+    "path": "/idb-vector/demo/",
+    "title": "Wikipedia, on your device · idb-vector",
+    "heading": "Wikipedia, on your device."
+  },
+  "demoNarrow": {
+    "scrollWidth": 390,
+    "innerWidth": 390
+  }
+}
