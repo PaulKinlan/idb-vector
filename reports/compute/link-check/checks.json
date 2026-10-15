@@ -1,9 +1,10 @@
 {
-  "entryUrl": "http://127.0.0.1:39083/idb-vector/demo/index.html",
-  "selector": "footer a[href=\"./compute/\"]",
+  "entryUrl": "http://127.0.0.1:42885/idb-vector/demo/index.html",
+  "forwardSelector": "footer a[href=\"./compute/\"]",
+  "backSelector": "main > p a[href=\"../\"]",
   "link": {
     "text": "Compute & storage lab",
-    "href": "http://127.0.0.1:39083/idb-vector/demo/compute/",
+    "href": "http://127.0.0.1:42885/idb-vector/demo/compute/",
     "width": 167.734375,
     "height": 16,
     "visible": true,
@@ -23,6 +24,11 @@
   "computeNarrow": {
     "scrollWidth": 390,
     "innerWidth": 390
+  },
+  "backLink": {
+    "path": "/idb-vector/demo/",
+    "title": "Wikipedia, on your device · idb-vector",
+    "heading": "Wikipedia, on your device."
   },
   "demoNarrow": {
     "scrollWidth": 390,

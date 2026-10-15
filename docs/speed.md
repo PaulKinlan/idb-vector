@@ -9,6 +9,8 @@ For demo style or markup changes, drive the affected demo in Chromium, assert th
 `npm run test:compute` is that lab's focused browser check (real click, 100k × 128
 synthetic corpus, storage roundtrips, four-path top-k, near-tie fixture, screenshots);
 measured **62 s on the 2-vCPU fleet VM**, so it is deliberately in neither the fast unit
-tier nor the merger's full gate. Its pure numeric contract — corpus determinism, cosine
+tier nor the merger's full gate. It is host-load sensitive — the same check has measured
+57–96 s, and its internal 240 s run bound was hit while another lane held the heavy slot —
+so run it on a machine that is not saturated. Its pure numeric contract — corpus determinism, cosine
 definition, tie ordering, and the comparison instrument's mutant rejection — is covered
 by `tests/unit/compute-engines.test.mjs` in the fast tier, which launches no browser.

@@ -91,5 +91,13 @@ try {
     assert.ok(result.comparison.maxAbsoluteScoreError < checks.nearTies.float32SpacingBelowOne);
   }
   await writeFile(`${output}/checks.json`, JSON.stringify(checks, null, 2));
+  if (local) {
+    // The lab is linked back to the demo. Its "../" back-link is a directory URL, which the local
+    // harness only serves if it resolves a trailing slash to index.html the way GitHub Pages does;
+    // this runs LAST because the checks above import ./engines.js relative to the lab page.
+    await page.clearViewport();
+    await page.click('main > p a[href="../"]');
+    await page.waitFor(() => /(^|\/)demo\/(index\.html)?$/.test(location.pathname) && !!document.querySelector('#load'), { label: 'demo back-link' });
+  }
   console.log(JSON.stringify({ output, gpu: report.engines.gpu, storage: report.storage, queries: report.queries.map(q => Object.fromEntries(Object.entries(q.results).map(([k,v]) => [k, v.ms]))) }, null, 2));
 } finally { await page.close(); if (local) await new Promise(resolve => local.server.close(resolve)); }

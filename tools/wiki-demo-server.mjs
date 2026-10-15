@@ -7,13 +7,14 @@ export async function serve() {
     const path = new URL(req.url, 'http://localhost').pathname;
     // Exercise the same repository subpath used by GitHub Pages.
     const name = path.replace(/^\/idb-vector\//, '');
-    if (path === name || name.includes('..') || !/^(demo\/[\w./-]+|index\.js|utils\/(?:sortedarray|geometry|packed-snapshot)\.js)$/.test(name)) {
+    // GitHub Pages serves index.html for a trailing-slash directory URL, so resolve the directory
+    // BEFORE validating: validating the raw name rejected the bare 'demo/' root, which is exactly
+    // where the lab's own "../" back-link points, while /demo/compute/ happened to pass.
+    const file = name.endsWith('/') ? `${name}index.html` : name;
+    if (path === name || name.includes('..') || !/^(demo\/[\w./-]+|index\.js|utils\/(?:sortedarray|geometry|packed-snapshot)\.js)$/.test(file)) {
       res.writeHead(404).end(); return;
     }
     try {
-      // GitHub Pages serves index.html for a trailing-slash directory URL, so the harness must too:
-      // otherwise a real /demo/compute/ link fails locally while working in production.
-      const file = name.endsWith('/') ? `${name}index.html` : name;
       const body = await readFile(new URL(file, root));
       res.setHeader('Content-Type', ({ js: 'text/javascript', html: 'text/html', css: 'text/css', json: 'application/json', wasm: 'application/wasm' })[file.split('.').pop()] || 'application/octet-stream');
       res.end(body);
