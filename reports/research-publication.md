@@ -35,10 +35,14 @@ raw-CDP helper, temporary profile and owned ephemeral local HTTP server:
 - 1280px desktop and 390px mobile, light and dark: computed theme colours asserted,
   no document-width overflow. Wide tables scroll within their own keyboard-focusable region.
 - Demo and Markdown links resolved through the browser with HTTP 200.
-- All 49 distinct external targets checked with bounded HTTP requests: 48 returned 200;
-  npm's Vectra page returned 403. An actual Chromium visit confirmed a security challenge,
-  not a missing citation. The source link is preserved and the accessible Vectra docs
-  remain linked. This exception is also disclosed on the report itself.
+- All 49 distinct external targets checked with bounded HTTP requests: 47 returned 200,
+  patrickbrosset.com failed once with a transient `fetch failed`, and npm's Vectra page
+  returned 403. These are the numbers in the committed receipt (`externalLinks` in
+  [research-publication.json](research-publication.json)); an earlier draft of this line
+  said "48 returned 200", which its own receipt does not support. An actual Chromium visit
+  confirmed the npm response is a security challenge, not a missing citation. The source
+  link is preserved and the accessible Vectra docs remain linked. The npm exception is also
+  disclosed on the report itself.
 - Chromium navigated to VectorSearch.js, MeMemo's arXiv HTML and the immutable packed-read
   evidence on GitHub; actual page titles and content lengths recorded.
 
@@ -56,15 +60,41 @@ Two successive generations produced identical SHA-256. `git diff --check` and th
 `npm audit` reports nine existing serve-tree advisories (six high, one moderate, two low),
 none attributed to marked; dependency remediation is outside this publication change.
 
-## Deployment status
+## Public deployment verification, 15 October 2026
 
-This receipt verifies the branch on an owned local server, **not the public `/research/`
-route**. Independent review and main integration are required before Pages deploys.
-The existing `/demo/` staging remains intact. After deployment run:
+The report landed on `main` (`ec1a9f6`) and Pages deployed it. The public route was then
+checked against the served bytes with the same checker, run from this repository:
 
 ```sh
 RESEARCH_URL=https://paulkinlan.github.io/idb-vector/research/ \
-  RESEARCH_EVIDENCE=.cache/research-live npm run test:research -- --links
+  RESEARCH_EVIDENCE=.cache/research-live npm run test:research -- --links   # exit 0
 ```
 
-Do not describe the proposed public research URL as verified until that check runs.
+Actual Chromium 155.0.8059.39 (a newer build than the 152.0.7977.82 of the local run) over
+raw CDP, no local server involved for the page under test:
+
+- **The served bytes are the committed bytes.** `curl` SHA-256 of the live
+  `/research/index.html` is `8360a1f6ac064873786bea14986348f297ad0cb6d67e27c6420b83b0368d0ea5`
+  and of the live `/research/architecture.md` is
+  `ee77a72e93509d78afde0108c246d05015dde531ec6aee1ba9ab569ebafd4f9a`; both equal the
+  committed files. The deployed page is not a stale or divergent build.
+- 66 citation occurrences preserved in order, 30 headings, eight tables and 53
+  evidence-label spans present on the live document.
+- All 29 contents anchors clicked with real CDP pointer events; fragment and target
+  viewport position asserted after each click.
+- 1280px and 390px, light and dark: theme colours asserted, no document-width overflow.
+- Live same-origin links resolved: `/demo/` and `/research/architecture.md` both 200.
+- 49 distinct external targets: 47 returned 200, `arxiv.org/pdf/1702.01417.pdf` returned
+  301 (the checker deliberately does not follow publisher redirects), npm's Vectra page
+  returned 403. The transient `patrickbrosset.com` fetch failure from the local run did
+  not reproduce; it returned 200. No citation target was removed or rewritten.
+- Chromium visited VectorSearch.js, MeMemo's arXiv HTML and the immutable packed-read
+  evidence at `232b95c`; page titles and content lengths recorded.
+
+The screenshots for this phase are in `.cache/research-live/` (gitignored, as the earlier
+local set was): `1280-light`, `1280-dark`, `390-light`, `390-dark` and `anchor-sources`.
+They were captured but not read by the author of this receipt; the assertions above are
+programmatic. The machine-readable receipt for this phase is the `live` key in
+[research-publication.json](research-publication.json).
+
+The existing `/demo/` staging remains intact and serving.
