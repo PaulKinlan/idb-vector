@@ -3,7 +3,9 @@
 // Pages, and the lab's own "../" back-link points at the bare /demo/ root. Pure routing, no browser.
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { serve } from '../../tools/wiki-demo-server.mjs';
+import { realVectorAssets } from '../../tools/real-vector-assets.mjs';
 
 test('the harness serves directory URLs as GitHub Pages does, and nothing outside the staged set', async (t) => {
   const { server, url } = await serve();
@@ -25,9 +27,24 @@ test('the harness serves directory URLs as GitHub Pages does, and nothing outsid
   }
   assert.equal((await served('/utils/geometry.js')).type, 'text/javascript');
   assert.equal((await served('/index.js')).status, 200);
-  // Only the demo, the library entry point and the three utils the Pages workflow stages are
+  // index.js imports this eagerly. Check both the local mirror and the Pages staging
+  // list so a missing production module cannot pass the browser demo gate.
+  const sideStore = await served('/utils/side-store.js');
+  assert.equal(sideStore.status, 200);
+  assert.equal(sideStore.type, 'text/javascript');
+  assert.match(sideStore.body, /export function buildCodeRecord/);
+  const pages = await readFile(new URL('../../.github/workflows/pages.yml', import.meta.url), 'utf8');
+  assert.match(pages, /cp [^\n]*utils\/side-store\.js site\/utils\//);
+  const realAssets = realVectorAssets('/example/repo');
+  // Both browser servers must serve every eagerly imported local module of index.js.
+  const entry = await readFile(new URL('../../index.js', import.meta.url), 'utf8');
+  for (const [, module] of entry.matchAll(/(?:from\s+|import\s*)["'](\.\/utils\/[^"']+)["']/g)) {
+    assert.ok(realAssets.has(module.slice(1)), `real-vectors server must serve ${module}`);
+    assert.equal((await served(module.slice(1))).status, 200, `wiki demo must serve ${module}`);
+  }
+  // Only the demo, the library entry point and the utils the Pages workflow stages are
   // reachable: a path outside that set must stay 404 rather than hide a missing staging step.
-  for (const path of ['/README.md', '/package.json', '/index.html', '/demo/nope.html', '/utils/side-store.js', '/demo/../package.json']) {
+  for (const path of ['/README.md', '/package.json', '/index.html', '/demo/nope.html', '/utils/unlisted.js', '/demo/../package.json']) {
     assert.equal((await served(path)).status, 404, path);
   }
 });

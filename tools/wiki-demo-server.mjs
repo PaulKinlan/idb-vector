@@ -11,7 +11,7 @@ export async function serve() {
     // BEFORE validating: validating the raw name rejected the bare 'demo/' root, which is exactly
     // where the lab's own "../" back-link points, while /demo/compute/ happened to pass.
     const file = name.endsWith('/') ? `${name}index.html` : name;
-    if (path === name || name.includes('..') || !/^(demo\/[\w./-]+|index\.js|utils\/(?:sortedarray|geometry|packed-snapshot)\.js)$/.test(file)) {
+    if (path === name || name.includes('..') || !/^(demo\/[\w./-]+|index\.js|utils\/(?:sortedarray|geometry|packed-snapshot|side-store)\.js)$/.test(file)) {
       res.writeHead(404).end(); return;
     }
     try {
