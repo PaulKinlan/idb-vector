@@ -256,6 +256,26 @@ reject with `InvalidStateError`. An external version upgrade also closes the con
 on `versionchange`, so the application should create a new instance to use the new version.
 See [format, resource bounds, evidence and caveats](reports/packed-snapshot.md).
 
+## Optional int8 code side-store with bounded exact rerank
+
+This opt-in, caller-owned side-store is for **non-resident, unfiltered** read-per-query workloads. It never changes `query()` or the packed snapshot path. At 100k × 128, measured code reads plus bounded rerank took 126.2 ms versus 340.3 ms for a packed Float32 snapshot; 100 candidates reached recall@10 1.000 on the measured corpora, **not a universal recall guarantee**. Int8 codes only select candidates; final similarities are computed from the original vectors in Float64. See [ADR 0001](docs/adr/0001-side-store-contract.md) for the identity and snapshot contract.
+
+Create an out-of-line `codes` object store in your own schema upgrade. Maintain a trustworthy corpus-wide epoch in your application: every insert, update, and delete of a vector must advance that epoch (preferably in the same transaction). A constant or per-record revision is **not** an epoch provider. Supply a `getEpoch(db)` callback reading that live epoch; missing or mismatched epochs reject, never silently fall back. Never mutate the corpus without advancing it. The caller owns rebuilding the side-store after changes.
+
+```js
+const getEpoch = async (db) => readCorpusEpochFromYourMetadataStore(db);
+const stats = await vectors.buildSideStore({ sideStore: 'codes', getEpoch });
+const { results, info } = await vectors.querySideStore(queryVector, {
+  sideStore: 'codes', getEpoch, epoch: stats.epoch,
+  candidateBudget: 100, limit: 10,
+});
+// results contain exact { key, object, similarity }; keys are IndexedDB primary keys.
+```
+
+`candidateBudget` defaults to 300; at most that many originals are fetched in **one** readonly transaction. `eligibleKeys` may be supplied as an Array or Set of primary keys and is applied before the budget with IndexedDB key-value equivalence (including Date, array and binary keys). Record predicates and function-valued `eligibleKeys` are rejected. For selective filters, prefer exact `queryCandidates()` on indexed/eligible originals: a 1% eligible set measured 89.8 ms exact versus 100.2 ms codes. Do not claim a filtered code-store speedup from these measurements.
+
+**Write cost:** codes add approximately one byte per dimension per row plus norms/quantization metadata and primary keys; measured per-row code updates cost 5–323 µs, while writing 100k individual original records already costs 29–48 s on the measurement VM. A resident working set showed no speedup from int8 scanning. Caller-provided epoch correctness is essential: a lying or non-atomic epoch provider cannot be validated by this library.
+
 ## Optional geometry diagnostic and whitening (new API)
 
 ```javascript
