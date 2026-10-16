@@ -36,6 +36,16 @@ test('canonicalKey serializes primitives, Dates, Arrays, and binary buffers to c
   assert.equal(canonicalKey(b1), canonicalKey(b2));
   assert.equal(canonicalKey(b1), '["binary",[1,2,3]]');
   assert.equal(canonicalKey(new Uint8Array([0, 1, 2, 3]).subarray(1, 3)), '["binary",[1,2]]');
+  assert.equal(canonicalKey(-0), canonicalKey(0));
+  assert.notEqual(canonicalKey(Infinity), canonicalKey(-Infinity));
+  assert.throws(() => canonicalKey(null), /valid IndexedDB primary keys/);
+  assert.notEqual(canonicalKey(Infinity), canonicalKey('+Infinity'));
+  assert.throws(() => canonicalKey(NaN), /valid IndexedDB primary keys/);
+});
+
+test('pure code builder refuses an unstamped corpus epoch', () => {
+  assert.throws(() => buildCodeRecord([{ embedding: [1, 0] }], { keys: [7] }), /requires a store-wide epoch/);
+  assert.equal(buildCodeRecord([{ embedding: [1, 0] }], { keys: [7], epoch: 7 }).epoch, 7);
 });
 
 test('buildCodeRecord quantizes vectors to int8 and precomputes norms', () => {

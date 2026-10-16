@@ -13,7 +13,11 @@ export function vectorNorm(vector) {
 // Only IndexedDB key types are accepted; unsupported keys must not collide with a valid key.
 export function canonicalKey(key) {
   const encode = (value) => {
-    if (typeof value === 'number' && Number.isFinite(value)) return ['number', value === 0 ? 0 : value];
+    if (typeof value === 'number' && !Number.isNaN(value)) {
+      // JSON.stringify(Infinity) becomes null, so tag the two legal infinite IDB
+      // keys separately; -0 and +0 remain the same IndexedDB key.
+      return ['number', value === Infinity ? '+Infinity' : value === -Infinity ? '-Infinity' : value === 0 ? 0 : value];
+    }
     if (typeof value === 'string') return ['string', value];
     if (value instanceof Date && Number.isFinite(value.getTime())) return ['date', value.getTime()];
     if (Array.isArray(value)) return ['array', value.map(encode)];
@@ -32,7 +36,7 @@ export function canonicalKey(key) {
 // Exact primary keys must be provided via options.keys (matching cursor.primaryKey, ADR 0001).
 export function buildCodeRecord(records, options = {}) {
   const {
-    epoch = options.revision ?? 1,
+    epoch = options.revision ?? null,
     vectorPath = 'embedding',
     keys: explicitKeys = null,
   } = options;

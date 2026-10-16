@@ -85,6 +85,17 @@ function assertThreshold(value) {
 // matches" when the corpus was restricted.
 const CANDIDATE_OPTION_KEYS = ["limit", "threshold", "index", "range", "predicate"];
 const QUERY_OPTION_KEYS = ["limit", "threshold"];
+const SIDE_STORE_BUILD_OPTION_KEYS = ["sideStore", "key", "epoch", "getEpoch", "revision"];
+const SIDE_STORE_QUERY_OPTION_KEYS = ["sideStore", "key", "epoch", "getEpoch", "candidateBudget", "limit", "threshold", "predicate", "eligibleKeys", "codeRecord", "revision"];
+const SIDE_STORE_FACTORY_OPTION_KEYS = ["sideStore", "key", "epoch", "revision", "candidateBudget", "getEpoch"];
+function assertSideStoreOptions(method, options, allowed) {
+  if (!isRecord(options)) throw new TypeError(`${method}() options must be an object; got ${describe(options)}`);
+  for (const key of Object.keys(options)) {
+    if (!allowed.includes(key)) {
+      throw new TypeError(`${method}() option ${describe(key)} is not supported; supported options are ${allowed.join(", ")}`);
+    }
+  }
+}
 const NO_CANDIDATES = { index: null, range: null, predicate: null };
 
 function normalizeCandidateOptions(options) {
@@ -523,6 +534,7 @@ class VectorDB {
   // Codes order candidates only; final scores come from an exact Float64 rerank of fetched originals.
   // Recommended for unfiltered non-resident workloads; selective filtered queries should use queryCandidates().
   async buildSideStore(options = {}) {
+    assertSideStoreOptions("buildSideStore", options, SIDE_STORE_BUILD_OPTION_KEYS);
     const {
       sideStore = "codes",
       key = "code_record",
@@ -609,6 +621,7 @@ class VectorDB {
 
   async querySideStore(queryVector, options = {}) {
     assertVector(queryVector, "querySideStore() vector");
+    assertSideStoreOptions("querySideStore", options, SIDE_STORE_QUERY_OPTION_KEYS);
     const {
       sideStore = "codes",
       key = "code_record",
@@ -757,6 +770,7 @@ class VectorDB {
   }
 
   async createSideStore(options = {}) {
+    assertSideStoreOptions("createSideStore", options, SIDE_STORE_FACTORY_OPTION_KEYS);
     const {
       sideStore = "codes",
       key = "code_record",

@@ -338,12 +338,30 @@ try {
         check(indexedDB.cmp(excluded, included) !== 0, 'p4s: two keys are distinct in IndexedDB');
         await db.insert({ embedding: [1, 0] }, excluded);
         await db.insert({ embedding: [0.5, 0.5] }, included);
+        await db.insert({ embedding: [0.9, 0.1] }, Infinity);
+        await db.insert({ embedding: [0, 1] }, -Infinity);
         await db.buildSideStore({ getEpoch: defaultGetEpoch });
         const res = await db.querySideStore([1, 0], {
           epoch: 1, getEpoch: defaultGetEpoch, eligibleKeys: [included], candidateBudget: 1,
         });
         check(res.results.length === 1 && indexedDB.cmp(res.results[0].key, included) === 0,
           'p4s: only the eligible array key survives before truncation');
+        const infinite = await db.querySideStore([1, 0], {
+          epoch: 1, getEpoch: defaultGetEpoch, eligibleKeys: [Infinity], candidateBudget: 1,
+        });
+        check(infinite.results.length === 1 && indexedDB.cmp(infinite.results[0].key, Infinity) === 0,
+          'e59: legal Infinity primary key matches without admitting -Infinity');
+        let typoError;
+        try {
+          await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, treshold: 0.999 });
+        } catch (error) { typoError = error; }
+        check(typoError instanceof TypeError && typoError.message.includes('treshold'),
+          '2st: querySideStore refuses unknown filter options');
+        let buildTypo;
+        try { await db.buildSideStore({ getEpoch: defaultGetEpoch, revsion: 1 }); }
+        catch (error) { buildTypo = error; }
+        check(buildTypo instanceof TypeError && buildTypo.message.includes('revsion'),
+          '2st: buildSideStore refuses unknown revision options');
         let functionError;
         try {
           await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, eligibleKeys: () => true });
