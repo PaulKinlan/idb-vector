@@ -103,7 +103,16 @@ export function buildCodeRecord(records, options = {}) {
       if (val < mins[d]) mins[d] = val;
       if (val > maxs[d]) maxs[d] = val;
     }
-    norms[i] = Math.sqrt(normSq);
+    const norm = Math.sqrt(normSq);
+    norms[i] = norm;
+    // norms is a Float32Array: a finite f64 value beyond ~3.4e38 is stored as
+    // Infinity, which turns every candidate score into 0/NaN and silently
+    // corrupts bounded top-k. Refuse instead (ADR 0001: bounded exact rerank).
+    // This one check subsumes mins/maxs/scales: norm >= any |coordinate| and
+    // norm >= (max-min)/2, so any Float32 overflow there overflows here first.
+    if (!Number.isFinite(norms[i])) {
+      throw new TypeError(`Record ${JSON.stringify(key)} has L2 norm ${norm} that overflows Float32; storing it would silently corrupt candidate ranking`);
+    }
   }
 
   // Compute per-dimension scales
@@ -203,6 +212,11 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
       dotApprox += weights[d] * codes[offset + d];
     }
     const dot = dotApprox + baseOffset;
+    // A stored non-finite norm means the record was built before overflow
+    // validation existed; fail loudly rather than silently mis-ranking.
+    if (!Number.isFinite(norms[i])) {
+      throw new TypeError(`Stored code record has a non-finite norm at index ${i}; it cannot be scored safely. Rebuild the side-store.`);
+    }
     const denom = queryMagnitude * (norms[i] || 1);
     const score = dot / denom;
 

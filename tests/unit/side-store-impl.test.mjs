@@ -182,3 +182,49 @@ test('rerankCandidates respects threshold', () => {
   assert.equal(results.length, 2);
   assert.deepEqual(results.map(r => r.key), ['a', 'b']);
 });
+
+test('buildCodeRecord refuses vectors whose Float32 storage would silently corrupt ranking', () => {
+  // Finite f64 coordinates whose L2 norm exceeds Float32 max (~3.4e38): the
+  // stored norm would become Infinity and every scan score would collapse.
+  assert.throws(
+    () => buildCodeRecord(
+      [
+        { embedding: [0, 1e40] },
+        { embedding: [1e40, 0] },
+      ],
+      { keys: ['best', 'wrong'], epoch: 1 },
+    ),
+    /overflows Float32/,
+  );
+
+  // A single coordinate beyond Float32 range always implies norm overflow
+  // (norm >= max|coordinate|), so it is rejected by the same check.
+  assert.throws(
+    () => buildCodeRecord([{ embedding: [1e39] }], { keys: ['big'], epoch: 1 }),
+    /overflows Float32/,
+  );
+
+  // Values just inside Float32 range are still representable and must build.
+  const edge = buildCodeRecord(
+    [{ embedding: [1e38, -1e38] }],
+    { keys: ['edge'], epoch: 1 },
+  );
+  assert.equal(edge.count, 1);
+  assert.ok(Number.isFinite(edge.norms[0]));
+  assert.ok(Number.isFinite(edge.mins[0]));
+  assert.ok(Number.isFinite(edge.scales[0]));
+});
+
+test('scanSideStore refuses stored code records with non-finite norms', () => {
+  const record = buildCodeRecord(
+    [{ embedding: [1, 0] }],
+    { keys: ['a'], epoch: 1 },
+  );
+  // Simulate a record published before overflow validation existed.
+  record.norms[0] = Infinity;
+
+  assert.throws(
+    () => scanSideStore(record, [1, 0], 10),
+    /non-finite norm/,
+  );
+});
