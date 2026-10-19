@@ -228,3 +228,25 @@ test('scanSideStore refuses stored code records with non-finite norms', () => {
     /non-finite norm/,
   );
 });
+
+test('buildCodeRecord refuses vectors whose L2 norm underflows Float32 to zero (idb-vector-b1a)', () => {
+  // Finite f64 coordinates whose L2 norm sits below the Float32 minimum: the
+  // stored norm would become 0, (norms[i] || 1) would silently substitute 1,
+  // and a bounded scan would distort or tie every score.
+  assert.throws(
+    () => buildCodeRecord(
+      [
+        { embedding: [1e-50, 0] },
+        { embedding: [0, 1e-50] },
+      ],
+      { keys: ['wrong', 'best'], epoch: 1 },
+    ),
+    /underflows Float32/,
+  );
+
+  // A genuine all-zero vector is not an underflow; it keeps its existing
+  // behaviour (stored norm 0, (norms[i] || 1) guard, rerankCandidates rejects).
+  const zero = buildCodeRecord([{ embedding: [0, 0] }], { keys: ['zero'], epoch: 1 });
+  assert.equal(zero.count, 1);
+  assert.equal(zero.norms[0], 0);
+});
