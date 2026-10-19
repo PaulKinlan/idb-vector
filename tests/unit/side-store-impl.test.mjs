@@ -306,19 +306,71 @@ test('sweep: every Float32Array narrowing in side-store.js is enumerated and bou
     'Float32Array inventory changed: add a boundedness proof for the new site or use Float64/Int8');
 
   // Proof for the stored tables: a boundary corpus that survives the build
-  // guards reads back finite everywhere, and the pathological corpora on both
-  // ends of Float32 range are rejected before anything is published.
+  // guards reads back finite AND positive everywhere (scale 0 is the rrq
+  // corruption), and the pathological corpora at both extremes of Float32
+  // range plus the scale-underflow case are rejected before anything is
+  // published.
   const boundary = buildCodeRecord([{ embedding: [1e38, -1e38] }], { keys: ['edge'], epoch: 1 });
   for (const table of [boundary.norms, boundary.mins, boundary.scales]) {
-    for (const v of table) assert.ok(Number.isFinite(v), `stored table has non-finite entry ${v}`);
+    for (const v of table) {
+      assert.ok(Number.isFinite(v), `stored table has non-finite entry ${v}`);
+      assert.ok(v > 0 || table === boundary.mins, `stored table has non-positive entry ${v}`);
+    }
   }
   assert.throws(() => buildCodeRecord([{ embedding: [1e40] }], { keys: ['big'], epoch: 1 }), /overflows Float32/);
   assert.throws(() => buildCodeRecord([{ embedding: [1e-50] }], { keys: ['tiny'], epoch: 1 }), /underflows Float32/);
   assert.throws(() => buildCodeRecord([{ embedding: [0, 0] }], { keys: ['zero'], epoch: 1 }), /all-zero vector/);
+  assert.throws(
+    () => buildCodeRecord([{ embedding: [1e-44, 0] }, { embedding: [0, 1e-44] }], { keys: ['a', 'b'], epoch: 1 }),
+    /scale underflows Float32/,
+  );
 
   // Proof for the transient path: query weights are Float64 and stay finite
   // for q*scale products far beyond Float32 range.
   const { weights } = sq8QueryWeights([1e38], [0], [1e38 / 254]);
   assert.ok(weights instanceof Float64Array, 'query weights must be Float64Array, not a float32 narrowing');
   assert.ok(Number.isFinite(weights[0]) && weights[0] > 0, 'query weight overflowed');
+});
+
+test('buildCodeRecord refuses dimensions whose Float32 scale underflows to zero (idb-vector-rrq regression)', () => {
+  // Norms are positive finite f32 denormals here (~9.8e-45) and pass every
+  // norm guard, but range/254 (~7.7e-47) rounds to stored scale 0, which
+  // poisoned the dimension's codes and silently returned wrong over best.
+  assert.throws(
+    () => buildCodeRecord(
+      [
+        { embedding: [1e-44, 0] },
+        { embedding: [0, 1e-44] },
+      ],
+      { keys: ['wrong', 'best'], epoch: 1 },
+    ),
+    /scale underflows Float32/,
+  );
+
+  // A constant dimension (range === 0) is not underflow: the || 1 fallback
+  // stores scale 1 and the dimension contributes a harmless constant.
+  const constant = buildCodeRecord(
+    [
+      { embedding: [5, 7] },
+      { embedding: [9, 7] },
+    ],
+    { keys: ['a', 'b'], epoch: 1 },
+  );
+  assert.equal(constant.scales[0] > 0, true);
+  assert.equal(constant.scales[1], 1);
+});
+
+test('scanSideStore refuses stored code records with non-positive or non-finite scales', () => {
+  const record = buildCodeRecord(
+    [{ embedding: [1, 0] }],
+    { keys: ['a'], epoch: 1 },
+  );
+  // Simulate a record published before scale validation existed: underflow
+  // rounds a positive range's scale to stored 0. No legitimate build stores 0
+  // (constant dimensions take the || 1 fallback), so fail loudly.
+  record.scales[0] = 0;
+  assert.throws(
+    () => scanSideStore(record, [1, 0], 10),
+    /non-positive or non-finite scale/,
+  );
 });

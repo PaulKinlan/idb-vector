@@ -129,7 +129,23 @@ export function buildCodeRecord(records, options = {}) {
 
   // Compute per-dimension scales
   for (let d = 0; d < dims; d++) {
-    scales[d] = (maxs[d] - mins[d]) / 254 || 1;
+    const range = maxs[d] - mins[d];
+    scales[d] = range / 254 || 1;
+    // scales is a Float32Array: a positive f64 range/254 can round to stored 0
+    // (f32 minimum denormal is ~1.4e-45), which poisons the whole dimension's
+    // codes (x/0 → Infinity/NaN) and silently corrupts bounded top-k. Refuse
+    // instead. A constant dimension (range === 0) legitimately takes the
+    // || 1 fallback, so a stored scale of 0 is ALWAYS corruption — which lets
+    // scanSideStore() reject legacy records loudly, same argument as stored
+    // norms. Overflow of the stored scale is subsumed by the norm check above
+    // (range/254 <= 2*max|coordinate| < Float32 max), checked here for symmetry
+    // with the sweep inventory.
+    if (!Number.isFinite(scales[d])) {
+      throw new TypeError(`Dimension ${d} has a value range whose scale overflows Float32; storing it would silently corrupt candidate ranking`);
+    }
+    if (scales[d] === 0) {
+      throw new TypeError(`Dimension ${d} has a value range ${range} whose scale underflows Float32 to zero; storing it would silently corrupt candidate ranking`);
+    }
   }
 
   // Second pass: quantize each vector to int8 (-127..127)
@@ -174,6 +190,14 @@ export function sq8QueryWeights(queryVector, mins, scales) {
     const q = queryVector[d];
     const s = scales[d];
     const m = mins[d];
+    // A stored scale that is not positive and finite means the record was
+    // built before scale validation existed (underflow rounds to stored 0).
+    // No legitimate build stores that (constant dimensions take the || 1
+    // fallback), so fail loudly rather than silently mis-ranking
+    // (idb-vector-rrq).
+    if (!(s > 0) || !Number.isFinite(s)) {
+      throw new TypeError(`Stored code record has a non-positive or non-finite scale at dimension ${d}; it cannot be scored safely. Rebuild the side-store.`);
+    }
     weights[d] = q * s;
     baseOffset += q * (m + 127 * s);
   }
