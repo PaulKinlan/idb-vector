@@ -162,7 +162,12 @@ export function buildCodeRecord(records, options = {}) {
 // Compute query weights and constant offset for SQ8 dot product scoring
 export function sq8QueryWeights(queryVector, mins, scales) {
   const dims = queryVector.length;
-  const weights = new Float32Array(dims);
+  // Weights are transient per-query intermediates, never stored, so there is no
+  // reason to narrow them early: a finite q*scale beyond Float32 range (e.g.
+  // q=1e38 over a fully representable corpus) silently became Infinity here and
+  // corrupted the bounded scan even when every stored table was valid
+  // (idb-vector-p3o). Keep Float64, matching the research harness.
+  const weights = new Float64Array(dims);
   let baseOffset = 0;
 
   for (let d = 0; d < dims; d++) {

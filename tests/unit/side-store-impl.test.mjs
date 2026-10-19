@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   buildCodeRecord,
   sq8QueryWeights,
@@ -255,4 +257,68 @@ test('buildCodeRecord refuses vectors whose L2 norm underflows Float32 to zero (
     () => buildCodeRecord([{ embedding: [0, 0] }], { keys: ['zero'], epoch: 1 }),
     /all-zero vector/,
   );
+});
+
+test('finite 1e38 query over a representable corpus keeps exact ranking (idb-vector-p3o regression)', () => {
+  // All stored norms are positive finite and pass the build guards; before the
+  // Float64 query-weights fix, q*scale (~3.9e73) narrowed to Float32 Infinity
+  // and the budget-1 scan returned 'third' with -Infinity.
+  const rows = [
+    { embedding: [0, 1e38] },
+    { embedding: [1e38, 5e37] },
+    { embedding: [1e38, 0] },
+  ];
+  const keys = ['best', 'wrong', 'third'];
+  const query = [0, 1e38];
+
+  const codeRecord = buildCodeRecord(rows, { keys, epoch: 1 });
+  const top = scanSideStore(codeRecord, query, 1);
+  assert.equal(top[0].key, 'best');
+  assert.ok(Number.isFinite(top[0].score));
+
+  const exact = rerankCandidates(rows, 'embedding', query, 1, null, keys);
+  assert.equal(exact[0].key, 'best');
+  assert.ok(Math.abs(exact[0].similarity - top[0].score) < 1e-6,
+    `scan score ${top[0].score} should track exact cosine ${exact[0].similarity}`);
+});
+
+test('sweep: every Float32Array narrowing in side-store.js is enumerated and bounded (no surface left)', () => {
+  // The same failure pattern was found four times (stored norms, underflow,
+  // legacy zero, query weights). Lock the inventory: every float32 narrowing
+  // must appear here WITH a proof it cannot produce a non-finite or overflowing
+  // intermediate. A new Float32Array in the source fails this test until it is
+  // either guarded and added below, or moved to Float64.
+  const source = readFileSync(
+    fileURLToPath(new URL('../../utils/side-store.js', import.meta.url)),
+    'utf8',
+  );
+
+  // Math.fround is the other float32 narrowing; none is allowed.
+  assert.ok(!source.includes('Math.fround'), 'Math.fround (float32 narrowing) found in side-store.js');
+
+  // The only permitted Float32Arrays are the STORED tables of buildCodeRecord
+  // (norms, mins, scales, maxs): compact on disk and guarded at build time by
+  // the L2-norm check (norm is finite, positive, and >= max|coordinate|, which
+  // subsumes mins/maxs/scales). Transient per-query intermediates (query
+  // weights) must be Float64.
+  const sites = [...source.matchAll(/new Float32Array\(([^)]*)\)/g)].map(m => m[1].trim()).sort();
+  assert.deepEqual(sites, ['0', '0', '0', 'count', 'dims', 'dims', 'dims'],
+    'Float32Array inventory changed: add a boundedness proof for the new site or use Float64/Int8');
+
+  // Proof for the stored tables: a boundary corpus that survives the build
+  // guards reads back finite everywhere, and the pathological corpora on both
+  // ends of Float32 range are rejected before anything is published.
+  const boundary = buildCodeRecord([{ embedding: [1e38, -1e38] }], { keys: ['edge'], epoch: 1 });
+  for (const table of [boundary.norms, boundary.mins, boundary.scales]) {
+    for (const v of table) assert.ok(Number.isFinite(v), `stored table has non-finite entry ${v}`);
+  }
+  assert.throws(() => buildCodeRecord([{ embedding: [1e40] }], { keys: ['big'], epoch: 1 }), /overflows Float32/);
+  assert.throws(() => buildCodeRecord([{ embedding: [1e-50] }], { keys: ['tiny'], epoch: 1 }), /underflows Float32/);
+  assert.throws(() => buildCodeRecord([{ embedding: [0, 0] }], { keys: ['zero'], epoch: 1 }), /all-zero vector/);
+
+  // Proof for the transient path: query weights are Float64 and stay finite
+  // for q*scale products far beyond Float32 range.
+  const { weights } = sq8QueryWeights([1e38], [0], [1e38 / 254]);
+  assert.ok(weights instanceof Float64Array, 'query weights must be Float64Array, not a float32 narrowing');
+  assert.ok(Number.isFinite(weights[0]) && weights[0] > 0, 'query weight overflowed');
 });
