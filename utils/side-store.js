@@ -107,17 +107,23 @@ export function buildCodeRecord(records, options = {}) {
     norms[i] = norm;
     // norms is a Float32Array: a finite f64 value beyond Float32 range in
     // either direction is stored wrongly — above ~3.4e38 as Infinity, below
-    // ~7e-46 as 0 (which (norms[i] || 1) would then silently substitute with
-    // 1). Both ends turn candidate scores into 0/NaN or distorted ties and
-    // silently corrupt bounded top-k. Refuse instead (ADR 0001: bounded exact
-    // rerank). These checks subsume mins/maxs/scales: norm >= any
-    // |coordinate|, so a Float32 overflow or all-tiny dimension overflows or
-    // underflows here first.
+    // ~7e-46 as 0. Both ends turn candidate scores into 0/NaN or distorted
+    // ties and silently corrupt bounded top-k. Refuse instead (ADR 0001:
+    // bounded exact rerank). These checks subsume mins/maxs/scales: norm >=
+    // any |coordinate|, so a Float32 overflow or all-tiny dimension overflows
+    // or underflows here first.
+    // All-zero vectors are refused too: insert() and rerankCandidates() already
+    // reject them (cosine is undefined/NaN), so a stored norm of 0 is ALWAYS
+    // corruption — which lets scanSideStore() reject legacy records loudly
+    // instead of silently mis-ranking them (idb-vector-pku).
     if (!Number.isFinite(norms[i])) {
       throw new TypeError(`Record ${JSON.stringify(key)} has L2 norm ${norm} that overflows Float32; storing it would silently corrupt candidate ranking`);
     }
-    if (norms[i] === 0 && norm > 0) {
-      throw new TypeError(`Record ${JSON.stringify(key)} has L2 norm ${norm} that underflows Float32 to zero; storing it would silently corrupt candidate ranking`);
+    if (norms[i] === 0) {
+      if (norm > 0) {
+        throw new TypeError(`Record ${JSON.stringify(key)} has L2 norm ${norm} that underflows Float32 to zero; storing it would silently corrupt candidate ranking`);
+      }
+      throw new TypeError(`Record ${JSON.stringify(key)} is an all-zero vector; cosine similarity is undefined (NaN) and the exact rerank refuses it`);
     }
   }
 
@@ -218,12 +224,15 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
       dotApprox += weights[d] * codes[offset + d];
     }
     const dot = dotApprox + baseOffset;
-    // A stored non-finite norm means the record was built before overflow
-    // validation existed; fail loudly rather than silently mis-ranking.
-    if (!Number.isFinite(norms[i])) {
-      throw new TypeError(`Stored code record has a non-finite norm at index ${i}; it cannot be scored safely. Rebuild the side-store.`);
+    // A stored norm that is not positive and finite means the record was built
+    // before range validation existed: Infinity from Float32 overflow, or 0
+    // from underflow / a zero vector. buildCodeRecord() no longer stores any of
+    // these, so fail loudly (with a rebuild instruction) rather than silently
+    // mis-ranking (idb-vector-pku).
+    if (!(norms[i] > 0) || !Number.isFinite(norms[i])) {
+      throw new TypeError(`Stored code record has a non-finite or zero norm at index ${i}; it cannot be scored safely. Rebuild the side-store.`);
     }
-    const denom = queryMagnitude * (norms[i] || 1);
+    const denom = queryMagnitude * norms[i];
     const score = dot / denom;
 
     candidates.insert({

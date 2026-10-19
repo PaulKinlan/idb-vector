@@ -215,18 +215,21 @@ test('buildCodeRecord refuses vectors whose Float32 storage would silently corru
   assert.ok(Number.isFinite(edge.scales[0]));
 });
 
-test('scanSideStore refuses stored code records with non-finite norms', () => {
+test('scanSideStore refuses stored code records with non-finite or zero norms', () => {
   const record = buildCodeRecord(
     [{ embedding: [1, 0] }],
     { keys: ['a'], epoch: 1 },
   );
-  // Simulate a record published before overflow validation existed.
-  record.norms[0] = Infinity;
-
-  assert.throws(
-    () => scanSideStore(record, [1, 0], 10),
-    /non-finite norm/,
-  );
+  // Simulate records published before range validation existed: Float32
+  // overflow (Infinity) and underflow / zero vector (0). Both must fail loudly
+  // with a rebuild instruction instead of silently mis-ranking.
+  for (const poison of [Infinity, 0]) {
+    record.norms[0] = poison;
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      /non-finite or zero norm/,
+    );
+  }
 });
 
 test('buildCodeRecord refuses vectors whose L2 norm underflows Float32 to zero (idb-vector-b1a)', () => {
@@ -244,9 +247,12 @@ test('buildCodeRecord refuses vectors whose L2 norm underflows Float32 to zero (
     /underflows Float32/,
   );
 
-  // A genuine all-zero vector is not an underflow; it keeps its existing
-  // behaviour (stored norm 0, (norms[i] || 1) guard, rerankCandidates rejects).
-  const zero = buildCodeRecord([{ embedding: [0, 0] }], { keys: ['zero'], epoch: 1 });
-  assert.equal(zero.count, 1);
-  assert.equal(zero.norms[0], 0);
+  // A genuine all-zero vector is refused at build: insert() and
+  // rerankCandidates() already reject it (cosine is undefined/NaN), so no
+  // legitimate code record ever stores a 0 norm — which is what lets
+  // scanSideStore() treat a stored 0 as corruption (idb-vector-pku).
+  assert.throws(
+    () => buildCodeRecord([{ embedding: [0, 0] }], { keys: ['zero'], epoch: 1 }),
+    /all-zero vector/,
+  );
 });
