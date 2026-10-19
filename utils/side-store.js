@@ -56,9 +56,9 @@ export function buildCodeRecord(records, options = {}) {
       count: 0,
       dims: 0,
       keys: [],
-      norms: new Float32Array(0),
-      mins: new Float32Array(0),
-      scales: new Float32Array(0),
+      norms: new Float64Array(0),
+      mins: new Float64Array(0),
+      scales: new Float64Array(0),
       codes: new Int8Array(0),
       bytes: 0,
     };
@@ -70,13 +70,20 @@ export function buildCodeRecord(records, options = {}) {
   }
   const dims = sampleVec.length;
 
+  // Ranking-relevant metadata tables are stored in Float64 (idb-vector-rrq,
+  // coord ruling: the code-record path must not narrow ranking-relevant values
+  // to Float32 at all). The codes remain Int8 — that is the deliberate SQ8
+  // quantization the ADR sells — but norms/mins/scales were never the point of
+  // the format, and every silent-corruption surface this store has had
+  // (norm overflow, norm underflow, scale underflow, query-weight overflow)
+  // was a Float32 narrowing of one of these tables.
   const keys = new Array(count);
-  const norms = new Float32Array(count);
-  const mins = new Float32Array(dims);
-  const scales = new Float32Array(dims);
+  const norms = new Float64Array(count);
+  const mins = new Float64Array(dims);
+  const scales = new Float64Array(dims);
 
   mins.fill(Infinity);
-  const maxs = new Float32Array(dims);
+  const maxs = new Float64Array(dims);
   maxs.fill(-Infinity);
 
   // First pass: extract primary keys, compute L2 norms, find per-dimension min and max
@@ -94,57 +101,47 @@ export function buildCodeRecord(records, options = {}) {
     }
 
     let normSq = 0;
+    let sawNonzero = false;
     for (let d = 0; d < dims; d++) {
       const val = vec[d];
       if (!Number.isFinite(val)) {
         throw new TypeError(`Record ${JSON.stringify(key)} coordinate ${d} is not a finite number: ${val}`);
       }
+      if (val !== 0) sawNonzero = true;
       normSq += val * val;
       if (val < mins[d]) mins[d] = val;
       if (val > maxs[d]) maxs[d] = val;
     }
     const norm = Math.sqrt(normSq);
     norms[i] = norm;
-    // norms is a Float32Array: a finite f64 value beyond Float32 range in
-    // either direction is stored wrongly — above ~3.4e38 as Infinity, below
-    // ~7e-46 as 0. Both ends turn candidate scores into 0/NaN or distorted
-    // ties and silently corrupt bounded top-k. Refuse instead (ADR 0001:
-    // bounded exact rerank). These checks subsume mins/maxs/scales: norm >=
-    // any |coordinate|, so a Float32 overflow or all-tiny dimension overflows
-    // or underflows here first.
-    // All-zero vectors are refused too: insert() and rerankCandidates() already
-    // reject them (cosine is undefined/NaN), so a stored norm of 0 is ALWAYS
-    // corruption — which lets scanSideStore() reject legacy records loudly
-    // instead of silently mis-ranking them (idb-vector-pku).
+    // With Float64 storage these are tripwires, not load-bearing guards: a
+    // non-finite norm needs coordinates ~1e154+, and a zero norm is either an
+    // all-zero vector (cosine undefined/NaN; insert() and rerankCandidates()
+    // refuse those too) or an f64-underflowing normSq. Either way a stored 0
+    // norm is ALWAYS corruption, which lets scanSideStore() reject legacy
+    // f32-era records loudly instead of silently mis-ranking them.
     if (!Number.isFinite(norms[i])) {
-      throw new TypeError(`Record ${JSON.stringify(key)} has L2 norm ${norm} that overflows Float32; storing it would silently corrupt candidate ranking`);
+      throw new TypeError(`Record ${JSON.stringify(key)} has non-finite L2 norm ${norm}; storing it would silently corrupt candidate ranking`);
     }
     if (norms[i] === 0) {
-      if (norm > 0) {
-        throw new TypeError(`Record ${JSON.stringify(key)} has L2 norm ${norm} that underflows Float32 to zero; storing it would silently corrupt candidate ranking`);
+      if (sawNonzero) {
+        throw new TypeError(`Record ${JSON.stringify(key)} has an L2 norm that underflows even Float64; storing it would silently corrupt candidate ranking`);
       }
       throw new TypeError(`Record ${JSON.stringify(key)} is an all-zero vector; cosine similarity is undefined (NaN) and the exact rerank refuses it`);
     }
   }
 
-  // Compute per-dimension scales
+  // Compute per-dimension scales. Float64 storage makes underflow to a stored
+  // zero unreachable for any corpus that passed the norm check (range >= the
+  // smallest f64 subnormal), so this is a tripwire as well.
   for (let d = 0; d < dims; d++) {
     const range = maxs[d] - mins[d];
     scales[d] = range / 254 || 1;
-    // scales is a Float32Array: a positive f64 range/254 can round to stored 0
-    // (f32 minimum denormal is ~1.4e-45), which poisons the whole dimension's
-    // codes (x/0 → Infinity/NaN) and silently corrupts bounded top-k. Refuse
-    // instead. A constant dimension (range === 0) legitimately takes the
-    // || 1 fallback, so a stored scale of 0 is ALWAYS corruption — which lets
-    // scanSideStore() reject legacy records loudly, same argument as stored
-    // norms. Overflow of the stored scale is subsumed by the norm check above
-    // (range/254 <= 2*max|coordinate| < Float32 max), checked here for symmetry
-    // with the sweep inventory.
     if (!Number.isFinite(scales[d])) {
-      throw new TypeError(`Dimension ${d} has a value range whose scale overflows Float32; storing it would silently corrupt candidate ranking`);
+      throw new TypeError(`Dimension ${d} has a value range whose scale is not finite; storing it would silently corrupt candidate ranking`);
     }
-    if (scales[d] === 0) {
-      throw new TypeError(`Dimension ${d} has a value range ${range} whose scale underflows Float32 to zero; storing it would silently corrupt candidate ranking`);
+    if (range > 0 && scales[d] === 0) {
+      throw new TypeError(`Dimension ${d} has a value range ${range} whose scale underflows even Float64; storing it would silently corrupt candidate ranking`);
     }
   }
 
