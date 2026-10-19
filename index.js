@@ -659,9 +659,12 @@ class VectorDB {
       throw new RangeError(`candidateBudget must be a positive integer; got ${describe(candidateBudget)}`);
     }
     assertLimit(limit);
-    if (threshold !== null && threshold !== undefined) {
-      assertThreshold(threshold);
-    }
+    // `threshold` is a scalar option like `limit`, not a field that documents null as "none":
+    // omit it for no threshold. Read the CALLER's option, because the destructuring default above
+    // already turned an omitted threshold into null. Accepting an explicit null here would silently
+    // drop a threshold a caller computed as null by mistake (query() and queryCandidates() both
+    // refuse it), and this read path must agree with them on what it accepts.
+    if (options.threshold !== undefined) assertThreshold(threshold);
 
     const db = await this.#connection();
     const sourceStoreName = this.#objectStore;

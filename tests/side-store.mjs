@@ -367,6 +367,21 @@ try {
           await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, eligibleKeys: () => true });
         } catch (error) { functionError = error; }
         check(functionError instanceof TypeError, 'p4s: function eligibility is rejected');
+        // Regression o9g: an explicit `threshold: null` used to be read as "no threshold" here
+        // while query() and queryCandidates() refused it, so a threshold computed as null came
+        // back unfiltered from one entry point and threw from the others.
+        let nullThresholdError;
+        try {
+          await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, threshold: null });
+        } catch (error) { nullThresholdError = error; }
+        check(nullThresholdError instanceof TypeError && nullThresholdError.message.includes('threshold'),
+          `o9g: querySideStore refuses an explicit null threshold (got ${nullThresholdError?.constructor?.name ?? 'no error'}${nullThresholdError ? `: ${nullThresholdError.message}` : ''})`);
+        // The refusal must not have cost the real filter: a numeric threshold still drops results.
+        const unfiltered = await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, limit: 10 });
+        const filtered = await db.querySideStore([1, 0], { epoch: 1, getEpoch: defaultGetEpoch, limit: 10, threshold: 0.999 });
+        check(unfiltered.results.length > filtered.results.length, 'o9g: omitting threshold ranks the whole eligible set');
+        check(filtered.results.length === 1 && filtered.results[0].similarity >= 0.999,
+          `o9g: a numeric threshold still filters side-store results (got ${filtered.results.length})`);
         await db.close();
       }
 
