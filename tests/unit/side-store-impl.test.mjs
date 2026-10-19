@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   buildCodeRecord,
   sq8QueryWeights,
@@ -181,4 +183,142 @@ test('rerankCandidates respects threshold', () => {
   const results = rerankCandidates(fetched, 'embedding', query, 10, 0.8, ['a', 'b', 'c']);
   assert.equal(results.length, 2);
   assert.deepEqual(results.map(r => r.key), ['a', 'b']);
+});
+
+test('buildCodeRecord refuses vectors whose Float32 storage would silently corrupt ranking', () => {
+  // Finite f64 coordinates whose L2 norm exceeds Float32 max (~3.4e38): the
+  // stored norm would become Infinity and every scan score would collapse.
+  assert.throws(
+    () => buildCodeRecord(
+      [
+        { embedding: [0, 1e40] },
+        { embedding: [1e40, 0] },
+      ],
+      { keys: ['best', 'wrong'], epoch: 1 },
+    ),
+    /overflows Float32/,
+  );
+
+  // A single coordinate beyond Float32 range always implies norm overflow
+  // (norm >= max|coordinate|), so it is rejected by the same check.
+  assert.throws(
+    () => buildCodeRecord([{ embedding: [1e39] }], { keys: ['big'], epoch: 1 }),
+    /overflows Float32/,
+  );
+
+  // Values just inside Float32 range are still representable and must build.
+  const edge = buildCodeRecord(
+    [{ embedding: [1e38, -1e38] }],
+    { keys: ['edge'], epoch: 1 },
+  );
+  assert.equal(edge.count, 1);
+  assert.ok(Number.isFinite(edge.norms[0]));
+  assert.ok(Number.isFinite(edge.mins[0]));
+  assert.ok(Number.isFinite(edge.scales[0]));
+});
+
+test('scanSideStore refuses stored code records with non-finite or zero norms', () => {
+  const record = buildCodeRecord(
+    [{ embedding: [1, 0] }],
+    { keys: ['a'], epoch: 1 },
+  );
+  // Simulate records published before range validation existed: Float32
+  // overflow (Infinity) and underflow / zero vector (0). Both must fail loudly
+  // with a rebuild instruction instead of silently mis-ranking.
+  for (const poison of [Infinity, 0]) {
+    record.norms[0] = poison;
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      /non-finite or zero norm/,
+    );
+  }
+});
+
+test('buildCodeRecord refuses vectors whose L2 norm underflows Float32 to zero (idb-vector-b1a)', () => {
+  // Finite f64 coordinates whose L2 norm sits below the Float32 minimum: the
+  // stored norm would become 0, (norms[i] || 1) would silently substitute 1,
+  // and a bounded scan would distort or tie every score.
+  assert.throws(
+    () => buildCodeRecord(
+      [
+        { embedding: [1e-50, 0] },
+        { embedding: [0, 1e-50] },
+      ],
+      { keys: ['wrong', 'best'], epoch: 1 },
+    ),
+    /underflows Float32/,
+  );
+
+  // A genuine all-zero vector is refused at build: insert() and
+  // rerankCandidates() already reject it (cosine is undefined/NaN), so no
+  // legitimate code record ever stores a 0 norm — which is what lets
+  // scanSideStore() treat a stored 0 as corruption (idb-vector-pku).
+  assert.throws(
+    () => buildCodeRecord([{ embedding: [0, 0] }], { keys: ['zero'], epoch: 1 }),
+    /all-zero vector/,
+  );
+});
+
+test('finite 1e38 query over a representable corpus keeps exact ranking (idb-vector-p3o regression)', () => {
+  // All stored norms are positive finite and pass the build guards; before the
+  // Float64 query-weights fix, q*scale (~3.9e73) narrowed to Float32 Infinity
+  // and the budget-1 scan returned 'third' with -Infinity.
+  const rows = [
+    { embedding: [0, 1e38] },
+    { embedding: [1e38, 5e37] },
+    { embedding: [1e38, 0] },
+  ];
+  const keys = ['best', 'wrong', 'third'];
+  const query = [0, 1e38];
+
+  const codeRecord = buildCodeRecord(rows, { keys, epoch: 1 });
+  const top = scanSideStore(codeRecord, query, 1);
+  assert.equal(top[0].key, 'best');
+  assert.ok(Number.isFinite(top[0].score));
+
+  const exact = rerankCandidates(rows, 'embedding', query, 1, null, keys);
+  assert.equal(exact[0].key, 'best');
+  assert.ok(Math.abs(exact[0].similarity - top[0].score) < 1e-6,
+    `scan score ${top[0].score} should track exact cosine ${exact[0].similarity}`);
+});
+
+test('sweep: every Float32Array narrowing in side-store.js is enumerated and bounded (no surface left)', () => {
+  // The same failure pattern was found four times (stored norms, underflow,
+  // legacy zero, query weights). Lock the inventory: every float32 narrowing
+  // must appear here WITH a proof it cannot produce a non-finite or overflowing
+  // intermediate. A new Float32Array in the source fails this test until it is
+  // either guarded and added below, or moved to Float64.
+  const source = readFileSync(
+    fileURLToPath(new URL('../../utils/side-store.js', import.meta.url)),
+    'utf8',
+  );
+
+  // Math.fround is the other float32 narrowing; none is allowed.
+  assert.ok(!source.includes('Math.fround'), 'Math.fround (float32 narrowing) found in side-store.js');
+
+  // The only permitted Float32Arrays are the STORED tables of buildCodeRecord
+  // (norms, mins, scales, maxs): compact on disk and guarded at build time by
+  // the L2-norm check (norm is finite, positive, and >= max|coordinate|, which
+  // subsumes mins/maxs/scales). Transient per-query intermediates (query
+  // weights) must be Float64.
+  const sites = [...source.matchAll(/new Float32Array\(([^)]*)\)/g)].map(m => m[1].trim()).sort();
+  assert.deepEqual(sites, ['0', '0', '0', 'count', 'dims', 'dims', 'dims'],
+    'Float32Array inventory changed: add a boundedness proof for the new site or use Float64/Int8');
+
+  // Proof for the stored tables: a boundary corpus that survives the build
+  // guards reads back finite everywhere, and the pathological corpora on both
+  // ends of Float32 range are rejected before anything is published.
+  const boundary = buildCodeRecord([{ embedding: [1e38, -1e38] }], { keys: ['edge'], epoch: 1 });
+  for (const table of [boundary.norms, boundary.mins, boundary.scales]) {
+    for (const v of table) assert.ok(Number.isFinite(v), `stored table has non-finite entry ${v}`);
+  }
+  assert.throws(() => buildCodeRecord([{ embedding: [1e40] }], { keys: ['big'], epoch: 1 }), /overflows Float32/);
+  assert.throws(() => buildCodeRecord([{ embedding: [1e-50] }], { keys: ['tiny'], epoch: 1 }), /underflows Float32/);
+  assert.throws(() => buildCodeRecord([{ embedding: [0, 0] }], { keys: ['zero'], epoch: 1 }), /all-zero vector/);
+
+  // Proof for the transient path: query weights are Float64 and stay finite
+  // for q*scale products far beyond Float32 range.
+  const { weights } = sq8QueryWeights([1e38], [0], [1e38 / 254]);
+  assert.ok(weights instanceof Float64Array, 'query weights must be Float64Array, not a float32 narrowing');
+  assert.ok(Number.isFinite(weights[0]) && weights[0] > 0, 'query weight overflowed');
 });
