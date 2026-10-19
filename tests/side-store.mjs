@@ -455,6 +455,34 @@ try {
         await db.close();
       }
 
+      // =========================================================================
+      // Float32 overflow rejection (idb-vector-xpa)
+      // =========================================================================
+      {
+        const dbName = `test-f32-overflow-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors');
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        // 1e40 is a finite number, so insert accepts it; the norm (also 1e40)
+        // is beyond Float32 max (~3.4e38) and used to be stored as Infinity,
+        // collapsing scan scores to NaN and silently returning wrong top-k.
+        await db.insert({ id: 'best', embedding: [0, 1e40] }, 'best');
+        await db.insert({ id: 'normal', embedding: [1, 0] }, 'normal');
+        let overflowError = null;
+        try {
+          await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
+        } catch (err) {
+          overflowError = err;
+        }
+        check(overflowError !== null, 'Float32 overflow: buildSideStore rejects a corpus with Float32-unrepresentable norms');
+        check(/overflows Float32/.test(overflowError.message), `Float32 overflow: message explains the rejection: ${overflowError.message}`);
+        await db.close();
+      }
+
       return {
         checks: checks.length,
       };
