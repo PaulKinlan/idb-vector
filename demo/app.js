@@ -70,6 +70,12 @@ if (db) {
     }
   } catch (error) { $('status').textContent = `Cannot read saved data: ${error.message}. Remove local data and retry.`; }
 }
+// The stored-corpus probe above is asynchronous, so #storage is empty until it finishes and its
+// text is the only trace of what it found. Publish completion as data-storage-probe so a driver can
+// wait for the read rather than race it (the page's own #load button is enabled from the markup, so
+// it cannot stand in for the probe); the attribute is set in every case, including when storage is
+// unavailable and the probe will never run.
+document.documentElement.dataset.storageProbe = 'done';
 controls(false);
 $('load').addEventListener('click', async () => {
   if (busy || !db) return;

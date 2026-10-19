@@ -72,10 +72,10 @@ try {
   report.measurements.push({ count: 2000, load: await text('load-timing'), online: await query('How do plants turn sunlight into food?') });
   await page.screenshot(`${evidence}/large.png`, { fullPage: true });
   await page.goto(url);
-  // demo/app.js writes #storage only after it has cursor-read every stored vector, so reading it
-  // straight after goto races a 2,000-record IndexedDB read against the navigation: under load the
-  // probe loses and the text is still ''. Wait for the probe, then assert what it wrote.
-  await page.waitFor(() => /2,000 passages already stored/.test(document.getElementById('storage').textContent), { timeout: 60000, label: 'stored corpus probe' });
+  // The stored-corpus probe is asynchronous, so #storage is empty until it finishes: reading it
+  // straight after goto raced a 2,000-record IndexedDB read against the navigation and saw '' under
+  // load, failing the full gate for an unrelated branch. Wait for the probe's own completion signal.
+  await page.waitFor(() => document.documentElement.dataset.storageProbe === 'done', { timeout: 60000, label: 'stored corpus probe' });
   assert.match(await text('storage'), /2,000 passages already stored/);
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true, 'Reload requires explicit model restoration');
   await page.click('#load');
@@ -93,10 +93,10 @@ try {
   await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Stored passages, vectors and model cache removed'));
   assert.equal(await page.evaluate(async () => { const cache = await caches.open('transformers-cache'); return (await cache.keys()).filter(r => r.url.includes('/demo/models/')).length; }), 0);
   await page.goto(url);
-  // The same async probe, in the direction that cannot be waited for by text: '' is also the
-  // pre-read state, so an immediate read passes without having verified anything. #load is enabled
-  // by controls() only after the metadata read finishes, which is the honest signal to wait on.
-  await page.waitFor(() => !document.getElementById('load').disabled, { timeout: 60000, label: 'storage probe after clear' });
+  // The same probe, in the direction that cannot be waited for by text: '' is also the pre-read
+  // state, and #load is enabled from the markup, so neither can stand in for the read. Wait for
+  // data-storage-probe, which demo/app.js sets only after the metadata read has finished.
+  await page.waitFor(() => document.documentElement.dataset.storageProbe === 'done', { timeout: 60000, label: 'storage probe after clear' });
   assert.equal(await text('storage'), '');
   report.passed = true;
   console.log(JSON.stringify(report, null, 2));
