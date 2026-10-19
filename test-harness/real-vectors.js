@@ -1,5 +1,6 @@
 import { VectorDB } from '../index.js';
 import { SortedArray } from '../utils/sortedarray.js';
+import { REAL_VECTOR_PINS, verifyCorpus } from './real-vector-pins.js';
 
 const request = req => new Promise((resolve, reject) => {
   req.onsuccess = () => resolve(req.result);
@@ -25,18 +26,22 @@ export function assertExact(ids, truth) {
 }
 const percentile = (values, p) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1];
 
-export async function run(name, method, status) {
+export async function run(name, method, status, { pins = REAL_VECTOR_PINS } = {}) {
   // Match the corpus names accepted by the measurement driver before constructing a fetch path.
   if (typeof name !== 'string' || !/^(glove25|wiki-api)-[0-9]+$/.test(name)) throw new Error('Invalid corpus name');
   if (method !== 'library' && method !== 'ivf') throw new Error('Invalid measurement method');
   const base = `/data/${name}/`;
   const manifest = await (await fetch(base + 'manifest.json')).json();
+  // The manifest is served beside the corpus, so it cannot attest to that corpus: verify it against
+  // the pin committed in this repository (queries, ground truth, centroids, file digests) before any
+  // vector is read. Every check below then inherits the pin's authority rather than the manifest's.
+  await verifyCorpus(name, manifest, pins);
   const [vectorBuffer, cellBuffer] = await Promise.all(['vectors.f32', 'cells.u32'].map(async file => {
     const response = await fetch(base + file);
     if (!response.ok) throw new Error(`Dataset fetch failed: ${file}`);
     const buffer = await response.arrayBuffer();
     const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buffer))].map(v => v.toString(16).padStart(2, '0')).join('');
-    if (digest !== manifest.files[file].sha256) throw new Error(`Dataset checksum mismatch: ${file}`);
+    if (digest !== manifest.files[file].sha256) throw new Error(`Dataset checksum mismatch: ${file} does not match its pinned digest`);
     return buffer;
   }));
   const vectors = new Float32Array(vectorBuffer), cells = new Uint32Array(cellBuffer);

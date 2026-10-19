@@ -361,6 +361,14 @@ No API calls happen during measurement. Keep `.cache/real-vectors` to replay the
 vectors without spending again; deleting it discards that cache. Later Wikipedia/model
 responses can change, so compare the recorded corpus hashes before comparing runs.
 
+Corpus integrity is pinned in the repository, not by the corpus. Before it reads a vector, the
+browser harness verifies each `<corpus>/manifest.json` — the file digests and byte counts, the 40
+held-out queries, the ground truth they are scored against and the IVF centroids — against
+[`test-harness/real-vector-pins.js`](test-harness/real-vector-pins.js), and refuses a corpus that is
+not pinned or no longer matches. A manifest served beside the data cannot attest to that data.
+Repinning is a commit, and `tests/unit/real-vector-pins.test.mjs` requires the pins to agree with
+the published `reports/real-*.json` evidence, so numbers cannot change without published evidence.
+
 One command to replay prepared corpora: **`npm run real:measure`**. Outputs default to
 `/tmp/idb-vector-real-measurements.json` and adjacent screenshots; set `IDB_REAL_REPORT`
 to keep a run elsewhere. Public-only quick run after preparation:
