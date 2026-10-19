@@ -10,6 +10,7 @@ export function realVectorAssets(root) {
     'utils/geometry.js',
     'utils/side-store.js',
     'test-harness/real-vectors.js',
+    'test-harness/real-vector-pins.js',
     'test-harness/real-vectors.html',
   ].map(file => ['/' + file, path.join(root, file)]));
 }
