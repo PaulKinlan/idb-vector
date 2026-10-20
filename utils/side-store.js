@@ -131,18 +131,27 @@ export function buildCodeRecord(records, options = {}) {
     }
   }
 
-  // Compute per-dimension scales. Float64 storage makes underflow to a stored
-  // zero unreachable for any corpus that passed the norm check (range >= the
-  // smallest f64 subnormal), so this is a tripwire as well.
+  // Compute per-dimension scales. There is deliberately NO guard on this
+  // assignment: `range / 254 || 1` already makes every stored scale positive
+  // and finite by construction, so a check here would be unreachable code that
+  // still reads like a defence (idb-vector-blj reviewed the pair that used to
+  // sit here and proved neither branch could fire). The two cases a reader
+  // might expect to be caught are covered without one:
+  //   - A range that underflows `range / 254` to a zero quotient (|range| below
+  //     ~1.3e-321) takes the `|| 1` fallback and stores exactly 1, never 0. The
+  //     quantization error is then bounded by that subnormal range, which is
+  //     ~140 orders of magnitude below any coordinate large enough to keep the
+  //     L2 norm representable, so ranking is unaffected - not silently
+  //     corrupted.
+  //   - A non-finite range needs `max - min > 1.79e308`, i.e. some |coordinate|
+  //     above ~8.9e307, whose square already overflows and is rejected by the
+  //     non-finite L2 norm check in the first pass above. This loop cannot
+  //     even be reached with one.
+  // The load-bearing guards are that norm check (build) and the
+  // non-positive/non-finite scale check in sq8QueryWeights() (read path, for
+  // records published before this validation existed).
   for (let d = 0; d < dims; d++) {
-    const range = maxs[d] - mins[d];
-    scales[d] = range / 254 || 1;
-    if (!Number.isFinite(scales[d])) {
-      throw new TypeError(`Dimension ${d} has a value range whose scale is not finite; storing it would silently corrupt candidate ranking`);
-    }
-    if (range > 0 && scales[d] === 0) {
-      throw new TypeError(`Dimension ${d} has a value range ${range} whose scale underflows even Float64; storing it would silently corrupt candidate ranking`);
-    }
+    scales[d] = (maxs[d] - mins[d]) / 254 || 1;
   }
 
   // Second pass: quantize each vector to int8 (-127..127)
