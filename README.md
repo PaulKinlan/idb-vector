@@ -119,6 +119,13 @@ the value at fault.
 a finite number, and at least one coordinate nonzero. Empty, zero, `NaN` and `Infinity` vectors are
 refused: cosine similarity against a zero vector is `NaN`, and a stored `NaN` score used to rank
 ahead of real matches.
+- **Magnitude is part of that contract.** Cosine similarity is scale-invariant, but the arithmetic
+that computes it is not: scores square every coordinate, so any coordinate above ~`1.34e154`
+(`sqrt(Number.MAX_VALUE)`) overflows `Float64`. The norm then became `Infinity`, every score
+collapsed to `0`, and an unscoreable query returned insertion order as if it were a ranking.
+`query()`, `queryCandidates()` and `querySideStore()` refuse such a query with a `TypeError` that
+names the magnitude, before opening a transaction; normalize the vector first if it is legitimately
+that large (`idb-vector-utq`).
 - **`limit`** must be a positive integer. Omitting it — or passing `{}`, as in
 `query([1, 0], {})` — means `limit: 10`, never "no limit".
 - **Options are an allow-list.** `query()` accepts `limit` and `threshold` and **refuses any other

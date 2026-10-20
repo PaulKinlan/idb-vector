@@ -215,13 +215,43 @@ function cosineSimilarity(a, b, aMagnitude) {
   // recomputing it for every record is pure waste (100k records x 128 dims is millions of
   // redundant operations) and the value is identical, so scores stay bit-identical. Callers that
   // do not pass it (the packed-snapshot fallback) get the same value computed here.
-  const magnitude = aMagnitude === undefined ? vectorMagnitude(a) : aMagnitude;
+  const magnitude = aMagnitude === undefined ? vectorMagnitude(a, "Query vector") : aMagnitude;
+  // Deliberately NOT vectorMagnitude() for the record: this runs inside the cursor's onsuccess
+  // handler, where a throw escapes past the surrounding promise and hangs the caller instead of
+  // rejecting it. A record that cannot be scored must reach the caller through storedVectorError(),
+  // which names its key (caught by the idb-vector-utq review).
   const bMagnitude = Math.sqrt(b.reduce((sum, bVal) => sum + bVal * bVal, 0));
   return dotProduct / (magnitude * bMagnitude);
 }
 
-function vectorMagnitude(vector) {
-  return Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+// Cosine similarity is scale-invariant, but the intermediates are not: squaring the coordinates
+// overflows Float64 for any |coordinate| above ~1.34e154 (sqrt(Number.MAX_VALUE)). The magnitude then
+// became Infinity, every score collapsed to finite/Infinity = 0, and an unscoreable query looked
+// like an all-tie corpus - insertion order returned as a confident ranking (idb-vector-utq).
+//
+// Only ever called from an async method body or from assertScoreableQuery(), NEVER from a cursor
+// callback: a throw inside an IndexedDB event handler escapes the surrounding promise and hangs the
+// query rather than rejecting it, so the refusal happens at the API boundary before the scan starts
+// (see assertScoreableQuery) and the record side keeps reporting through storedVectorError().
+function vectorMagnitude(vector, label = "Vector") {
+  const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+  if (!Number.isFinite(magnitude)) {
+    const reason = Number.isNaN(magnitude)
+      ? "a coordinate is not a finite number"
+      : "a coordinate above ~1.34e154 overflows Float64";
+    throw new TypeError(`${label} has a non-finite L2 magnitude (${magnitude}): ${reason}, so every cosine score would collapse to 0. Normalize the vector first.`);
+  }
+  return magnitude;
+}
+
+// A query this library cannot score must be refused BEFORE the database is opened: a refusal that
+// needs a cursor is a refusal a caller can miss, and the unit tier has no IndexedDB to prove it with.
+// assertVector() already covers shape, finiteness and the all-zero vector; this adds the magnitude
+// the scoring arithmetic actually needs (see vectorMagnitude).
+function assertScoreableQuery(vector, label) {
+  assertVector(vector, label);
+  vectorMagnitude(vector, label);
+  return vector;
 }
 
 // A successful request can still be rolled back by its transaction.
@@ -398,7 +428,7 @@ class VectorDB {
     const limit = assertLimit(options?.limit === undefined ? 10 : options.limit);
     const threshold = options?.threshold === undefined ? null : assertThreshold(options.threshold);
 
-    assertVector(queryVector, "query() vector");
+    assertScoreableQuery(queryVector, "query() vector");
 
     return (await this.#rank(queryVector, limit, NO_CANDIDATES, threshold)).results;
   }
@@ -408,7 +438,7 @@ class VectorDB {
   async queryCandidates(queryVector, options) {
     const { limit, threshold, candidates } = normalizeCandidateOptions(options);
 
-    assertVector(queryVector, "queryCandidates() vector");
+    assertScoreableQuery(queryVector, "queryCandidates() vector");
 
     return this.#rank(queryVector, limit, candidates, threshold);
   }
@@ -620,7 +650,7 @@ class VectorDB {
   }
 
   async querySideStore(queryVector, options = {}) {
-    assertVector(queryVector, "querySideStore() vector");
+    assertScoreableQuery(queryVector, "querySideStore() vector");
     assertSideStoreOptions("querySideStore", options, SIDE_STORE_QUERY_OPTION_KEYS);
     const {
       sideStore = "codes",
