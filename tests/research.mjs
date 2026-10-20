@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { resolve, extname, sep } from 'node:path';
+import { resolve, extname } from 'node:path';
 import { Marked } from 'marked';
 import { launch } from './lib/cdp.mjs';
 import { permittedCitation } from './lib/research-link-policy.mjs';
@@ -17,24 +17,44 @@ const markdown = new Marked({ walkTokens(token) {
   if (token.type === 'table') tables++;
 } });
 markdown.parse(source);
+// The report links to its Markdown source and the demo landing page; nothing else
+// in the worktree needs to be accessible to this acceptance page.
+const assets = new Map([
+  ['/research/index.html', resolve(root, 'research/index.html')],
+  ['/research/architecture.md', resolve(root, 'research/architecture.md')],
+  ['/demo/index.html', resolve(root, 'demo/index.html')],
+]);
 const server = createServer(async (req, res) => {
   try {
-    let path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    let path = new URL(req.url, 'http://localhost').pathname;
     if (path.endsWith('/')) path += 'index.html';
-    const file = resolve(root, '.' + path);
-    if (!file.startsWith(root + sep)) throw new Error('outside root');
+    const file = assets.get(path);
+    if (!file) throw new Error('not an acceptance asset');
     const content = await readFile(file);
     res.setHeader('Content-Type', ({ '.html': 'text/html', '.md': 'text/plain', '.js': 'text/javascript', '.json': 'application/json' })[extname(file)] || 'application/octet-stream');
     res.end(content);
   } catch { res.writeHead(404).end('Not found'); }
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
-const url = process.env.RESEARCH_URL || `http://127.0.0.1:${server.address().port}/research/`;
+const localUrl = `http://127.0.0.1:${server.address().port}`;
+const url = process.env.RESEARCH_URL || `${localUrl}/research/`;
 const evidence = process.env.RESEARCH_EVIDENCE || resolve(root, '.cache/research-evidence');
 await mkdir(evidence, { recursive: true });
 const page = await launch();
 const receipt = { url, browser: (await page.send('Browser.getVersion')).product, checks: [] };
 try {
+  // Exercise the actual loopback server even when RESEARCH_URL points at a deployment.
+  for (const path of ['/research/', '/research/architecture.md', '/demo/']) {
+    const response = await fetch(localUrl + path);
+    assert.equal(response.status, 200, `allowed acceptance asset: ${path}`);
+    await response.body?.cancel();
+  }
+  for (const path of ['/package.json', '/node_modules/marked/package.json', '/.cache/real-vectors/manifest.json', '/.git/config', '/']) {
+    const response = await fetch(localUrl + path);
+    assert.equal(response.status, 404, `private worktree path: ${path}`);
+    await response.body?.cancel();
+  }
+  receipt.checks.push({ localAssetAllowlist: true });
   await page.goto(url);
   const content = await page.evaluate(() => {
     const article = document.querySelector('article');
