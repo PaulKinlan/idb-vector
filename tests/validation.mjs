@@ -200,6 +200,14 @@ try {
       () => poisonDB.query([1, 0]),
       { type: TypeError, includes: ['52', 'an Array'] });
     await rawDelete(poisonName, 52);
+    // A FINITE record whose SQUARED magnitude overflows: finite/Infinity = 0 is a finite score, so
+    // this used to be silently ranked last instead of being refused (idb-vector-cfr).
+    await rawPut(poisonName, { embedding: [1e200, 0], id: 'overflowing' }, 54);
+    const overflowing = await refusal('stored record whose squared magnitude overflows fails the query and names its key',
+      () => poisonDB.query([1, 0]),
+      { type: TypeError, includes: ['54', 'overflows cosine similarity'] });
+    check(overflowing.message.includes('Scale'), 'overflowing-record refusal says what to do next');
+    await rawDelete(poisonName, 54);
 
     // --- 5. a record without the vector is not part of the corpus -----------------------------
     await rawPut(poisonName, { id: 'metadata-only' }, 53);

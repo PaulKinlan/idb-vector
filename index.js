@@ -209,19 +209,23 @@ function updateRequest(store, key, object) {
   return store.put(object);
 }
 
-function cosineSimilarity(a, b, aMagnitude) {
+function cosineSimilarity(a, b, aMagnitude, bMagnitude) {
   const dotProduct = a.reduce((sum, aVal, idx) => sum + aVal * b[idx], 0);
   // `aMagnitude` is the query vector's norm, which ranking hoists out of its per-record loop:
   // recomputing it for every record is pure waste (100k records x 128 dims is millions of
   // redundant operations) and the value is identical, so scores stay bit-identical. Callers that
   // do not pass it (the packed-snapshot fallback) get the same value computed here.
   const magnitude = aMagnitude === undefined ? vectorMagnitude(a, "Query vector") : aMagnitude;
-  // Deliberately NOT vectorMagnitude() for the record: this runs inside the cursor's onsuccess
-  // handler, where a throw escapes past the surrounding promise and hangs the caller instead of
-  // rejecting it. A record that cannot be scored must reach the caller through storedVectorError(),
-  // which names its key (caught by the idb-vector-utq review).
-  const bMagnitude = Math.sqrt(b.reduce((sum, bVal) => sum + bVal * bVal, 0));
-  return dotProduct / (magnitude * bMagnitude);
+  // `bMagnitude` is the same deal for the record: the ranking loop measures it so it can refuse an
+  // unrepresentable record by key (idb-vector-cfr), and passes it in here rather than paying for the
+  // same reduce twice. Deliberately NOT vectorMagnitude() for the record - this runs inside the
+  // cursor's onsuccess handler, where a throw escapes the surrounding promise and hangs the caller
+  // instead of rejecting it; a record that cannot be scored must reach the caller through
+  // storedVectorError(), which names its key (idb-vector-utq review).
+  const recordMagnitude = bMagnitude === undefined
+    ? Math.sqrt(b.reduce((sum, bVal) => sum + bVal * bVal, 0))
+    : bMagnitude;
+  return dotProduct / (magnitude * recordMagnitude);
 }
 
 // Cosine similarity is scale-invariant, but the intermediates are not: squaring the coordinates
@@ -538,7 +542,17 @@ class VectorDB {
           return;
         }
 
-        const similarity = cosineSimilarity(queryVector, vector, queryMagnitude);
+        // Measure the record here, once, for two reasons: cosineSimilarity needs the value anyway (it
+        // is passed in below, so the arithmetic is the same reduce moved, not an extra pass), and a
+        // record whose squared magnitude overflows Float64 - any |coordinate| above ~1.34e154 - would
+        // otherwise be scored 0, because finite/Infinity = 0 is FINITE and slips past the check below
+        // (idb-vector-cfr). Reject by key through storedVectorError(); never throw here.
+        const recordMagnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+        if (!Number.isFinite(recordMagnitude)) {
+          reject(storedVectorError(vectorPath, key, vector, queryVectorLength));
+          return;
+        }
+        const similarity = cosineSimilarity(queryVector, vector, queryMagnitude, recordMagnitude);
         if (!Number.isFinite(similarity)) {
           reject(storedVectorError(vectorPath, key, vector, queryVectorLength));
           return;
