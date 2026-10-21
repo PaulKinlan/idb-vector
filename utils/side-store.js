@@ -211,6 +211,26 @@ export function sq8QueryWeights(queryVector, mins, scales) {
   return { weights, baseOffset };
 }
 
+// Cosine similarity is scale-invariant; its intermediates are not. Both scoring paths below square
+// the query's coordinates to get its magnitude, so any |coordinate| above ~1.34e154
+// (sqrt(Number.MAX_VALUE)) overflows Float64 and the magnitude becomes Infinity. Every score then
+// collapses to finite/Infinity = 0, which reads as an all-tie corpus: SortedArray returns insertion
+// order and the caller gets a plausible, wrong ranking instead of an error (idb-vector-utq). Refuse
+// such a query, mirroring the non-finite stored-norm guard on the record side; a caller can
+// normalize first because the similarity never depended on the query's length.
+// `|| 1` keeps an all-zero query (every score 0, as before) from dividing by zero.
+function scoreableQueryMagnitude(queryVector, label) {
+  let queryNormSq = 0;
+  for (let d = 0; d < queryVector.length; d++) {
+    queryNormSq += queryVector[d] * queryVector[d];
+  }
+  const magnitude = Math.sqrt(queryNormSq);
+  if (!Number.isFinite(magnitude)) {
+    throw new TypeError(`${label} has a non-finite L2 magnitude (${magnitude}): the coordinates must be finite, and one above ~1.34e154 overflows Float64 so every cosine score would collapse to 0. Normalize the query first.`);
+  }
+  return magnitude || 1;
+}
+
 // Scan int8 codes to select at most candidateBudget eligible candidates.
 // Intersects eligibleKeys BEFORE candidate budget truncation (ADR 0001 Invariant 11).
 // Uses canonical key serialization to match Date and Array keys by value (ADR 0001 Invariant 10).
@@ -221,11 +241,7 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
     throw new TypeError(`Side-store query has ${queryVector.length} dimensions; expected ${dims}`);
   }
 
-  let queryNormSq = 0;
-  for (let d = 0; d < dims; d++) {
-    queryNormSq += queryVector[d] * queryVector[d];
-  }
-  const queryMagnitude = Math.sqrt(queryNormSq) || 1;
+  const queryMagnitude = scoreableQueryMagnitude(queryVector, 'Query');
 
   const { weights, baseOffset } = sq8QueryWeights(queryVector, mins, scales);
   const budget = Math.min(candidateBudget, count);
@@ -294,11 +310,7 @@ export function rerankCandidates(
   if (!Array.isArray(candidateKeys) || candidateKeys.length !== fetchedRecords.length) {
     throw new TypeError('rerankCandidates() requires the exact primary key of every fetched record');
   }
-  let queryNormSq = 0;
-  for (let d = 0; d < queryVector.length; d++) {
-    queryNormSq += queryVector[d] * queryVector[d];
-  }
-  const queryMagnitude = Math.sqrt(queryNormSq) || 1;
+  const queryMagnitude = scoreableQueryMagnitude(queryVector, 'Query');
 
   const top = new SortedArray(limit, 'similarity');
   const queryDims = queryVector.length;

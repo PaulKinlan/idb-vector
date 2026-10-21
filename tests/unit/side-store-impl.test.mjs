@@ -423,3 +423,47 @@ test('build-side scale invariants need no guard: || 1 stores 1 and the norm trip
     /non-finite L2 norm/,
   );
 });
+
+test('scanSideStore and rerankCandidates refuse a query whose L2 magnitude overflows Float64 (idb-vector-utq)', () => {
+  // 1e160 is a finite coordinate, so the query passes shape/finiteness validation, but squaring it
+  // overflows: queryMagnitude became Infinity, every score finite/Infinity = 0, and the scan
+  // returned insertion order ('wrong') while the true best is 'best' with cosine 1. The record side
+  // already refuses an unrepresentable corpus loudly; the query side now does the same.
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+    { embedding: [0.7, 0.7] },
+  ];
+  const keys = ['wrong', 'best', 'mid'];
+  const record = buildCodeRecord(rows, { keys, epoch: 1 });
+  const query = [0, 1e160];
+
+  for (const [name, run] of [
+    ['scanSideStore', () => scanSideStore(record, query, 1)],
+    ['rerankCandidates', () => rerankCandidates(rows, 'embedding', query, 1, null, keys)],
+  ]) {
+    assert.throws(
+      run,
+      (error) => {
+        assert.ok(error instanceof TypeError, `${name}() must throw a TypeError, got ${error?.constructor?.name}`);
+        assert.match(error.message, /non-finite L2 magnitude \(Infinity\)/, `${name}() message must name the magnitude: ${error.message}`);
+        assert.match(error.message, /Normalize the query first/, `${name}() message must say what to do instead: ${error.message}`);
+        return true;
+      },
+      `${name}() must refuse a query whose magnitude overflows Float64`,
+    );
+  }
+
+  // Either side of the boundary keeps working: 1e150 still ranks the true best, and an all-zero
+  // query keeps its previous behaviour (every score 0) instead of dividing by zero.
+  assert.equal(scanSideStore(record, [0, 1e150], 1)[0].key, 'best');
+  assert.equal(rerankCandidates(rows, 'embedding', [0, 1e150], 1, null, keys)[0].key, 'best');
+  assert.equal(scanSideStore(record, [0, 0], 1).length, 1);
+
+  // NaN is falsy, so `Math.sqrt(normSq) || 1` used to turn an unscorable query into magnitude 1 and
+  // score it against a bogus norm; the guard reads the raw magnitude, so NaN is refused too.
+  assert.throws(
+    () => scanSideStore(record, [Number.NaN, 1], 1),
+    /non-finite L2 magnitude \(NaN\)/,
+  );
+});
