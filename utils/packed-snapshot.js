@@ -5,7 +5,7 @@ const finiteVector = vector => Array.isArray(vector) && Array.from(vector).every
 
 // Layout version 1 (in-memory only): Float64 [numeric key, length, ...coordinates].
 // Blocks never split a record. Used length is separate from allocated capacity.
-export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes }, cosine) {
+export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes }, cosine, validateQuery = null) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new TypeError('maxBytes must be a nonnegative safe integer');
   let blocks = [], bytes = 0, mode = 'live', reason = null, diagnostic = null, refreshing, closed = false;
   const budget = Math.floor(maxBytes / 8) * 8;
@@ -70,6 +70,12 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
       if (refreshing) await refreshing;
       if (closed) throw new Error('Snapshot is closed');
       if (!query || !Array.from(query).every(Number.isFinite)) throw new TypeError('Snapshot query coordinates must be finite numbers');
+      // Validate the query's magnitude BEFORE either path reads anything. In snapshot mode an
+      // overflowing norm silently scores every record 0 and returns insertion order, and in live mode
+      // it used to throw inside the cursor's onsuccess handler, escaping the surrounding promise and
+      // hanging the query instead of rejecting it (idb-vector-2yi). index.js supplies its own query
+      // validator so a snapshot query is refused exactly as query() is, with one message.
+      validateQuery?.(query, 'Snapshot query');
       const top = new SortedArray(limit, 'similarity');
       if (mode === 'snapshot') {
         const queryNorm = Math.sqrt(query.reduce((sum, value) => sum + value * value, 0));
