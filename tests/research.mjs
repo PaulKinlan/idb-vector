@@ -44,7 +44,10 @@ const server = createServer(async (req, res) => {
     }
     if (!file) throw new Error('not an acceptance asset');
     const content = await readFile(file);
-    res.setHeader('Content-Type', ({ '.html': 'text/html', '.md': 'text/plain', '.js': 'text/javascript', '.json': 'application/json' })[extname(file)] || 'application/octet-stream');
+    // .css matters: the demo page's stylesheet is a page-level asset, and a stylesheet served as
+    // application/octet-stream is refused by the browser (styleSheets entries with 0 rules), which is
+    // the unstyled-page half of idb-vector-zyd.
+    res.setHeader('Content-Type', ({ '.html': 'text/html', '.md': 'text/plain', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' })[extname(file)] || 'application/octet-stream');
     res.end(content);
   } catch (error) {
     // A 404 must mean "not an acceptance asset", never "this handler crashed". Swallowing every
@@ -222,10 +225,20 @@ try {
   // missing and the receipt still recorded status 200 (idb-vector-zyd). Last in the run, because it
   // navigates the shared page away from the report the checks above read.
   await page.goto(`${localUrl}/demo/`);
-  const demo = await page.evaluate(() => ({
-    connection: document.getElementById('connection')?.textContent ?? '',
-    stylesheets: [...document.styleSheets].map((sheet) => ({ href: sheet.href, rules: sheet.cssRules?.length ?? 0 })),
-  }));
+  // app.js sets #connection only after its top-level `await` on indexedDB.open resolves, and the
+  // load event does not wait for that, so sample through a bounded wait: a single sample loses the
+  // race intermittently (observed as connection:"" with the stylesheet already applied).
+  const demo = await page.evaluate(async () => {
+    const connection = document.getElementById('connection');
+    const deadline = Date.now() + 5000;
+    while (!connection?.textContent && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return {
+      connection: connection?.textContent ?? '',
+      stylesheets: [...document.styleSheets].map((sheet) => ({ href: sheet.href, rules: sheet.cssRules?.length ?? 0 })),
+    };
+  });
   assert.match(
     demo.connection,
     /online|offline/,
