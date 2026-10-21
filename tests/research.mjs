@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile, mkdir, stat, writeFile } from 'node:fs/promises';
-import { resolve, extname } from 'node:path';
+import { resolve, extname, sep } from 'node:path';
 import { Marked } from 'marked';
 import { launch } from './lib/cdp.mjs';
 import { permittedCitation } from './lib/research-link-policy.mjs';
@@ -46,7 +46,14 @@ const server = createServer(async (req, res) => {
     const content = await readFile(file);
     res.setHeader('Content-Type', ({ '.html': 'text/html', '.md': 'text/plain', '.js': 'text/javascript', '.json': 'application/json' })[extname(file)] || 'application/octet-stream');
     res.end(content);
-  } catch { res.writeHead(404).end('Not found'); }
+  } catch (error) {
+    // A 404 must mean "not an acceptance asset", never "this handler crashed". Swallowing every
+    // error made a ReferenceError in this file (a dropped `sep` import) look like a correct refusal
+    // for every path at once, and only the allowed-path loop above could tell the difference
+    // (idb-vector-7iu). Anything else is a 500, so it fails loudly in both loops.
+    const denied = error.message === 'not an acceptance asset';
+    res.writeHead(denied ? 404 : 500).end(denied ? 'Not found' : 'Acceptance server error');
+  }
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const localUrl = `http://127.0.0.1:${server.address().port}`;
