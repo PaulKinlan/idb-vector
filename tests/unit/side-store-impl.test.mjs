@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   buildCodeRecord,
-  sq8QueryWeights,
   scanSideStore,
   rerankCandidates,
   canonicalKey,
@@ -369,10 +368,58 @@ test('scanSideStore refuses stored code records with non-positive or non-finite 
   );
   // Simulate a record published before scale validation existed: underflow
   // rounds a positive range's scale to stored 0. No legitimate build stores 0
-  // (constant dimensions take the || 1 fallback), so fail loudly.
+  // (subnormal ranges take the || 1 fallback), so fail loudly.
   record.scales[0] = 0;
   assert.throws(
     () => scanSideStore(record, [1, 0], 10),
     /non-positive or non-finite scale/,
+  );
+});
+
+test('build-side scale invariants need no guard: || 1 stores 1 and the norm tripwire fires first (idb-vector-blj)', () => {
+  // buildCodeRecord() used to carry two scale guards that could never fire:
+  // `!Number.isFinite(scales[d])` needed a non-finite range, and
+  // `range > 0 && scales[d] === 0` needed the quotient to be observed before
+  // the `|| 1` fallback replaced it. Both were removed, so these assertions are
+  // the argument the comment now makes - executable.
+  const rows = [
+    { embedding: [5e-324, 1, 0] },
+    { embedding: [1e-323, 0.70710678, 0.70710678] },
+    { embedding: [5e-324, 1e-320, 1] },
+  ];
+  const keys = ['best', 'mid', 'worst'];
+  const query = [0, 1, 0];
+  const record = buildCodeRecord(rows, { keys, epoch: 1 });
+
+  // Dimension 0 spans only subnormals (~5e-324), so `range / 254` underflows to
+  // a zero quotient and the fallback stores exactly 1. The removed guard tested
+  // for a stored 0 that the fallback had already ruled out, so it was dead.
+  assert.equal(record.scales[0], 1);
+  for (const v of record.scales) {
+    assert.ok(Number.isFinite(v) && v > 0, `stored scale must be positive and finite, got ${v}`);
+  }
+
+  // Falling back to scale 1 costs nothing: a subnormal range is ~140 orders of
+  // magnitude below any coordinate big enough to keep the L2 norm representable,
+  // so the quantization error it leaves behind cannot reorder candidates. The
+  // scan still returns the exact rerank order on a corpus that does discriminate.
+  const scanned = scanSideStore(record, query, 3).map((r) => r.key);
+  const exact = rerankCandidates(rows, 'embedding', query, 3, null, keys).map((r) => r.key);
+  assert.deepEqual(scanned, ['best', 'mid', 'worst']);
+  assert.deepEqual(scanned, exact);
+
+  // The non-finite-scale case cannot reach the scale loop either: overflowing a
+  // per-dimension range needs `max - min > 1.79e308`, i.e. a coordinate above
+  // ~8.9e307, whose square already overflows, so the non-finite L2 norm check in
+  // the first pass throws before any scale is computed.
+  assert.throws(
+    () => buildCodeRecord(
+      [
+        { embedding: [1.7e308, -1.7e308] },
+        { embedding: [-1.7e308, 1.7e308] },
+      ],
+      { keys: ['high', 'low'], epoch: 1 },
+    ),
+    /non-finite L2 norm/,
   );
 });
