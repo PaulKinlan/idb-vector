@@ -1,7 +1,7 @@
 // Real Chromium/CDP acceptance. RESEARCH_URL can target the published /research/ after deployment.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { Marked } from 'marked';
 import { launch } from './lib/cdp.mjs';
@@ -17,18 +17,31 @@ const markdown = new Marked({ walkTokens(token) {
   if (token.type === 'table') tables++;
 } });
 markdown.parse(source);
-// The report links to its Markdown source and the demo landing page; nothing else
-// in the worktree needs to be accessible to this acceptance page.
-const assets = new Map([
+// The report links to its Markdown source and to the demo landing page. A page is only a page if the
+// stylesheet and modules it loads are served with it, so the demo's own directory and the library
+// modules it imports are allowed too; with only /demo/index.html allowed, `/demo/` returned 200 while
+// rendering unstyled and with no script, and the receipt still advertised it as a healthy link
+// (idb-vector-zyd). Everything else in the worktree stays unreachable: exact files for the report,
+// directory prefixes for the demo's module closure, and nothing for the repo root, node_modules,
+// .git, .cache, tests or tools.
+const assetFiles = new Map([
   ['/research/index.html', resolve(root, 'research/index.html')],
   ['/research/architecture.md', resolve(root, 'research/architecture.md')],
-  ['/demo/index.html', resolve(root, 'demo/index.html')],
+  ['/index.js', resolve(root, 'index.js')],
 ]);
+const assetDirs = ['/demo/', '/utils/'];
+// Resolve first, then compare against the allowed directory: the handler decodes no escapes, but a
+// resolved path that climbed out of its allowed directory with `..` must still be refused here.
+const insideAssetDir = (file) => assetDirs.some((prefix) => file.startsWith(resolve(root, prefix.slice(1)) + sep));
 const server = createServer(async (req, res) => {
   try {
-    let path = new URL(req.url, 'http://localhost').pathname;
-    if (path.endsWith('/')) path += 'index.html';
-    const file = assets.get(path);
+    const requested = new URL(req.url, 'http://localhost').pathname;
+    const path = requested.endsWith('/') ? requested + 'index.html' : requested;
+    let file = assetFiles.get(path);
+    if (!file) {
+      const candidate = resolve(root, '.' + path);
+      if (insideAssetDir(candidate) && candidate.startsWith(root + sep)) file = candidate;
+    }
     if (!file) throw new Error('not an acceptance asset');
     const content = await readFile(file);
     res.setHeader('Content-Type', ({ '.html': 'text/html', '.md': 'text/plain', '.js': 'text/javascript', '.json': 'application/json' })[extname(file)] || 'application/octet-stream');
@@ -43,18 +56,62 @@ await mkdir(evidence, { recursive: true });
 const page = await launch();
 const receipt = { url, browser: (await page.send('Browser.getVersion')).product, checks: [] };
 try {
-  // Exercise the actual loopback server even when RESEARCH_URL points at a deployment.
-  for (const path of ['/research/', '/research/architecture.md', '/demo/']) {
+  // Exercise the actual loopback server even when RESEARCH_URL points at a deployment. The allowed
+  // set is asserted down to the demo's stylesheet and module entry point, so "the demo link works"
+  // is a claim the server can back (idb-vector-zyd).
+  for (const path of [
+    '/research/',
+    '/research/architecture.md',
+    '/demo/',
+    '/demo/style.css',
+    '/demo/app.js',
+    '/demo/ua.js',
+    '/demo/integrity.js',
+    '/index.js',
+    '/utils/side-store.js',
+  ]) {
     const response = await fetch(localUrl + path);
     assert.equal(response.status, 200, `allowed acceptance asset: ${path}`);
     await response.body?.cancel();
   }
-  for (const path of ['/package.json', '/node_modules/marked/package.json', '/.cache/real-vectors/manifest.json', '/.git/config', '/']) {
+  // Every deny path must name a file that EXISTS in this checkout and is outside the allowlist. A
+  // path that cannot resolve even without the allowlist returns 404 either way, so it proves nothing
+  // (idb-vector-7iu). Assert the fixture first, so a missing file fails loudly instead of quietly
+  // turning the deny list back into a no-op.
+  const denyFiles = [
+    '/package.json',
+    '/package-lock.json',
+    '/README.md',
+    '/tests/research.mjs',
+    '/tools/build-research.mjs',
+  ];
+  // `/.git/config` only resolves where `.git` is a real directory; in a lane worktree it is a
+  // pointer file, so probing it unconditionally is exactly the vacuous assertion this replaces.
+  if ((await stat(resolve(root, '.git'))).isDirectory()) denyFiles.push('/.git/config');
+  for (const path of denyFiles) {
+    const exists = await stat(resolve(root, '.' + path)).then(() => true, () => false);
+    assert.ok(exists, `deny-path fixture must exist in this checkout, or the 404 below proves nothing: ${path}`);
     const response = await fetch(localUrl + path);
     assert.equal(response.status, 404, `private worktree path: ${path}`);
     await response.body?.cancel();
   }
-  receipt.checks.push({ localAssetAllowlist: true });
+  // Encoded traversal is refused by resolving before the allowlist check, not by a string prefix
+  // test, so probe it rather than assuming it. Both of these escape an allowed directory into a file
+  // that EXISTS, which is what makes the 404 meaningful: the pre-fix handler answered 200 for both.
+  for (const path of ['/research/%2e%2e/package.json', '/demo/%2e%2e/package.json']) {
+    const response = await fetch(localUrl + path);
+    assert.equal(response.status, 404, `encoded traversal out of an allowed directory: ${path}`);
+    await response.body?.cancel();
+  }
+  // Root confinement is NOT a discriminator for the allowlist change (both handlers refuse a path
+  // outside the worktree), so it is asserted as the invariant it is, not counted as coverage of the
+  // fix: this fails only if a future handler drops the root check.
+  for (const path of ['/%2e%2e/%2e%2e/etc/passwd', '/../etc/passwd']) {
+    const response = await fetch(localUrl + path);
+    assert.equal(response.status, 404, `path outside the worktree root: ${path}`);
+    await response.body?.cancel();
+  }
+  receipt.checks.push({ localAssetAllowlist: true, deniedPaths: denyFiles.length, traversalRefused: 2, rootConfinement: 2 });
   await page.goto(url);
   const content = await page.evaluate(() => {
     const article = document.querySelector('article');
@@ -152,6 +209,26 @@ try {
       receipt.checks.push({ externalBrowserVisit: visited });
     }
   }
+  // The header's demo link is only honest if the page behind it is a page. Load it for real and
+  // require the module to have executed (app.js sets #connection from navigator.onLine before any
+  // user action) and the stylesheet to have applied; with only /demo/index.html served both were
+  // missing and the receipt still recorded status 200 (idb-vector-zyd). Last in the run, because it
+  // navigates the shared page away from the report the checks above read.
+  await page.goto(`${localUrl}/demo/`);
+  const demo = await page.evaluate(() => ({
+    connection: document.getElementById('connection')?.textContent ?? '',
+    stylesheets: [...document.styleSheets].map((sheet) => ({ href: sheet.href, rules: sheet.cssRules?.length ?? 0 })),
+  }));
+  assert.match(
+    demo.connection,
+    /online|offline/,
+    `demo/app.js did not run, so a module it imports is not served with the page: ${JSON.stringify(demo)}`,
+  );
+  assert.ok(
+    demo.stylesheets.some((sheet) => sheet.href?.endsWith('/demo/style.css') && sheet.rules > 0),
+    `demo/style.css is not served or not applied: ${JSON.stringify(demo.stylesheets)}`,
+  );
+  receipt.checks.push({ demoBooted: true, demo });
   receipt.ok = true;
 } finally {
   await writeFile(resolve(evidence, 'browser.json'), JSON.stringify(receipt, null, 2) + '\n');
