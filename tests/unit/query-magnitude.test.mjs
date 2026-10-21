@@ -80,3 +80,35 @@ test('a query below the overflow boundary is still accepted by all three entry p
     }
   });
 });
+
+test('a query whose squared magnitude underflows to 0 is refused, not blamed on stored records (idb-vector-aya)', async () => {
+  // 1e-200 squares to 0 in Float64 (anything below ~2.2e-162 does), so the magnitude is 0 and the
+  // cosine is dot / (0 * recordNorm) = Infinity. #rank used to report that as the STORED record
+  // overflowing and told the caller to delete a healthy record. The query is at fault, so the query
+  // is what gets refused - before the database is opened, like the overflow case.
+  await withValidatingOnlyDB(async (db) => {
+    const underflowing = [1e-200, 0];
+    const entryPoints = [
+      ['query', () => db.query(underflowing, { limit: 1 })],
+      ['queryCandidates', () => db.queryCandidates(underflowing, { limit: 1 })],
+      ['querySideStore', () => db.querySideStore(underflowing, { epoch: 1, getEpoch: async () => 1 })],
+    ];
+
+    for (const [name, run] of entryPoints) {
+      await assert.rejects(run, (error) => {
+        assert.ok(error instanceof TypeError, `${name}() must refuse an underflowing query with a TypeError; got ${error?.constructor?.name}`);
+        assert.match(error.message, /underflows Float64/, `${name}() message must name the underflow: ${error.message}`);
+        assert.match(error.message, /Normalize or scale the query first/, `${name}() message must say what to do: ${error.message}`);
+        assert.ok(!/stored vectorPath/.test(error.message), `${name}() must not blame a stored record: ${error.message}`);
+        return true;
+      }, `${name}() must refuse a query whose magnitude underflows`);
+    }
+
+    // The boundary is generous: 1e-160 squares to the smallest subnormal and still scores, so a
+    // legitimately tiny query is not caught by this.
+    await assert.rejects(db.query([1e-160, 1], { limit: 1 }), (error) => {
+      assert.ok(!(error instanceof TypeError), `1e-160 must not be refused by argument validation; got ${error?.message}`);
+      return true;
+    }, 'a tiny but representable query must still be accepted');
+  });
+});

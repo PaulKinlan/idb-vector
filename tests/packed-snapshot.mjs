@@ -46,6 +46,16 @@ try {
     const evicted = await db.createSnapshot({ maxBytes: 16 });
     check(evicted.mode === 'live' && evicted.reason === 'memory-budget' && evicted.bytes === 0, 'budget evicts rather than truncates');
     check(bits((await evicted.query([1, 0])).results) === bits(await db.query([1, 0])), 'fallback exact');
+    // Both snapshot paths must refuse an unscoreable query at the boundary (idb-vector-2yi):
+    // snapshot mode used to zero-score every record and return insertion order, and live mode threw
+    // inside the cursor's onsuccess handler, which escaped the promise and hung the caller.
+    for (const [mode, target] of [['snapshot', snapshot], ['live', evicted]]) {
+      let refused = null;
+      try { await target.query([0, 1e160]); } catch (error) { refused = error; }
+      check(refused instanceof TypeError, `${mode} snapshot refuses an overflowing query with a TypeError`);
+      check(/non-finite L2 magnitude/.test(refused.message), `${mode} snapshot names the magnitude: ${refused.message}`);
+      check(!/stored vectorPath/.test(refused.message), `${mode} snapshot must not blame a stored record: ${refused.message}`);
+    }
     await db.update('string-key', { embedding: [1, 0] });
     await snapshot.refresh();
     check(snapshot.mode === 'live' && snapshot.reason === 'unsupported-key-or-vector', 'nonnumeric keys fall back');

@@ -250,7 +250,15 @@ function vectorMagnitude(vector, label = "Vector") {
 // the scoring arithmetic actually needs (see vectorMagnitude).
 function assertScoreableQuery(vector, label) {
   assertVector(vector, label);
-  vectorMagnitude(vector, label);
+  const magnitude = vectorMagnitude(vector, label);
+  // assertVector() already refused an all-zero vector, so a zero magnitude here can only mean the
+  // SQUARES underflowed: every coordinate below ~2.2e-162 (the square root of the smallest f64
+  // subnormal) squares to 0. Scoring with it gave dot / (0 * recordNorm) = Infinity, which #rank then
+  // reported as the STORED record overflowing - blaming a healthy record for the query's fault
+  // (idb-vector-aya). Refuse the query instead, as the overflow case already does.
+  if (magnitude === 0) {
+    throw new TypeError(`${label} has an L2 magnitude that underflows Float64 (0): every coordinate is below ~2.2e-162, so its squares vanish and every cosine score would be Infinity, blaming healthy stored records. Normalize or scale the query first.`);
+  }
   return vector;
 }
 
@@ -556,7 +564,11 @@ class VectorDB {
 
   // Explicitly stale until refresh(); default query() remains authoritative.
   async createSnapshot(options) {
-    return createPackedSnapshot(await this.#connection(), this.#objectStore, this.#vectorPath, options, cosineSimilarity);
+    // The snapshot's own query() is a query entry point too, and both of its paths can mis-score an
+    // unscoreable query: snapshot mode zero-scores every record silently, and live mode used to throw
+    // inside the cursor callback (idb-vector-2yi). Hand it the same boundary validator query() uses so
+    // there is one refusal and one message to maintain.
+    return createPackedSnapshot(await this.#connection(), this.#objectStore, this.#vectorPath, options, cosineSimilarity, assertScoreableQuery);
   }
 
   // Opt-in int8 code side-store with bounded exact rerank (read-per-query path, ADR 0001).

@@ -70,3 +70,23 @@ test('packed mode does not rank undefined cosine scores', async () => {
   assert.deepEqual(Array.from((await snapshot.query([1, 0])).results), [{ key: 1, similarity: 1 }]);
   snapshot.close();
 });
+
+test('a supplied query validator runs before either path reads anything (idb-vector-2yi)', async () => {
+  // index.js passes its own query validator so a snapshot query is refused exactly as query() is.
+  // The order matters as much as the refusal: validating after the cursor starts is what made the
+  // live path throw inside onsuccess and escape the surrounding promise.
+  const rows = [{ key: 1, value: { embedding: [1, 0] } }];
+  const fake = database(rows);
+  let transactions = 0;
+  const counting = { transaction: (...args) => { transactions += 1; return fake.transaction(...args); } };
+  const calls = [];
+  const validate = (query, label) => { calls.push([query, label]); throw new TypeError('refused by the query validator'); };
+
+  const snapshot = await createPackedSnapshot(counting, 'vectors', 'embedding', { maxBytes: 0 }, cosine, validate);
+  assert.equal(snapshot.mode, 'live');
+  const openedByRefresh = transactions;
+  await assert.rejects(snapshot.query([1, 0]), /refused by the query validator/);
+  assert.deepEqual(calls, [[[1, 0], 'Snapshot query']], 'the validator sees the query and a label it can name');
+  assert.equal(transactions, openedByRefresh, 'no transaction may be opened before the validator refuses');
+  snapshot.close();
+});
