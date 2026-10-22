@@ -1,5 +1,5 @@
-/* The demo's shared palette: one source of truth consumed by the wikipedia
-   demo (style.css) and the compute lab (compute/index.html). Page-specific
+/* Shared design tokens across idb-vector demos (PaulKinlan/idb-vector).
+   These are layout-independent values (colours, lines, control affordances); page-specific
    colours stay in the page's own stylesheet. */
 :root { color-scheme: light dark; --accent: light-dark(#075b56, #73e0cc); --line: light-dark(#c8d6ce, #48605a); --line-soft: light-dark(#d5dfd9, #40564f); }
 
@@ -8,5 +8,9 @@
    (not box-shadow, so forced-colors mode keeps it) paired with outline-offset. */
 :focus-visible { outline: 3px solid light-dark(#915400, #ffd185); outline-offset: 3px; }
 :is(button, select):disabled { opacity: .55; cursor: not-allowed; }
+select:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
 button:not(:disabled):hover { filter: brightness(1.08); }
 button:not(:disabled):active { filter: brightness(.94); }
+select:not(:disabled):hover, input:not(:disabled):hover { filter: brightness(1.08); }
+select:not(:disabled):active, input:not(:disabled):active { filter: brightness(.94); }
+summary { cursor: pointer; }
