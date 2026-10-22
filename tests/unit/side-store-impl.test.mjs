@@ -714,3 +714,44 @@ test('codes length comes from the intrinsic getter, so an own length cannot lie 
   // in the caller's own realm. Both directions above are cheap to close, so
   // they are closed; further built-in shadowing is out of scope by ruling.
 });
+
+test('a DataView metadata table gets rebuild guidance, not a raw receiver error (idb-vector-usa)', () => {
+  // Review finding idb-vector-usa (P3): a DataView survives structured clone and
+  // ArrayBuffer.isView accepts it, so the typed-array intrinsic length getter was
+  // called on it and threw "Method get TypedArray.prototype.length called on
+  // incompatible receiver #<DataView>" before any actionable message. Refusing a
+  // record is correct; leaking the engine's error is not.
+  const rows = [{ embedding: [1, 0] }];
+  const keys = ['best'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  for (const [table, bytes] of [['norms', 8], ['mins', 8], ['scales', 8], ['keys', 8]]) {
+    const record = fresh();
+    record[table] = new DataView(new ArrayBuffer(bytes));
+    assert.throws(
+      // structuredClone mirrors the read-back path the guard exists for.
+      () => scanSideStore(structuredClone(record), [1, 0], 2),
+      (error) => {
+        assert.ok(error instanceof TypeError, `${table}: expected a TypeError, got ${error?.constructor?.name}`);
+        assert.doesNotMatch(error.message, /incompatible receiver/, `${table}: must not leak the engine's receiver error: ${error.message}`);
+        assert.match(error.message, new RegExp(`^Stored code record is not scorable: ${table} is a DataView`), `${table}: must name the field: ${error.message}`);
+        assert.match(error.message, /no typed-array elements to read/, `${table}: must say what is wrong: ${error.message}`);
+        assert.match(error.message, /Rebuild the side-store/, `${table}: must say what to do: ${error.message}`);
+        return true;
+      },
+      `${table}: a DataView must be refused with rebuild guidance`,
+    );
+  }
+
+  // codes already refused a DataView by element type; keep both on one message family.
+  const codesView = fresh();
+  codesView.codes = new DataView(new ArrayBuffer(1));
+  assert.throws(() => scanSideStore(structuredClone(codesView), [1, 0], 2), /codes must be a real Int8Array/);
+
+  // A real Float32Array (legacy tables) is still a typed array and still scans.
+  const legacy = fresh();
+  legacy.norms = Float32Array.from(legacy.norms);
+  legacy.mins = Float32Array.from(legacy.mins);
+  legacy.scales = Float32Array.from(legacy.scales);
+  assert.deepEqual(scanSideStore(structuredClone(legacy), [1, 0], 2).map((c) => c.key), ['best']);
+});

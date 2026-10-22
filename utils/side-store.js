@@ -334,13 +334,28 @@ function assertCodeRecordShape(codeRecord) {
   // A table must be a real indexed container of at least the required length:
   // a plain object that only reports a length has nothing to read. A typed
   // array's length is read through the intrinsic getter, so an own `length`
-  // property cannot claim buffer space that does not exist.
-  const tableLength = (value) => (ArrayBuffer.isView(value) ? typedArrayLength.call(value) : value.length);
+  // property cannot claim buffer space that does not exist. A DataView is also
+  // an ArrayBuffer view, survives structured clone, and has no indexed
+  // elements: the typed-array getter throws for it, so the brand test IS the
+  // getter - a receiver it refuses is not a typed array, and the caller gets
+  // this field's guidance instead of a raw "incompatible receiver" TypeError
+  // (review finding idb-vector-usa).
+  const tableLength = (value) => {
+    if (!ArrayBuffer.isView(value)) return value.length;
+    try {
+      return typedArrayLength.call(value);
+    } catch {
+      return null;
+    }
+  };
   const requireTable = (name, value, required) => {
     if (!Array.isArray(value) && !ArrayBuffer.isView(value)) {
       throw corrupt(`${name} must be an Array or a typed array, got ${shape(value)}`);
     }
     const length = tableLength(value);
+    if (length === null) {
+      throw corrupt(`${name} is ${shape(value)}, which has no typed-array elements to read; store an Array or a typed array`);
+    }
     if (!Number.isSafeInteger(length) || length < required) {
       throw corrupt(`${name}.length is ${Number.isSafeInteger(length) ? length : 'missing or not an integer'}, expected at least ${required}`);
     }
