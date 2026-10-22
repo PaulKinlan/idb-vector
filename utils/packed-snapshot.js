@@ -77,6 +77,12 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
       // validator so a snapshot query is refused exactly as query() is, with one message.
       validateQuery?.(query, 'Snapshot query');
       const top = new SortedArray(limit, 'similarity');
+      // Skipping an unusable record is deliberate (idb-vector-bob: one bad vector must never poison
+      // top-k), but it used to be silent: the caller got a complete-looking result set from an
+      // incomplete corpus. Count the refusals by cause and hand them back with the results, so a
+      // caller can tell "no match" from "this store will never be fully searchable" (idb-vector-6bq).
+      const skipped = { total: 0, dimensionMismatch: 0, unsupportedVector: 0, nonFiniteSimilarity: 0 };
+      const skip = (cause) => { skipped.total += 1; skipped[cause] += 1; };
       if (mode === 'snapshot') {
         const queryNorm = Math.sqrt(query.reduce((sum, value) => sum + value * value, 0));
         for (const block of blocks) for (let offset = 0; offset < block.used;) {
@@ -86,10 +92,11 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
             for (let i = 0; i < length; i++) { const value = block.data[offset+i]; dot += query[i]*value; norm += value*value; }
             const similarity = dot / (queryNorm * Math.sqrt(norm));
             if (Number.isFinite(similarity)) top.insert({ key, similarity });
-          }
+            else skip('nonFiniteSimilarity');
+          } else skip('dimensionMismatch');
           offset += length;
         }
-        return { mode: 'snapshot', results: top.slice(0, limit) };
+        return { mode: 'snapshot', results: top.slice(0, limit), skipped };
       }
       return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName), request = tx.objectStore(storeName).openCursor();
@@ -98,13 +105,16 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
           if (!cursor) return;
           const vector = cursor.value?.[vectorPath];
           // A live fallback retains string keys, but invalid vectors must never poison top-k.
-          if (finiteVector(vector) && vector.length === query.length) {
+          if (!finiteVector(vector)) skip('unsupportedVector');
+          else if (vector.length !== query.length) skip('dimensionMismatch');
+          else {
             const similarity = cosine(query, vector);
             if (Number.isFinite(similarity)) top.insert({ key: cursor.key, similarity });
+            else skip('nonFiniteSimilarity');
           }
           cursor.continue();
         };
-        tx.oncomplete = () => resolve({ mode: 'live', results: top.slice(0, limit) });
+        tx.oncomplete = () => resolve({ mode: 'live', results: top.slice(0, limit), skipped });
         tx.onabort = () => reject(tx.error ?? new Error('Live snapshot query aborted'));
       });
     },
