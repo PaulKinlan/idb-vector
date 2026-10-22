@@ -1,10 +1,12 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { requestPathname } from './request-pathname.mjs';
 const root = new URL('../', import.meta.url);
 export async function serve() {
   const server = createServer(async (req, res) => {
-    const path = new URL(req.url, 'http://localhost').pathname;
+    const path = requestPathname(req);
+    if (path === null) { res.writeHead(400).end(); return; }
     // Exercise the same repository subpath used by GitHub Pages.
     const name = path.replace(/^\/idb-vector\//, '');
     // GitHub Pages serves index.html for a trailing-slash directory URL, so resolve the directory

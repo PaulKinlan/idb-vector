@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { connect } from 'node:net';
 import { serve } from '../../tools/demo-server.mjs';
+import { serve as serveWiki } from '../../tools/wiki-demo-server.mjs';
 
 const rawGet = (port, target) => new Promise((resolve, reject) => {
   const socket = connect(port, '127.0.0.1', () => {
@@ -34,4 +35,18 @@ test('the demo server answers a malformed request target with 400 and stays aliv
 
   const missing = await fetch(new URL('/nope.js', url));
   assert.equal(missing.status, 404);
+});
+
+test('the wiki demo server answers a malformed request target with 400 and keeps routing', async (t) => {
+  const { server, url } = await serveWiki();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const { port } = server.address();
+
+  assert.equal(await rawGet(port, 'http://[::1/x'), 400);
+
+  // Bad requests leave the allowlist and directory resolution untouched.
+  const good = await fetch(url);
+  assert.equal(good.status, 200);
+  const root = await fetch(new URL('/idb-vector/', url));
+  assert.equal(root.status, 404);
 });
