@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
-import { join } from 'node:path';
 import { serve } from '../tools/demo-server.mjs';
 import { launch } from './lib/cdp.mjs';
+import { reportTarget } from '../tools/report-target.mjs';
 const { server, url } = await serve();
 let page;
 try {
@@ -77,10 +77,17 @@ try {
   });
   for (const run of result.runs) { assert.equal(run.packed32.bytes, 51200000); assert.equal(run.packed64.bytes, 102400000); assert.ok(Number.isFinite(run.arithmetic.value)); }
   const report = { sourceCommit: execFileSync('git', ['rev-parse', 'HEAD']).toString().trim(), sourceDiff: execFileSync('git', ['diff', '--stat']).toString().trim(), observedAt: new Date().toISOString(), browser: await page.send('Browser.getVersion'), cpu: os.cpus()[0].model, load: os.loadavg(), condition: 'Fresh headless Chromium profile; warm IDB after committed writes; seeded synthetic 100k x128, three order-rotated runs; 1000-row getAll pages; 256 serial random gets each using a fresh readonly transaction; arithmetic is cosine only (not top-k); not cold-disk or an isolated host. Float32 rounds original JS numbers; Float64 preserves them.', ...result };
-  // The report goes to a temp file by default: reports/packed-read.json is TRACKED, and writing it here
-  // advances its nsec ctime, which fleet-check's worktree digest reads as a mid-run tree mutation (STALE).
+  // The report goes to a unique per-run temp directory by default (a fixed os.tmpdir() name let
+  // two concurrent runs clobber one report - idb-vector-006): reports/packed-read.json is TRACKED,
+  // and writing it here advances its nsec ctime, which fleet-check's worktree digest reads as a
+  // mid-run tree mutation (STALE).
   // Regenerate the tracked report deliberately with PACKED_READ_REPORT=reports/packed-read.json.
-  const reportPath = process.env.PACKED_READ_REPORT || join(os.tmpdir(), 'idb-packed-read.json');
-  await writeFile(reportPath, JSON.stringify(report, null, 2)+'\n');
-  console.log(JSON.stringify(report, null, 2));
+  const target = reportTarget(process.env.PACKED_READ_REPORT, 'idb-packed-read-', 'packed-read.json');
+  try {
+    await writeFile(target.path, JSON.stringify(report, null, 2)+'\n');
+    console.log(JSON.stringify(report, null, 2));
+    if (!target.dir) console.log(`Report: ${target.path}`);
+  } finally {
+    if (target.dir) await rm(target.dir, { recursive: true, force: true });
+  }
 } finally { await page?.close(); await new Promise(resolve => server.close(resolve)); }

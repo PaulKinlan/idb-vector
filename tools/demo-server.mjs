@@ -1,19 +1,23 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { requestPathname } from './request-pathname.mjs';
 const root = new URL('../', import.meta.url);
 const files = new Set(['index.js', 'utils/sortedarray.js', 'utils/geometry.js', 'utils/packed-snapshot.js', 'utils/side-store.js', 'demo/data/vectors-2000.f32', 'test-harness/index.html',
   'test-harness/demo.js', 'test-harness/experiment.js', 'test-harness/quantized-pass.js', 'test-harness/side-store.js', 'reports/browser-analysis.md']);
 export async function serve() {
   const server = createServer(async (req, res) => {
-    const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'test-harness/index.html';
+    const pathname = requestPathname(req);
+    if (pathname === null) { res.writeHead(400).end('Bad request target'); return; }
+    const raw = pathname.slice(1);
+    const name = raw || 'test-harness/index.html';
     if (!files.has(name)) { res.writeHead(404).end('Not found'); return; }
     try {
       const content = await readFile(new URL(name, root));
       res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.html') ? 'text/html' : 'text/plain');
       res.setHeader('Cache-Control', 'no-store');
       // Relative module imports require the real directory URL.
-      if (!new URL(req.url, 'http://localhost').pathname.slice(1)) {
+      if (!raw) {
         res.writeHead(302, { Location: '/test-harness/index.html' }).end(); return;
       }
       res.end(content);

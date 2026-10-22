@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
-import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { serve } from '../tools/demo-server.mjs';
 import { launch } from '../tests/lib/cdp.mjs';
+import { reportTarget } from '../tools/report-target.mjs';
 import * as pure from '../test-harness/quantized-pass.js';
 
 // idb-vector-kuc.6: measure compact candidate passes (SQ8 int8 / 1-bit sign / coarse buckets)
@@ -13,9 +13,11 @@ import * as pure from '../test-harness/quantized-pass.js';
 
 // A driver that a gate might some day run must not write a tracked file: fleet-check's worktree
 // digest fingerprints every tracked file, so an in-place report write records STALE even when the
-// content is identical (idb-vector-2ox). The report goes to a temp path unless asked for.
-const reportPath = process.env.IDB_VECTOR_QUANTIZED_REPORT
-  || join(os.tmpdir(), 'idb-vector-quantized-candidate-pass.json');
+// content is identical (idb-vector-2ox). The report goes to a unique per-run temp directory (two
+// concurrent runs must never share the path, idb-vector-8oy) unless asked for, and the directory
+// is removed in the finally below.
+const reportOut = reportTarget(process.env.IDB_VECTOR_QUANTIZED_REPORT, 'idb-vector-quantized-');
+const reportPath = reportOut.path;
 
 // IDB_VECTOR_QUANTIZED_SMOKE=1 runs the same code path on tiny corpora, to check the driver itself
 // (and its output path) in seconds instead of spending a bounded run on 500 MB of writes.
@@ -234,7 +236,8 @@ try {
       `bucket ${m.bucket.medianMs.toFixed(1)}ms r@10=${m.bucket.meanRecallAt10.toFixed(3)} | ` +
       `build sq8/sign/bucket ${result.build.sq8Ms.toFixed(0)}/${result.build.signMs.toFixed(0)}/${result.build.bucketsMs.toFixed(0)}ms`);
   }
-  console.log(`Report: ${reportPath}`);
+  // Only a pinned report survives the run; an ephemeral one is removed with its directory.
+  if (!reportOut.dir) console.log(`Report: ${reportPath}`);
   const s = sideStore.reads;
   console.log(`side-store read (100k x 128): f32 ${(s.f32.bytes / 1e6).toFixed(1)}MB cold ${s.f32.coldMs.toFixed(1)}ms warm ${s.f32.warmMedianMs.toFixed(1)}ms | ` +
     `sq8 ${(s.sq8.bytes / 1e6).toFixed(1)}MB cold ${s.sq8.coldMs.toFixed(1)}ms warm ${s.sq8.warmMedianMs.toFixed(1)}ms | ` +
@@ -244,4 +247,5 @@ try {
 } finally {
   await page?.close();
   await new Promise(resolve => server.close(resolve));
+  if (reportOut.dir) await rm(reportOut.dir, { recursive: true, force: true });
 }

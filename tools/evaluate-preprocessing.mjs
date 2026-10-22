@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
-import os from 'node:os';
-import { join } from 'node:path';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { launch } from '../tests/lib/cdp.mjs';
 import { serve } from './wiki-demo-server.mjs';
+import { reportTarget } from './report-target.mjs';
 import { fitWhitening } from '../utils/geometry.js';
 
 // Exploratory page-level labels: never infer relevance from a ranking under test.
@@ -120,10 +119,18 @@ const report = {
   metrics: Object.fromEntries(Object.keys(methods).map(name => [name, summarize(name)])),
   rows,
 };
-// The report goes to a temp file by default: reports/preprocessing-relevance.json is TRACKED, and writing it here
-// advances its nsec ctime, which fleet-check's worktree digest reads as a mid-run tree mutation (STALE).
+// The report goes to a unique per-run temp directory by default (a fixed os.tmpdir() name let two
+// concurrent runs clobber one report - idb-vector-006): reports/preprocessing-relevance.json is
+// TRACKED, and writing it here advances its nsec ctime, which fleet-check's worktree digest reads
+// as a mid-run tree mutation (STALE).
 // Regenerate the tracked report deliberately with PREPROCESSING_RELEVANCE_REPORT=reports/preprocessing-relevance.json.
-const reportPath = process.env.PREPROCESSING_RELEVANCE_REPORT || join(os.tmpdir(), 'idb-preprocessing-relevance.json');
-await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
-console.log(JSON.stringify({ queryCount: report.queryCount, trainPassages: report.trainPassages,
-  eligiblePassages: report.eligiblePassages, metrics: report.metrics }));
+const target = reportTarget(process.env.PREPROCESSING_RELEVANCE_REPORT, 'idb-preprocessing-', 'preprocessing-relevance.json');
+try {
+  await writeFile(target.path, JSON.stringify(report, null, 2) + '\n');
+  console.log(JSON.stringify({ queryCount: report.queryCount, trainPassages: report.trainPassages,
+    eligiblePassages: report.eligiblePassages, metrics: report.metrics }));
+  // Only a pinned report survives the run; an ephemeral one is removed with its directory.
+  if (!target.dir) console.log(`Report: ${target.path}`);
+} finally {
+  if (target.dir) await rm(target.dir, { recursive: true, force: true });
+}

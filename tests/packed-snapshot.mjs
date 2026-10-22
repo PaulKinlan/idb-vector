@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
-import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { serve } from '../tools/demo-server.mjs';
 import { launch } from './lib/cdp.mjs';
+import { reportTarget } from '../tools/report-target.mjs';
 const { server, url } = await serve();
 let page;
 try {
@@ -169,11 +169,18 @@ try {
   assert.equal(result.measured.length,2);
   const sourceHashes = Object.fromEntries(await Promise.all(['index.js','utils/packed-snapshot.js','utils/geometry.js','tests/packed-snapshot.mjs','tools/demo-server.mjs','demo/data/vectors-2000.f32'].map(async path => [path,createHash('sha256').update(await readFile(path)).digest('hex')])));
   const report={sourceHashes,commit:execFileSync('git',['rev-parse','HEAD']).toString().trim(),diff:execFileSync('git',['diff','--stat']).toString().trim(),observedAt:new Date().toISOString(),browser:await page.send('Browser.getVersion'),cpu:os.cpus()[0].model,load:os.loadavg(),condition:'Fresh headless Chromium profile; warm committed IndexedDB; three alternating query timings per corpus; query IDs42/43/44; k10; same records, exact Float64 byte comparison, not cold disk or isolated host. Snapshot build measured separately.',...result};
-  // The report goes to a temp file by default: reports/packed-snapshot.json is TRACKED, and writing it here
-  // advanced its nsec ctime, which fleet-check's worktree digest reads as a mid-run tree mutation (STALE).
+  // The report goes to a unique per-run temp directory by default (a fixed os.tmpdir() name let
+  // two concurrent runs clobber one report - idb-vector-006): reports/packed-snapshot.json is
+  // TRACKED, and writing it here advanced its nsec ctime, which fleet-check's worktree digest reads
+  // as a mid-run tree mutation (STALE).
   // Regenerate the tracked report deliberately with PACKED_SNAPSHOT_REPORT=reports/packed-snapshot.json.
-  const reportPath = process.env.PACKED_SNAPSHOT_REPORT || join(os.tmpdir(), 'idb-packed-snapshot.json');
-  await writeFile(reportPath, JSON.stringify(report,null,2)+'\n');
-  await page.screenshot('/tmp/idb-packed-snapshot.png');
-  console.log(JSON.stringify(report,null,2));
+  const target = reportTarget(process.env.PACKED_SNAPSHOT_REPORT, 'idb-packed-snapshot-', 'packed-snapshot.json');
+  try {
+    await writeFile(target.path, JSON.stringify(report,null,2)+'\n');
+    await page.screenshot('/tmp/idb-packed-snapshot.png');
+    console.log(JSON.stringify(report,null,2));
+    if (!target.dir) console.log(`Report: ${target.path}`);
+  } finally {
+    if (target.dir) await rm(target.dir, { recursive: true, force: true });
+  }
 } finally { await page?.close(); await new Promise(resolve=>server.close(resolve)); }
