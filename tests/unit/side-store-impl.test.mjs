@@ -590,7 +590,7 @@ test('an array-like table with only a length is not a shape, and codes is refuse
   const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
 
   for (const [table, length, pattern] of [
-    ['codes', 4, /codes must be an Int8Array/],
+    ['codes', 4, /codes must be a real Int8Array/],
     ['norms', 2, /norms must be an Array or a typed array/],
     ['mins', 2, /mins must be an Array or a typed array/],
     ['scales', 2, /scales must be an Array or a typed array/],
@@ -611,7 +611,7 @@ test('an array-like table with only a length is not a shape, and codes is refuse
   const floatCodes = fresh();
   floatCodes.codes = new Float64Array(floatCodes.count * floatCodes.dims);
   floatCodes.codes[0] = Number.NaN;
-  assert.throws(() => scanSideStore(floatCodes, [1, 0], 10), /codes must be an Int8Array/);
+  assert.throws(() => scanSideStore(floatCodes, [1, 0], 10), /codes must be a real Int8Array/);
 
   // A NaN min would poison baseOffset for every score, which no per-row tripwire
   // can see, so mins is value-checked up front (dims long, off the hot loop).
@@ -627,4 +627,54 @@ test('an array-like table with only a length is not a shape, and codes is refuse
   legacy.mins = Float32Array.from(legacy.mins);
   legacy.scales = Float32Array.from(legacy.scales);
   assert.deepEqual(scanSideStore(legacy, [1, 0], 2).map((c) => c.key), ['best', 'worst']);
+});
+
+test('codes identity is the internal slot, not a forgeable brand, and a sparse keys table is refused (idb-vector-44v)', () => {
+  // Review finding idb-vector-44v: Symbol.toStringTag is an own property, so a
+  // SPARSE Array wearing a forged 'Int8Array' tag passed the previous brand
+  // check and ranked [{"key":"worst","score":"NaN"},{"key":"best","score":"NaN"}].
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+  ];
+  const keys = ['best', 'worst'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  const forged = fresh();
+  const sparse = new Array(forged.count * forged.dims);
+  Object.defineProperty(sparse, Symbol.toStringTag, { value: 'Int8Array' });
+  assert.equal(Object.prototype.toString.call(sparse), '[object Int8Array]', 'the tag really does fool toString');
+  assert.deepEqual(scanSideStore(fresh(), [1, 0], 2).map((c) => c.key), ['best', 'worst'], 'the pristine record scans');
+  forged.codes = sparse;
+  assert.throws(() => scanSideStore(forged, [1, 0], 2), /codes must be a real Int8Array/,
+    'a sparse Array with a forged tag is not an Int8Array');
+
+  // A prototype-only fake passes `instanceof` but has no internal slot.
+  const fakeProto = fresh();
+  fakeProto.codes = Object.create(Int8Array.prototype);
+  Object.defineProperty(fakeProto.codes, 'length', { value: fakeProto.count * fakeProto.dims });
+  assert.throws(() => scanSideStore(fakeProto, [1, 0], 2), /codes must be a real Int8Array/);
+
+  // An object with only a tag and a length is not a container at all.
+  const taggedObject = fresh();
+  taggedObject.codes = { length: taggedObject.count * taggedObject.dims, [Symbol.toStringTag]: 'Int8Array' };
+  assert.throws(() => scanSideStore(taggedObject, [1, 0], 2), /codes must be a real Int8Array/);
+
+  // A genuine Int8Array still scans: the check refuses forgeries, not the format.
+  assert.deepEqual(scanSideStore(fresh(), [1, 0], 2).map((c) => c.key), ['best', 'worst']);
+
+  // Sparse metadata tables: holes are refused where they are read, so no sparse
+  // table can produce a candidate set built from undefined values.
+  const sparseExpectations = [
+    ['norms', 2, /non-finite or zero norm/],
+    ['mins', 2, /mins\[0\] is undefined/],
+    ['scales', 2, /non-positive or non-finite scale/],
+    ['keys', 2, /no primary key at index 0/],
+  ];
+  for (const [table, length, pattern] of sparseExpectations) {
+    const record = fresh();
+    record[table] = new Array(length); // holes, correct length
+    assert.throws(() => scanSideStore(record, [1, 0], 2), pattern,
+      `a sparse ${table} table must be refused, not ranked from undefined`);
+  }
 });

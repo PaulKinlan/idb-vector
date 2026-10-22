@@ -573,8 +573,13 @@ try {
         await expectShapeRefusal('a legacy record with no mins/scales', (r) => { r.mins = new Float64Array(0); r.scales = new Float64Array(0); }, /mins\.length is 0, expected at least 2/);
         // The review finding's exact repro: IndexedDB stores `{ length: 4 }` happily, and a
         // length-only table has the right length and nothing to read.
-        await expectShapeRefusal('an array-like codes table with only a length', (r) => { r.codes = { length: r.count * r.dims }; }, /codes must be an Int8Array/);
+        await expectShapeRefusal('an array-like codes table with only a length', (r) => { r.codes = { length: r.count * r.dims }; }, /codes must be a real Int8Array/);
         await expectShapeRefusal('a NaN stored min', (r) => { r.mins = Float64Array.from(r.mins); r.mins[0] = Number.NaN; }, /mins\[0\] is NaN/);
+        // The second review finding's repro (idb-vector-44v): a sparse table with the right
+        // length. Structured clone drops own Symbol properties and turns the holes into
+        // undefined, so what comes back from IndexedDB is exactly what the guard must refuse.
+        await expectShapeRefusal('sparse codes', (r) => { r.codes = new Array(r.count * r.dims); }, /codes must be a real Int8Array/);
+        await expectShapeRefusal('sparse keys', (r) => { r.keys = new Array(r.count); }, /no primary key at index 0/);
         await db.close();
       }
 

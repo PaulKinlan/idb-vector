@@ -316,8 +316,17 @@ function assertCodeRecordShape(codeRecord) {
   if (!Array.isArray(keys)) {
     throw corrupt(`keys must be an Array of exact primary keys, got ${shape(keys)}`);
   }
-  if (Object.prototype.toString.call(codes) !== '[object Int8Array]') {
-    throw corrupt(`codes must be an Int8Array of count * dims SQ8 codes (ADR 0001's format), got ${shape(codes)}; an array-like or float table can carry undefined or NaN into the dot product`);
+  // Identity by internal slot, never by a brand a caller can forge: `codes`
+  // must be a real Int8Array (ADR 0001's format). Symbol.toStringTag is an own
+  // property anyone can set, so a SPARSE Array with a forged tag read
+  // `[object Int8Array]` and ranked NaN (review finding idb-vector-44v);
+  // ArrayBuffer.isView() reads the slot instead, and `instanceof` keeps the
+  // element type pinned while a prototype-only fake (Object.create(
+  // Int8Array.prototype)) fails isView. An integer view cannot hold undefined
+  // or NaN, and a value pass over count * dims would double the cost of the
+  // store's hottest loop.
+  if (!ArrayBuffer.isView(codes) || !(codes instanceof Int8Array)) {
+    throw corrupt(`codes must be a real Int8Array of count * dims SQ8 codes (ADR 0001's format), got ${shape(codes)}; a sparse Array, an array-like object or a forged Symbol.toStringTag tag can carry undefined or NaN into the dot product`);
   }
   requireTable('codes', codes, count * dims);
   requireTable('norms', norms, count);
@@ -365,6 +374,12 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
 
   for (let i = 0; i < count; i++) {
     const key = keys[i];
+    // The keys table can be a plain Array, so it can be sparse or hold explicit
+    // undefined: without this the candidates come back with `key: undefined` and
+    // the caller's fetch fails somewhere else, naming nothing (idb-vector-44v).
+    if (key === undefined) {
+      throw new TypeError(`Stored code record has no primary key at index ${i}, so its row cannot be matched to a stored record. Rebuild the side-store.`);
+    }
 
     // Eligibility check before candidate scoring/truncation (ADR 0001 Invariant 11 & 10)
     if (eligibleCanonicalSet !== null && !eligibleCanonicalSet.has(canonicalKey(key))) {
