@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import { serve } from '../tools/wiki-demo-server.mjs';
 import { launch } from './lib/cdp.mjs';
-const output = process.env.COMPUTE_OUTPUT || '/tmp/idb-vector-compute';
-await mkdir(output, { recursive: true });
+import { runDir } from '../tools/report-target.mjs';
+// Unique per-run output directory (a fixed /tmp name let two runs share one - idb-vector-8oy).
+const { dir: output } = runDir(process.env.COMPUTE_OUTPUT, 'idb-vector-compute-');
 const local = process.env.COMPUTE_URL ? null : await serve();
 const url = process.env.COMPUTE_URL || local.url;
 const browserArgs = process.env.COMPUTE_BROWSER_ARGS ? JSON.parse(process.env.COMPUTE_BROWSER_ARGS) : [];

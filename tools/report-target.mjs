@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 
@@ -11,4 +11,16 @@ export function reportTarget(pinned, prefix, name = 'report.json') {
   if (pinned) return { path: pinned, dir: null };
   const dir = mkdtempSync(join(os.tmpdir(), prefix));
   return { path: join(dir, name), dir };
+}
+
+// Same guarantee for a driver whose output is a DIRECTORY of evidence (screenshots, several JSON
+// files): a pinned directory is created and kept as before; otherwise the run gets a unique
+// mkdtemp directory, so two concurrent runs never share a file name (idb-vector-8oy). Evidence is
+// kept either way - deleting it would defeat the run - and the caller prints the path.
+export function runDir(pinned, prefix) {
+  if (pinned) {
+    mkdirSync(pinned, { recursive: true });
+    return { dir: pinned, owned: false };
+  }
+  return { dir: mkdtempSync(join(os.tmpdir(), prefix)), owned: true };
 }
