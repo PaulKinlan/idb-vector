@@ -3,6 +3,16 @@ import { moments } from './geometry.js';
 
 const finiteVector = vector => Array.isArray(vector) && Array.from(vector).every(Number.isFinite);
 
+// A record whose squared magnitude overflows Float64 - every coordinate finite, at least one above
+// ~1.34e154 - has a cosine similarity that is a real 0, indistinguishable from a genuinely
+// orthogonal record, so Number.isFinite() cannot see it and the existing guards let it rank. query()
+// refuses such a record by key (idb-vector-cfr); both snapshot paths must refuse it too rather than
+// bury it at 0 (idb-vector-c2o). A zero vector is a different case: its similarity is NaN and stays
+// a reported skip, because that is a corpus-shape fact rather than an unscorable magnitude.
+const overflowingRecord = (vectorPath, key) => new TypeError(
+  `Stored vectorPath '${vectorPath}' for key ${JSON.stringify(key)} overflows cosine similarity: every coordinate is finite but its squared magnitude is not, so it would rank as if it were orthogonal to every query. Scale that vector to a sane magnitude or delete it, then query again.`,
+);
+
 // Layout version 1 (in-memory only): Float64 [numeric key, length, ...coordinates].
 // Blocks never split a record. Used length is separate from allocated capacity.
 export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes }, cosine, validateQuery = null) {
@@ -90,6 +100,7 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
           if (length === query.length) {
             let dot = 0, norm = 0;
             for (let i = 0; i < length; i++) { const value = block.data[offset+i]; dot += query[i]*value; norm += value*value; }
+            if (!Number.isFinite(norm)) throw overflowingRecord(vectorPath, key);
             const similarity = dot / (queryNorm * Math.sqrt(norm));
             if (Number.isFinite(similarity)) top.insert({ key, similarity });
             else skip('nonFiniteSimilarity');
@@ -101,18 +112,31 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
       return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName), request = tx.objectStore(storeName).openCursor();
         request.onsuccess = () => {
-          const cursor = request.result;
-          if (!cursor) return;
-          const vector = cursor.value?.[vectorPath];
-          // A live fallback retains string keys, but invalid vectors must never poison top-k.
-          if (!finiteVector(vector)) skip('unsupportedVector');
-          else if (vector.length !== query.length) skip('dimensionMismatch');
-          else {
-            const similarity = cosine(query, vector);
-            if (Number.isFinite(similarity)) top.insert({ key: cursor.key, similarity });
-            else skip('nonFiniteSimilarity');
+          try {
+            const cursor = request.result;
+            if (!cursor) return;
+            const vector = cursor.value?.[vectorPath];
+            // A live fallback retains string keys, but invalid vectors must never poison top-k.
+            if (!finiteVector(vector)) skip('unsupportedVector');
+            else if (vector.length !== query.length) skip('dimensionMismatch');
+            else {
+              const similarity = cosine(query, vector);
+              if (!Number.isFinite(similarity)) skip('nonFiniteSimilarity');
+              else if (similarity === 0) {
+                // Only a zero score can hide an overflowing magnitude, so the extra pass over the
+                // record runs exactly where the bug would be: an orthogonal record pays it too,
+                // everything else pays nothing.
+                const normSq = vector.reduce((sum, value) => sum + value * value, 0);
+                if (!Number.isFinite(normSq)) throw overflowingRecord(vectorPath, cursor.key);
+                top.insert({ key: cursor.key, similarity });
+              } else top.insert({ key: cursor.key, similarity });
+            }
+            cursor.continue();
+          } catch (error) {
+            // A refusal has to reject this promise: throwing from inside an IDB callback escapes it
+            // and leaves the query pending forever (idb-vector-2yi).
+            reject(error);
           }
-          cursor.continue();
         };
         tx.oncomplete = () => resolve({ mode: 'live', results: top.slice(0, limit), skipped });
         tx.onabort = () => reject(tx.error ?? new Error('Live snapshot query aborted'));
