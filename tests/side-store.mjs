@@ -499,6 +499,81 @@ try {
         await db.close();
       }
 
+      // =========================================================================
+      // Persisted record shape: a truncated or legacy code record is refused
+      // before it can mis-rank (idb-vector-bmq)
+      // =========================================================================
+      {
+        const dbName = `test-record-shape-${crypto.randomUUID()}`;
+        databasesToClean.push(dbName);
+        const raw = await openRaw(dbName, 1, (e) => {
+          e.target.result.createObjectStore('vectors');
+          e.target.result.createObjectStore('codes');
+        });
+        raw.close();
+        const db = new VectorDB({ dbName, objectStore: 'vectors', vectorPath: 'embedding' });
+        await db.insert({ embedding: [1, 0] }, 'best');
+        await db.insert({ embedding: [0, 1] }, 'worst');
+        await db.buildSideStore({ epoch: 1, getEpoch: defaultGetEpoch });
+
+        const query = { epoch: 1, getEpoch: defaultGetEpoch, limit: 2 };
+        const clean = await db.querySideStore([1, 0], query);
+        check(clean.results[0].key === 'best', `Record shape: the clean persisted record still ranks best first, got ${clean.results[0].key}`);
+
+        // Corrupt the PERSISTED record — a truncated write, or a record from an
+        // older layout — exactly as the read path would receive it. Before the
+        // shape guard, the scan read `undefined` for the missing slot, produced a
+        // NaN score and returned a plausible top-k with no error at all.
+        // Each refusal starts from the pristine stored record, so one table's
+        // truncation cannot mask the next (a cumulative patch would let the
+        // first short table answer for all of them).
+        const readStoredRecord = async () => {
+          const storeDb = await openRaw(dbName);
+          const record = await new Promise((resolve, reject) => {
+            const req = storeDb.transaction(['codes'], 'readonly').objectStore('codes').get('code_record');
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          storeDb.close();
+          return record;
+        };
+        const pristine = await readStoredRecord();
+        check(pristine.codes.length === pristine.count * pristine.dims, `Record shape: the persisted record is complete before corruption, codes=${pristine.codes.length}`);
+
+        const corruptStoredRecord = async (patch) => {
+          const record = structuredClone(pristine);
+          patch(record);
+          const storeDb = await openRaw(dbName);
+          await new Promise((resolve, reject) => {
+            const tx = storeDb.transaction(['codes'], 'readwrite');
+            tx.objectStore('codes').put(record, 'code_record');
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+          });
+          storeDb.close();
+        };
+
+        const expectShapeRefusal = async (label, patch, pattern) => {
+          await corruptStoredRecord(patch);
+          let error = null;
+          try {
+            await db.querySideStore([1, 0], query);
+          } catch (err) {
+            error = err;
+          }
+          const message = error?.message ?? '';
+          check(error instanceof TypeError, `Record shape: ${label} is refused with a TypeError, got ${error?.constructor?.name ?? 'no error'}`);
+          check(pattern.test(message), `Record shape: ${label} names the corrupted table: ${message}`);
+          check(/Rebuild the side-store/.test(message), `Record shape: ${label} says how to recover: ${message}`);
+        };
+
+        await expectShapeRefusal('truncated codes', (r) => { r.codes = r.codes.slice(0, r.count * r.dims - 1); }, /codes\.length is 3, expected at least 4/);
+        await expectShapeRefusal('truncated keys', (r) => { r.keys = r.keys.slice(0, r.count - 1); }, /keys\.length is 1, expected at least 2/);
+        await expectShapeRefusal('truncated norms', (r) => { r.norms = r.norms.slice(0, r.count - 1); }, /norms\.length is 1, expected at least 2/);
+        await expectShapeRefusal('a legacy record with no mins/scales', (r) => { r.mins = new Float64Array(0); r.scales = new Float64Array(0); }, /mins\.length is 0, expected at least 2/);
+        await db.close();
+      }
+
       return {
         checks: checks.length,
       };

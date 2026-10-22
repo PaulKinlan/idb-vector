@@ -467,3 +467,112 @@ test('scanSideStore and rerankCandidates refuse a query whose L2 magnitude overf
     /non-finite L2 magnitude \(NaN\)/,
   );
 });
+
+test('scanSideStore refuses a truncated or legacy code record before it can mis-rank (idb-vector-bmq)', () => {
+  // A persisted record is untrusted: IndexedDB can hand back one written by an
+  // older layout or cut short. Every indexed read assumes count keys, count
+  // norms, count*dims codes and dims mins/scales, so a short table read
+  // `undefined`, turned the dot product into NaN, and SortedArray inserted the
+  // NaN score — a plausible wrong top-k instead of a refusal.
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+  ];
+  const keys = ['best', 'worst'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  // Each mutation below is a real truncation: the read the scan would reach is
+  // genuinely `undefined`, which is the mechanism of the silent NaN.
+  const truncations = [
+    ['codes', (r) => { r.codes = r.codes.slice(0, r.count * r.dims - 1); }, 3],
+    ['keys', (r) => { r.keys = r.keys.slice(0, r.count - 1); }, 1],
+    ['norms', (r) => { r.norms = r.norms.slice(0, r.count - 1); }, 1],
+    ['mins', (r) => { r.mins = r.mins.slice(0, r.dims - 1); }, 1],
+    ['scales', (r) => { r.scales = r.scales.slice(0, r.dims - 1); }, 1],
+  ];
+
+  for (const [table, truncate, lastIndex] of truncations) {
+    const record = fresh();
+    truncate(record);
+    assert.equal(record[table][lastIndex], undefined, `${table} truncation must leave an unread slot undefined`);
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      (error) => {
+        assert.ok(error instanceof TypeError, `truncated ${table} must throw a TypeError, got ${error?.constructor?.name}`);
+        assert.match(error.message, new RegExp(`${table}\\.length`), `message must name the truncated table: ${error.message}`);
+        assert.match(error.message, /Rebuild the side-store/, `message must say what to do instead: ${error.message}`);
+        return true;
+      },
+      `scanSideStore() must refuse a truncated ${table} table`,
+    );
+  }
+
+  // A record from an older layout that simply lacks the tables is the same bug
+  // with a whole table missing, not a different one.
+  for (const table of ['keys', 'norms', 'codes', 'mins', 'scales']) {
+    const record = fresh();
+    delete record[table];
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      /not scorable: .*Rebuild the side-store/s,
+      `scanSideStore() must refuse a record with no ${table} table`,
+    );
+  }
+
+  // The epoch/revision envelope is part of the shape too: an unstamped record
+  // cannot be tied to the corpus being queried (ADR 0001 Invariant 8). Every
+  // build since this format existed stamps both, so refusing a missing one
+  // rejects only a foreign or hand-built record.
+  for (const field of ['epoch', 'revision']) {
+    const record = fresh();
+    delete record[field];
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      new RegExp(`the ${field} stamp is missing`),
+      `scanSideStore() must refuse a record with no ${field} stamp`,
+    );
+    record[field] = null;
+    assert.throws(() => scanSideStore(record, [1, 0], 10), new RegExp(`the ${field} stamp is missing`));
+  }
+
+  // keys is the container of exact primary keys, so a non-array cannot be
+  // indexed safely even when its `length` happens to look right.
+  const stringKeys = fresh();
+  stringKeys.keys = 'best,worst';
+  assert.throws(() => scanSideStore(stringKeys, [1, 0], 10), /keys must be an array/);
+
+  // count/dims must be integers the array lengths can be checked against, and
+  // count * dims must be exact or the codes length comparison proves nothing.
+  for (const [patch, pattern] of [
+    [{ count: 2.5 }, /count must be a non-negative integer/],
+    [{ count: -1 }, /count must be a non-negative integer/],
+    [{ count: '2' }, /count must be a non-negative integer/],
+    [{ dims: 0 }, /dims must be a positive integer/],
+    [{ dims: 2.5 }, /dims must be a positive integer/],
+    [{ count: Number.MAX_SAFE_INTEGER, dims: 3 }, /is not a safe integer/],
+  ]) {
+    const record = fresh();
+    Object.assign(record, patch);
+    assert.throws(() => scanSideStore(record, [1, 0], 10), pattern, `shape check must refuse ${JSON.stringify(patch)}`);
+  }
+  assert.throws(() => scanSideStore(null, [1, 0], 10), /expected a code-record object, got null/);
+
+  // The guard is truncation-only, so a padded record (extra trailing entries
+  // that no index below count/dims ever reads) still ranks exactly as before.
+  const padded = fresh();
+  padded.keys = [...padded.keys, 'extra'];
+  padded.norms = new Float64Array([...padded.norms, 99]);
+  padded.codes = new Int8Array([...padded.codes, 99, 99]);
+  padded.mins = new Float64Array([...padded.mins, -42]);
+  padded.scales = new Float64Array([...padded.scales, 42]);
+  const paddedTop = scanSideStore(padded, [1, 0], 2).map((c) => c.key);
+  const exactTop = scanSideStore(fresh(), [1, 0], 2).map((c) => c.key);
+  assert.deepEqual(paddedTop, exactTop);
+  assert.equal(paddedTop[0], 'best');
+
+  // An empty corpus stays a no-op rather than a shape error: its tables are
+  // genuinely empty and the scan returns [] before reading anything.
+  const empty = buildCodeRecord([], { keys: [], epoch: 1 });
+  assert.deepEqual(scanSideStore(empty, [], 10), []);
+  assert.deepEqual(scanSideStore(fresh(), [1, 0], 0), []);
+});

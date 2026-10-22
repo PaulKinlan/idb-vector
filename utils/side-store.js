@@ -231,10 +231,76 @@ function scoreableQueryMagnitude(queryVector, label) {
   return magnitude || 1;
 }
 
+// A persisted code record is untrusted input. buildCodeRecord() is the only
+// correct producer, but a scan reads whatever IndexedDB hands back: a record
+// written by an older layout, a truncated write, or an object a caller
+// assembled itself. Every indexed read in the scan below trusts the shape —
+// keys[i], norms[i], codes[i * dims + d], mins[d], scales[d] — so a short or
+// missing array reads `undefined`, poisons the dot product to NaN, and
+// SortedArray inserts that NaN score quite happily: the caller gets a
+// plausible, wrong top-k instead of a refusal (idb-vector-bmq). Validate the
+// shape once, up front, and fail loudly with a rebuild instruction, the same
+// stance the norm and scale tripwires take for degenerate values. Only the
+// truncation direction is a hazard, so trailing extra entries are accepted:
+// they are never read and cannot change a score.
+function assertCodeRecordShape(codeRecord) {
+  const corrupt = (reason) =>
+    new TypeError(`Stored code record is not scorable: ${reason}. Rebuild the side-store.`);
+
+  if (codeRecord === null || typeof codeRecord !== 'object') {
+    throw corrupt(`expected a code-record object, got ${codeRecord === null ? 'null' : typeof codeRecord}`);
+  }
+
+  const { count, dims, keys, norms, mins, scales, codes } = codeRecord;
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw corrupt(`count must be a non-negative integer, got ${String(count)}`);
+  }
+  // The epoch stamp (mirrored as revision since the format was introduced) is
+  // what ties a record to the corpus it was built from (ADR 0001 Invariant 8).
+  // querySideStore() pins and compares it, but the scan itself must not score
+  // an unstamped record either: nothing would show it belongs to the corpus
+  // being queried, and every build since this format existed stamps it.
+  for (const field of ['epoch', 'revision']) {
+    if (codeRecord[field] === undefined || codeRecord[field] === null) {
+      throw corrupt(`the ${field} stamp is missing, so the record cannot be tied to a corpus revision (ADR 0001 Invariant 8)`);
+    }
+  }
+  if (count === 0) return;
+  if (!Number.isSafeInteger(dims) || dims < 1) {
+    throw corrupt(`dims must be a positive integer for ${count} records, got ${String(dims)}`);
+  }
+  // Checking `length >= count * dims` is only meaningful if the product itself
+  // is exact; beyond 2^53 the comparison would pass for a truncated array.
+  if (!Number.isSafeInteger(count * dims)) {
+    throw corrupt(`count * dims (${count} x ${dims}) is not a safe integer, so the code array length cannot be verified`);
+  }
+
+  // One length predicate for the four tables plus the key array: an array-like
+  // with a usable integer length, short of what the indexed reads require.
+  const requireLength = (name, value, required, { arrayOnly = false } = {}) => {
+    if (arrayOnly && !Array.isArray(value)) {
+      throw corrupt(`${name} must be an array of exact primary keys, got ${typeof value}`);
+    }
+    const length = value !== null && typeof value === 'object' && Number.isSafeInteger(value.length)
+      ? value.length
+      : null;
+    if (length === null || length < required) {
+      throw corrupt(`${name}.length is ${length === null ? 'missing or not an integer' : length}, expected at least ${required}`);
+    }
+  };
+
+  requireLength('keys', keys, count, { arrayOnly: true });
+  requireLength('norms', norms, count);
+  requireLength('codes', codes, count * dims);
+  requireLength('mins', mins, dims);
+  requireLength('scales', scales, dims);
+}
+
 // Scan int8 codes to select at most candidateBudget eligible candidates.
 // Intersects eligibleKeys BEFORE candidate budget truncation (ADR 0001 Invariant 11).
 // Uses canonical key serialization to match Date and Array keys by value (ADR 0001 Invariant 10).
 export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, eligibleKeys = null) {
+  assertCodeRecordShape(codeRecord);
   const { count, dims, keys, norms, mins, scales, codes } = codeRecord;
   if (count === 0 || candidateBudget <= 0) return [];
   if (queryVector.length !== dims) {
