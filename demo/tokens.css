@@ -7,6 +7,6 @@
    disabled control looks like (idb-vector-tjn). The focus ring is an outline
    (not box-shadow, so forced-colors mode keeps it) paired with outline-offset. */
 :focus-visible { outline: 3px solid light-dark(#915400, #ffd185); outline-offset: 3px; }
-button:disabled { opacity: .55; cursor: not-allowed; }
+:is(button, select):disabled { opacity: .55; cursor: not-allowed; }
 button:not(:disabled):hover { filter: brightness(1.08); }
 button:not(:disabled):active { filter: brightness(.94); }

@@ -12,8 +12,8 @@ const labPage = readFileSync('demo/compute/index.html', 'utf8');
 test('tokens.css carries the shared control states both pages rely on', () => {
   assert.match(tokens, /:focus-visible\s*\{[^}]*outline:\s*3px solid/, 'explicit focus ring');
   assert.match(tokens, /:focus-visible\s*\{[^}]*outline-offset/, 'ring offset from the control');
-  assert.match(tokens, /button:disabled\s*\{[^}]*cursor:\s*not-allowed/, 'disabled cursor');
-  assert.match(tokens, /button:disabled\s*\{[^}]*opacity/, 'disabled dimming');
+  assert.match(tokens, /:is\(button, select\):disabled\s*\{[^}]*cursor:\s*not-allowed/, 'disabled cursor for buttons and selects');
+  assert.match(tokens, /:is\(button, select\):disabled\s*\{[^}]*opacity/, 'disabled dimming for buttons and selects');
   assert.match(tokens, /button:not\(:disabled\):hover/, 'hover feedback');
   assert.match(tokens, /button:not\(:disabled\):active/, 'active feedback');
 });
@@ -21,6 +21,6 @@ test('tokens.css carries the shared control states both pages rely on', () => {
 test('both demo pages consume tokens.css, and style.css no longer forks the state rules', () => {
   assert.match(pageStyle, /@import '\.\/tokens\.css'/, 'wikipedia demo imports the tokens');
   assert.match(labPage, /href="\.\.\/tokens\.css"/, 'compute lab links the tokens');
-  assert.doesNotMatch(pageStyle, /button:disabled/, 'disabled rule lives in tokens.css only');
+  assert.doesNotMatch(pageStyle, /:disabled/, 'disabled rules live in tokens.css only');
   assert.doesNotMatch(pageStyle, /:focus-visible/, 'focus ring lives in tokens.css only');
 });
