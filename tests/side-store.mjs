@@ -571,6 +571,10 @@ try {
         await expectShapeRefusal('truncated keys', (r) => { r.keys = r.keys.slice(0, r.count - 1); }, /keys\.length is 1, expected at least 2/);
         await expectShapeRefusal('truncated norms', (r) => { r.norms = r.norms.slice(0, r.count - 1); }, /norms\.length is 1, expected at least 2/);
         await expectShapeRefusal('a legacy record with no mins/scales', (r) => { r.mins = new Float64Array(0); r.scales = new Float64Array(0); }, /mins\.length is 0, expected at least 2/);
+        // The review finding's exact repro: IndexedDB stores `{ length: 4 }` happily, and a
+        // length-only table has the right length and nothing to read.
+        await expectShapeRefusal('an array-like codes table with only a length', (r) => { r.codes = { length: r.count * r.dims }; }, /codes must be an Int8Array/);
+        await expectShapeRefusal('a NaN stored min', (r) => { r.mins = Float64Array.from(r.mins); r.mins[0] = Number.NaN; }, /mins\[0\] is NaN/);
         await db.close();
       }
 

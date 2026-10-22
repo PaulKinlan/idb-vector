@@ -539,7 +539,7 @@ test('scanSideStore refuses a truncated or legacy code record before it can mis-
   // indexed safely even when its `length` happens to look right.
   const stringKeys = fresh();
   stringKeys.keys = 'best,worst';
-  assert.throws(() => scanSideStore(stringKeys, [1, 0], 10), /keys must be an array/);
+  assert.throws(() => scanSideStore(stringKeys, [1, 0], 10), /keys must be an Array or a typed array/);
 
   // count/dims must be integers the array lengths can be checked against, and
   // count * dims must be exact or the codes length comparison proves nothing.
@@ -575,4 +575,56 @@ test('scanSideStore refuses a truncated or legacy code record before it can mis-
   const empty = buildCodeRecord([], { keys: [], epoch: 1 });
   assert.deepEqual(scanSideStore(empty, [], 10), []);
   assert.deepEqual(scanSideStore(fresh(), [1, 0], 0), []);
+});
+
+test('an array-like table with only a length is not a shape, and codes is refused by type (bmq review finding)', () => {
+  // Review finding on idb-vector-bmq (P2): the first version of this guard only
+  // compared lengths, and `{ length: count * dims }` is storable in IndexedDB
+  // with the right length and no elements at all - so the NaN came straight
+  // back. A table must now be a real indexed container.
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+  ];
+  const keys = ['best', 'worst'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  for (const [table, length, pattern] of [
+    ['codes', 4, /codes must be an Int8Array/],
+    ['norms', 2, /norms must be an Array or a typed array/],
+    ['mins', 2, /mins must be an Array or a typed array/],
+    ['scales', 2, /scales must be an Array or a typed array/],
+    ['keys', 2, /keys must be an Array or a typed array/],
+  ]) {
+    const record = fresh();
+    record[table] = { length };
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      pattern,
+      `a ${table} table that only reports a length has nothing to read and must be refused`,
+    );
+  }
+
+  // codes is the only table too big to value-check on the hot path, so it is
+  // pinned to the format's own type: a float table can hold NaN with the exact
+  // right length, and an integer container cannot.
+  const floatCodes = fresh();
+  floatCodes.codes = new Float64Array(floatCodes.count * floatCodes.dims);
+  floatCodes.codes[0] = Number.NaN;
+  assert.throws(() => scanSideStore(floatCodes, [1, 0], 10), /codes must be an Int8Array/);
+
+  // A NaN min would poison baseOffset for every score, which no per-row tripwire
+  // can see, so mins is value-checked up front (dims long, off the hot loop).
+  const nanMin = fresh();
+  nanMin.mins = Float64Array.from(nanMin.mins);
+  nanMin.mins[1] = Number.NaN;
+  assert.throws(() => scanSideStore(nanMin, [1, 0], 10), /mins\[1\] is NaN/);
+
+  // Legacy Float32 tables with sane values still scan: only the container shape
+  // is strict, the value tripwires stay the ones that refuse a degenerate record.
+  const legacy = fresh();
+  legacy.norms = Float32Array.from(legacy.norms);
+  legacy.mins = Float32Array.from(legacy.mins);
+  legacy.scales = Float32Array.from(legacy.scales);
+  assert.deepEqual(scanSideStore(legacy, [1, 0], 2).map((c) => c.key), ['best', 'worst']);
 });

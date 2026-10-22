@@ -243,6 +243,21 @@ function scoreableQueryMagnitude(queryVector, label) {
 // stance the norm and scale tripwires take for degenerate values. Only the
 // truncation direction is a hazard, so trailing extra entries are accepted:
 // they are never read and cannot change a score.
+//
+// A length is not a shape: `{ length: count * dims }` is storable in IndexedDB
+// and has the right length with no elements at all, so each table must also be
+// a real Array or typed array (review finding on idb-vector-bmq, P2). The four
+// tables are then defended where they are read, at a cost that stays off the
+// hot loop:
+//   - codes is the big one (count * dims). It is checked by TYPE, not value:
+//     the ADR's format is Int8Array, and an integer container cannot carry
+//     undefined or NaN into the dot product. A value scan here would double the
+//     cost of the hottest loop in the store for no extra guarantee.
+//   - mins is dims long, so its values are checked up front: a NaN min poisons
+//     baseOffset for EVERY score, which no per-row tripwire would see.
+//   - scales are checked by sq8QueryWeights() for every dimension before any
+//     score is computed (positive and finite), and norms per scored row, so
+//     neither needs a second pass here.
 function assertCodeRecordShape(codeRecord) {
   const corrupt = (reason) =>
     new TypeError(`Stored code record is not scorable: ${reason}. Rebuild the side-store.`);
@@ -275,25 +290,46 @@ function assertCodeRecordShape(codeRecord) {
     throw corrupt(`count * dims (${count} x ${dims}) is not a safe integer, so the code array length cannot be verified`);
   }
 
-  // One length predicate for the four tables plus the key array: an array-like
-  // with a usable integer length, short of what the indexed reads require.
-  const requireLength = (name, value, required, { arrayOnly = false } = {}) => {
-    if (arrayOnly && !Array.isArray(value)) {
-      throw corrupt(`${name} must be an array of exact primary keys, got ${typeof value}`);
+  // How a refusing message names the container it was handed.
+  const shape = (value) => {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return 'an Array';
+    if (ArrayBuffer.isView(value)) return `a ${Object.prototype.toString.call(value).slice(8, -1)}`;
+    const length = typeof value === 'object' && Number.isSafeInteger(value.length) ? ` with length ${value.length}` : '';
+    return `a ${typeof value}${length}`;
+  };
+
+  // A table must be a real indexed container of at least the required length:
+  // a plain object that only reports a length has nothing to read.
+  const requireTable = (name, value, required) => {
+    if (!Array.isArray(value) && !ArrayBuffer.isView(value)) {
+      throw corrupt(`${name} must be an Array or a typed array, got ${shape(value)}`);
     }
-    const length = value !== null && typeof value === 'object' && Number.isSafeInteger(value.length)
-      ? value.length
-      : null;
-    if (length === null || length < required) {
-      throw corrupt(`${name}.length is ${length === null ? 'missing or not an integer' : length}, expected at least ${required}`);
+    if (!Number.isSafeInteger(value.length) || value.length < required) {
+      throw corrupt(`${name}.length is ${Number.isSafeInteger(value.length) ? value.length : 'missing or not an integer'}, expected at least ${required}`);
     }
   };
 
-  requireLength('keys', keys, count, { arrayOnly: true });
-  requireLength('norms', norms, count);
-  requireLength('codes', codes, count * dims);
-  requireLength('mins', mins, dims);
-  requireLength('scales', scales, dims);
+  // Exact primary keys: an Array, since a key can be any IndexedDB key type and
+  // the scan canonicalises each one.
+  requireTable('keys', keys, count);
+  if (!Array.isArray(keys)) {
+    throw corrupt(`keys must be an Array of exact primary keys, got ${shape(keys)}`);
+  }
+  if (Object.prototype.toString.call(codes) !== '[object Int8Array]') {
+    throw corrupt(`codes must be an Int8Array of count * dims SQ8 codes (ADR 0001's format), got ${shape(codes)}; an array-like or float table can carry undefined or NaN into the dot product`);
+  }
+  requireTable('codes', codes, count * dims);
+  requireTable('norms', norms, count);
+  requireTable('mins', mins, dims);
+  requireTable('scales', scales, dims);
+  // A NaN min reaches baseOffset once and poisons every score, so no per-row
+  // check can catch it later.
+  for (let d = 0; d < dims; d++) {
+    if (!Number.isFinite(mins[d])) {
+      throw corrupt(`mins[${d}] is ${String(mins[d])}, so every score's base offset would be NaN`);
+    }
+  }
 }
 
 // Scan int8 codes to select at most candidateBudget eligible candidates.
