@@ -10,7 +10,7 @@ h1, h2, li h3 { text-wrap: balance; }
 p { text-wrap: pretty; max-width: 65ch; }
 .lead { font-size: 1.25rem; }
 section, aside { border: 1px solid var(--line); border-radius: 12px; padding: 22px; margin: 24px 0; background: light-dark(#fff, #192725); }
-a { color: var(--accent); }
+a { color: var(--accent); text-decoration-line: underline; text-decoration-thickness: 1px; }
 label { display: block; font-weight: 650; margin-bottom: 8px; }
 select, input, button { font: inherit; padding: 10px 14px; border: 1px solid light-dark(#7b9189, #839e94); border-radius: 6px; max-width: 100%; min-height: 46px; }
 button { cursor: pointer; background: var(--accent); color: light-dark(#fff, #10211c); }
@@ -26,4 +26,9 @@ ol { padding-left: 24px; }
 li { padding: 16px 0; border-top: 1px solid var(--line-soft); }
 li h3, li p { margin: 6px 0; }
 footer { margin: 32px 0; max-width: 65ch; }
+/* Links answer a real pointer: a thicker underline on hover, and pressed
+   feedback that matches the buttons' own active state (idb-vector-gbl).
+   Buttons' hover/active rules live in tokens.css, shared with the lab. */
+a:hover { text-decoration-thickness: 2px; }
+a:active { filter: brightness(.94); }
 @media(max-width: 500px) { main { padding: 16px; } section, aside { padding: 16px; } }
