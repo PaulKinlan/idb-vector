@@ -34,3 +34,11 @@ test('a pinned report path is used verbatim and owns no directory to clean up', 
   assert.equal(target.path, pinned);
   assert.equal(target.dir, null);
 });
+
+test('the report file keeps its descriptive name inside the unique directory', async (t) => {
+  const target = reportTarget(undefined, 'idb-vector-test-', 'side-store-query-smoke.json');
+  t.after(() => rm(target.dir, { recursive: true, force: true }));
+  assert.ok(target.path.endsWith(join(target.dir.split('/').pop(), 'side-store-query-smoke.json'))
+    || target.path === join(target.dir, 'side-store-query-smoke.json'));
+  await writeFile(target.path, '{}');
+});

@@ -6,6 +6,7 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { serve } from '../tools/demo-server.mjs';
 import { launch } from '../tests/lib/cdp.mjs';
+import { reportTarget } from '../tools/report-target.mjs';
 import * as pure from '../test-harness/quantized-pass.js';
 
 // idb-vector-kuc.9: measure an int8 code side-store with a bounded exact rerank END TO END on the
@@ -27,8 +28,9 @@ const smoke = Boolean(process.env.IDB_KUC9_SMOKE);
 // idb-vector-2ox). Both the smoke and the full run default to a temp path, and
 // IDB_VECTOR_SIDE_STORE_REPORT opts into a specific one - reports/side-store-query.json when the
 // committed evidence is being regenerated on purpose (idb-vector-c5h).
-const jsonPath = process.env.IDB_VECTOR_SIDE_STORE_REPORT
-  || join(os.tmpdir(), smoke ? 'idb-vector-side-store-query-smoke.json' : 'idb-vector-side-store-query.json');
+const jsonTarget = reportTarget(process.env.IDB_VECTOR_SIDE_STORE_REPORT, 'idb-vector-side-store-',
+  smoke ? 'side-store-query-smoke.json' : 'side-store-query.json');
+const jsonPath = jsonTarget.path;
 // One profile for the whole run: the warm phase writes its databases into it, and the cold phase
 // reopens that same profile in a NEW browser process. A cold query is therefore one that a process
 // which did not write the store runs before anything else (idb-vector-thu, round 2).
@@ -799,7 +801,7 @@ try {
       ` | packed legs ${c.packed.legs.legSumMs.toFixed(1)}ms whole ${c.packed.whole.wholeMs.toFixed(1)}ms` +
       (c.masked ? ` | masked N=${Math.max(...result.budgets)} legs ${c.masked.legs.legSumMs.toFixed(1)}ms whole ${c.masked.whole.wholeMs.toFixed(1)}ms r@10=${c.masked.legs.recallAt10.toFixed(3)}` : ''));
   }
-  console.log(`Report: ${jsonPath}`);
+  if (!jsonTarget.dir) console.log(`Report: ${jsonPath}`);
 } finally {
   if (page) browsers.delete(page);
   await page?.close();
@@ -808,4 +810,6 @@ try {
   // The profile is the caller's (passed to launch()), so removing it is this script's job: it holds
   // the databases the cold phase read, and it is the only copy of them.
   rmSync(profile, { recursive: true, force: true });
+  // The report directory is unique to this run (idb-vector-006); a pinned report path owns no dir.
+  if (jsonTarget.dir) rmSync(jsonTarget.dir, { recursive: true, force: true });
 }

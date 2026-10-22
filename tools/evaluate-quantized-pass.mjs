@@ -16,8 +16,8 @@ import * as pure from '../test-harness/quantized-pass.js';
 // content is identical (idb-vector-2ox). The report goes to a unique per-run temp directory (two
 // concurrent runs must never share the path, idb-vector-8oy) unless asked for, and the directory
 // is removed in the finally below.
-const report = reportTarget(process.env.IDB_VECTOR_QUANTIZED_REPORT, 'idb-vector-quantized-');
-const reportPath = report.path;
+const reportOut = reportTarget(process.env.IDB_VECTOR_QUANTIZED_REPORT, 'idb-vector-quantized-');
+const reportPath = reportOut.path;
 
 // IDB_VECTOR_QUANTIZED_SMOKE=1 runs the same code path on tiny corpora, to check the driver itself
 // (and its output path) in seconds instead of spending a bounded run on 500 MB of writes.
@@ -236,7 +236,8 @@ try {
       `bucket ${m.bucket.medianMs.toFixed(1)}ms r@10=${m.bucket.meanRecallAt10.toFixed(3)} | ` +
       `build sq8/sign/bucket ${result.build.sq8Ms.toFixed(0)}/${result.build.signMs.toFixed(0)}/${result.build.bucketsMs.toFixed(0)}ms`);
   }
-  console.log(`Report: ${reportPath}`);
+  // Only a pinned report survives the run; an ephemeral one is removed with its directory.
+  if (!reportOut.dir) console.log(`Report: ${reportPath}`);
   const s = sideStore.reads;
   console.log(`side-store read (100k x 128): f32 ${(s.f32.bytes / 1e6).toFixed(1)}MB cold ${s.f32.coldMs.toFixed(1)}ms warm ${s.f32.warmMedianMs.toFixed(1)}ms | ` +
     `sq8 ${(s.sq8.bytes / 1e6).toFixed(1)}MB cold ${s.sq8.coldMs.toFixed(1)}ms warm ${s.sq8.warmMedianMs.toFixed(1)}ms | ` +
@@ -246,5 +247,5 @@ try {
 } finally {
   await page?.close();
   await new Promise(resolve => server.close(resolve));
-  if (report.dir) await rm(report.dir, { recursive: true, force: true });
+  if (reportOut.dir) await rm(reportOut.dir, { recursive: true, force: true });
 }

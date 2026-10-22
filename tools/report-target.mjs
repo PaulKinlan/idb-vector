@@ -7,8 +7,8 @@ import { join } from 'node:path';
 // (idb-vector-8oy). Unless the caller pinned a path, each run gets its own mkdtemp directory;
 // the caller removes the returned dir when it is done. A pinned path is used verbatim and owns
 // no directory, so there is nothing to clean up.
-export function reportTarget(pinned, prefix) {
+export function reportTarget(pinned, prefix, name = 'report.json') {
   if (pinned) return { path: pinned, dir: null };
   const dir = mkdtempSync(join(os.tmpdir(), prefix));
-  return { path: join(dir, 'report.json'), dir };
+  return { path: join(dir, name), dir };
 }
