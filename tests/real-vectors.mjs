@@ -56,7 +56,7 @@ const report = {
   loadStart: os.loadavg(),
   condition: 'Real vectors, 40 held-out queries per setting, k10 cosine. Fresh Chromium profile per corpus/approach, same origin, bulk writes completed before queries. Warm/recent-write filesystem; shared machine. CPU only; CDP helper disables GPU. IVF settings order rotates per query. p95 is nearest-rank over 40 different queries, not repeated trials.',
   diskCondition: 'Actual files under owned profile/Default/IndexedDB, measured with stat after 1s idle while browser alive; logical bytes and allocated blocks. Entire database including records, indexes, WAL/compaction residue, not isolated index bytes or quota estimate. No forced compaction or cold storage claim.',
-  buildCondition: 'Native IndexedDB add in 1000-record transactions for BOTH approaches, not VectorDB.insert throughput. Library schema includes its unused vector-array index; IVF replaces that with cell index and persists centroids. IVF offline NumPy training/full assignment timed separately and added to totalBuildMs. Input download/checksum excluded.',
+  buildCondition: 'Native IndexedDB add in 1000-record transactions for BOTH approaches, not VectorDB.insert throughput. Library schema includes its unused vector-array index; IVF replaces that with cell index and persists centroids. IVF offline NumPy training/full assignment is timed separately and published as unpinnedTrainingMs (prepare-time telemetry, which the corpus pin does not attest); totalBuildMs includes it, and totalBuildMsAttested is false when it does. Input download/checksum excluded.',
   corpora: manifests, runs: [],
 };
 try {

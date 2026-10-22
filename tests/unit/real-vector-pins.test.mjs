@@ -17,7 +17,7 @@ import {
 import { realVectorAssets } from '../../tools/real-vector-assets.mjs';
 // Imported rather than read as text wherever possible: this is the module the pin protects, so it has
 // to load in a non-browser host, and the fast gate then maps the harness's changes to this suite.
-import { run } from '../../test-harness/real-vectors.js';
+import { buildCosts, run } from '../../test-harness/real-vectors.js';
 
 const reports = {};
 for (const file of ['reports/real-glove-2026-10-15.json', 'reports/real-wiki-2026-10-15.json']) {
@@ -114,4 +114,62 @@ test('the browser harness verifies the served manifest against the pin before it
   // The page imports the harness as a module, so the pins module has to be served to the browser.
   assert.ok(realVectorAssets('/example/repo').has('/test-harness/real-vector-pins.js'),
     'the real-vector server must serve the pins module the harness imports');
+});
+
+test('published build costs name the training time the pin does not attest (idb-vector-94k)', async () => {
+  // The premise, executable: prepare-time telemetry is outside the trusted view, so a manifest served
+  // beside the corpus can change trainingMs without breaking the pin. That is exactly why it must not
+  // be published as if the pin attested it.
+  const original = published.get('glove25-10000').corpus;
+  assert.equal(await trustedDigest(original), await trustedDigest(clone(original)), 'the reported manifest is stable');
+  const inflated = clone(original);
+  inflated.ivf.trainingMs = original.ivf.trainingMs * 1000;
+  assert.equal(await trustedDigest(inflated), await trustedDigest(original),
+    'trainingMs must be outside the pin, or this bead would be moot');
+
+  // So the emitted costs separate the two: the in-browser build over the pinned corpus is attested,
+  // the manifest's training time carries "unpinned" in its name, and a total containing it is marked.
+  assert.deepEqual(buildCosts('ivf', 100, 25), {
+    buildMs: 100,
+    unpinnedTrainingMs: 25,
+    totalBuildMs: 125,
+    totalBuildMsAttested: false,
+  });
+  assert.deepEqual(buildCosts('library', 100, undefined), {
+    buildMs: 100,
+    unpinnedTrainingMs: 0,
+    totalBuildMs: 100,
+    totalBuildMsAttested: true,
+  });
+  assert.equal('offlineTrainingMs' in buildCosts('ivf', 100, 25), false,
+    'the old field name implied an attested offline cost; it is gone');
+
+  // Telemetry that is not even a measurement cannot reach a published total.
+  for (const bogus of [undefined, null, Number.NaN, Infinity, -1, '25']) {
+    assert.throws(() => buildCosts('ivf', 100, bogus), /trainingMs must be a nonnegative finite number/,
+      `ivf training time ${String(bogus)} must be refused, not published`);
+  }
+  assert.throws(() => buildCosts('library', -5), /buildMs must be a nonnegative finite number/);
+  assert.throws(() => buildCosts('hannoy', 100, 25), /known measurement method/);
+
+  // The harness publishes those costs and the note that explains them, rather than a bare total.
+  const harness = await readFile(new URL('../../test-harness/real-vectors.js', import.meta.url), 'utf8');
+  assert.match(harness, /\.\.\.buildCosts\(method, buildMs, manifest\.ivf\?\.trainingMs\)/,
+    'run() must publish buildCosts(), so the unpinned component is named in every report');
+  assert.doesNotMatch(harness, /offlineTrainingMs:/, 'the harness must not emit an unlabelled offline training time');
+  assert.match(harness, /totalBuildMsAttested is false whenever totalBuildMs includes it/,
+    'the report carries the provenance note next to the numbers');
+
+  // The harness page reads the same rename. A field it names but run() no longer emits would render
+  // "undefined ms" on the one page a reader uses to watch the measurement, and that page needs a
+  // prepared corpus, so no gate would catch the drift.
+  const page = await readFile(new URL('../../test-harness/real-vectors.html', import.meta.url), 'utf8');
+  const costFields = [...page.matchAll(/window\.measurement\.(buildMs|unpinnedTrainingMs|totalBuildMs|totalBuildMsAttested|offlineTrainingMs)\b/g)]
+    .map(match => match[1]);
+  assert.ok(costFields.includes('unpinnedTrainingMs'), 'the harness page names the training time as unpinned');
+  assert.ok(!costFields.includes('offlineTrainingMs'), 'the harness page must not read the removed offlineTrainingMs field');
+  const emitted = buildCosts('ivf', 1, 1);
+  for (const field of costFields) {
+    assert.ok(field in emitted, `test-harness/real-vectors.html reads window.measurement.${field}, which run() does not emit`);
+  }
 });

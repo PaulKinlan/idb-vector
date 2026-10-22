@@ -26,6 +26,36 @@ export function assertExact(ids, truth) {
 }
 const percentile = (values, p) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1];
 
+// buildMs is measured in this browser over a corpus the pin verifies, so it is attested. The IVF
+// offline training time is NOT: it comes from manifest.ivf.trainingMs, and trustedView() deliberately
+// leaves prepare-time telemetry out of the digest so re-preparing identical content still matches. A
+// manifest served beside the corpus can therefore change that number without breaking the pin, so a
+// field named totalBuildMs published next to pinned numbers read as attested while nothing attested
+// it (idb-vector-94k). Name the unpinned component for what it is, say when a total contains it, and
+// refuse to emit a total built from telemetry that is not even a measurement.
+export function buildCosts(method, buildMs, trainingMs) {
+  if (typeof buildMs !== 'number' || !Number.isFinite(buildMs) || buildMs < 0) {
+    throw new TypeError(`buildMs must be a nonnegative finite number, got ${buildMs}`);
+  }
+  if (method !== 'library' && method !== 'ivf') {
+    throw new TypeError(`buildCosts() needs a known measurement method, got ${JSON.stringify(method)}`);
+  }
+  let unpinnedTrainingMs = 0;
+  if (method === 'ivf') {
+    if (typeof trainingMs !== 'number' || !Number.isFinite(trainingMs) || trainingMs < 0) {
+      throw new TypeError(`manifest.ivf.trainingMs must be a nonnegative finite number for the ivf method, got ${trainingMs}; the corpus pin does not cover it, so a bogus value cannot be published as a measurement`);
+    }
+    unpinnedTrainingMs = trainingMs;
+  }
+  return {
+    buildMs,
+    unpinnedTrainingMs,
+    totalBuildMs: buildMs + unpinnedTrainingMs,
+    // False means the total folds in training time that the pin does not attest.
+    totalBuildMsAttested: unpinnedTrainingMs === 0,
+  };
+}
+
 export async function run(name, method, status, { pins = REAL_VECTOR_PINS } = {}) {
   // Match the corpus names accepted by the measurement driver before constructing a fetch path.
   if (typeof name !== 'string' || !/^(glove25|wiki-api)-[0-9]+$/.test(name)) throw new Error('Invalid corpus name');
@@ -137,9 +167,9 @@ export async function run(name, method, status, { pins = REAL_VECTOR_PINS } = {}
       tieAwareRecallAt10: rows.reduce((n, row) => n + row.tieAwareRecallAt10, 0) / rows.length,
       meanCandidates: rows.reduce((n, row) => n + row.visited, 0) / rows.length };
   });
-  const result = { corpus: name, count, dimensions, method, buildMs, centroidLoadMs,
-    offlineTrainingMs: method === 'ivf' ? manifest.ivf.trainingMs : 0,
-    totalBuildMs: buildMs + (method === 'ivf' ? manifest.ivf.trainingMs : 0),
+  const result = { corpus: name, count, dimensions, method, centroidLoadMs,
+    ...buildCosts(method, buildMs, manifest.ivf?.trainingMs),
+    buildCostNote: 'buildMs is measured in this browser against the pinned corpus. unpinnedTrainingMs is manifest.ivf.trainingMs, prepare-time telemetry the pin deliberately excludes (test-harness/real-vector-pins.js trustedView), so it is not attested; totalBuildMsAttested is false whenever totalBuildMs includes it.',
     storageEstimate: await navigator.storage.estimate(), summary, measurements };
   db.close();
   status(`Finished ${method}: ${count.toLocaleString()} real vectors × ${dimensions}D`);
