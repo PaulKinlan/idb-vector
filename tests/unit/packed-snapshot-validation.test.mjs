@@ -142,3 +142,62 @@ test('snapshot queries report how many stored records they skipped, by cause (id
   assert.deepEqual(cleanResult.skipped, { total: 0, dimensionMismatch: 0, unsupportedVector: 0, nonFiniteSimilarity: 0 });
   clean.close();
 });
+
+test('a record whose squared magnitude overflows Float64 is refused by key, not ranked at 0 (idb-vector-c2o)', { timeout: 10000 }, async () => {
+  // idb-vector-c2o: query() refuses such a record by key (idb-vector-cfr), but the snapshot entry
+  // point left both of its modes ranking it at exactly 0 - indistinguishable from a genuinely
+  // orthogonal record, and invisible to Number.isFinite() because the score really is 0.
+  const rows = [
+    { key: 1, value: { embedding: [1, 0] } }, // similarity 1
+    { key: 2, value: { embedding: [0, 1] } }, // legitimately orthogonal: a real 0
+    { key: 54, value: { embedding: [1e200, 0] } }, // finite coordinates, squared magnitude overflows
+  ];
+  const refusal = (error) => {
+    assert.ok(error instanceof TypeError, `expected a TypeError, got ${error?.constructor?.name}`);
+    assert.match(error.message, /key 54/, `the refusal must name the record: ${error.message}`);
+    assert.match(error.message, /overflows cosine similarity/, `the refusal must name the cause: ${error.message}`);
+    assert.match(error.message, /Scale that vector to a sane magnitude or delete it/, `the refusal must say what to do: ${error.message}`);
+    return true;
+  };
+
+  const packed = await createPackedSnapshot(database(rows), 'vectors', 'embedding', { maxBytes: 1024 }, cosine);
+  assert.equal(packed.mode, 'snapshot');
+  await assert.rejects(packed.query([1, 0]), refusal, 'snapshot mode must refuse the overflowing record');
+  packed.close();
+
+  // The live path's refusal happens inside an IndexedDB callback, so it has to REJECT the query
+  // promise: a throw there would escape the promise and leave the query pending (idb-vector-2yi).
+  const live = await createPackedSnapshot(database(rows), 'vectors', 'embedding', { maxBytes: 0 }, cosine);
+  assert.equal(live.mode, 'live');
+  await assert.rejects(live.query([1, 0]), refusal, 'live mode must refuse the overflowing record, not hang');
+  live.close();
+
+  // idb-vector-dy5: a representable but large QUERY (1e150) makes the dot product overflow to
+  // Infinity while the record's own norm also overflows, so cosine is Infinity/Infinity = NaN
+  // rather than 0. Checking only the 0 shape let the live path skip the record instead of refusing
+  // it, while snapshot mode refused it. Both shapes must name the record.
+  const overflowRows = [{ key: 54, value: { embedding: [1e200, 0] } }];
+  const hugeQuery = [1e150, 0];
+  const packedHuge = await createPackedSnapshot(database(overflowRows), 'vectors', 'embedding', { maxBytes: 1024 }, cosine);
+  assert.equal(packedHuge.mode, 'snapshot');
+  await assert.rejects(packedHuge.query(hugeQuery), refusal, 'snapshot mode must refuse it for a large query too');
+  packedHuge.close();
+  const liveHuge = await createPackedSnapshot(database(overflowRows), 'vectors', 'embedding', { maxBytes: 0 }, cosine);
+  assert.equal(liveHuge.mode, 'live');
+  await assert.rejects(liveHuge.query(hugeQuery), refusal, 'live mode must refuse it, not skip it as a non-finite score');
+  liveHuge.close();
+
+  // A zero vector still skips (its norm is representable; NaN is a corpus-shape fact, not this bug).
+  const zero = await createPackedSnapshot(database([{ key: 7, value: { embedding: [0, 0] } }]), 'vectors', 'embedding', { maxBytes: 0 }, cosine);
+  const zeroResult = await zero.query(hugeQuery);
+  assert.deepEqual(zeroResult.skipped, { total: 1, dimensionMismatch: 0, unsupportedVector: 0, nonFiniteSimilarity: 1 });
+  zero.close();
+
+  // The refusal is about magnitude, not about a zero score: an orthogonal record with a
+  // representable magnitude still ranks 0 and is reported as a match.
+  const clean = await createPackedSnapshot(database(rows.slice(0, 2)), 'vectors', 'embedding', { maxBytes: 1024 }, cosine);
+  const cleanResult = await clean.query([1, 0]);
+  assert.deepEqual(Array.from(cleanResult.results), [{ key: 1, similarity: 1 }, { key: 2, similarity: 0 }]);
+  assert.equal(cleanResult.skipped.total, 0);
+  clean.close();
+});
