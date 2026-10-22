@@ -2,3 +2,12 @@
    demo (style.css) and the compute lab (compute/index.html). Page-specific
    colours stay in the page's own stylesheet. */
 :root { color-scheme: light dark; --accent: light-dark(#075b56, #73e0cc); --line: light-dark(#c8d6ce, #48605a); --line-soft: light-dark(#d5dfd9, #40564f); }
+
+/* Control states for the lab's selects and inputs, matching what the button
+   rules give buttons: a disabled look, and hover/pressed feedback
+   (idb-vector-tjn, idb-vector-0tf). No new colours — the same opacity and
+   brightness steps the buttons use. */
+select:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
+select:not(:disabled):hover, input:not(:disabled):hover { filter: brightness(1.08); }
+select:not(:disabled):active, input:not(:disabled):active { filter: brightness(.94); }
+summary { cursor: pointer; }
