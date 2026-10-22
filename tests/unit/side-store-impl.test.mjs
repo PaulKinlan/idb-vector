@@ -678,3 +678,39 @@ test('codes identity is the internal slot, not a forgeable brand, and a sparse k
       `a sparse ${table} table must be refused, not ranked from undefined`);
   }
 });
+
+test('codes length comes from the intrinsic getter, so an own length cannot lie (idb-vector-5xr)', () => {
+  // Coord ruling after the third review round: read the length through
+  // %TypedArray%.prototype's accessor, because `length` is configurable on an
+  // instance and an own property shadows it. On f10746d this exact object
+  // passed ArrayBuffer.isView + instanceof + the .length comparison and ranked
+  // [{"key":"worst","score":"NaN"},{"key":"best","score":"NaN"}].
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+  ];
+  const keys = ['best', 'worst'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  const shadowed = fresh();
+  shadowed.codes = new Int8Array(1);
+  Object.defineProperty(shadowed.codes, 'length', { value: shadowed.count * shadowed.dims });
+  assert.equal(shadowed.codes.length, 4, 'the own property really does report a length the buffer does not have');
+  assert.throws(
+    () => scanSideStore(shadowed, [1, 0], 2),
+    /codes\.length is 1, expected at least 4/,
+    'the buffer is one byte long, whatever the own property claims',
+  );
+
+  // The converse pins that the intrinsic getter is what the guard uses: a full
+  // buffer wearing a small own length is still the full buffer.
+  const lyingSmall = fresh();
+  Object.defineProperty(lyingSmall.codes, 'length', { value: 1 });
+  assert.deepEqual(scanSideStore(lyingSmall, [1, 0], 2).map((c) => c.key), ['best', 'worst']);
+
+  // THREAT MODEL (documented in assertCodeRecordShape): this guard covers the
+  // persist/read-back path - structured clone preserves type and intrinsic
+  // length and drops own non-index properties - not an adversarial object built
+  // in the caller's own realm. Both directions above are cheap to close, so
+  // they are closed; further built-in shadowing is out of scope by ruling.
+});

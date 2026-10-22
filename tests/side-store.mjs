@@ -580,6 +580,16 @@ try {
         // undefined, so what comes back from IndexedDB is exactly what the guard must refuse.
         await expectShapeRefusal('sparse codes', (r) => { r.codes = new Array(r.count * r.dims); }, /codes must be a real Int8Array/);
         await expectShapeRefusal('sparse keys', (r) => { r.keys = new Array(r.count); }, /no primary key at index 0/);
+
+        // Threat-model boundary, proved rather than assumed (coord ruling): a forged own `length`
+        // on a typed array does not survive structured clone, so the read path receives the real
+        // buffer length - and a valid buffer still ranks after the round trip.
+        await corruptStoredRecord((r) => { Object.defineProperty(r.codes, 'length', { value: 1 }); });
+        const roundTripped = await readStoredRecord();
+        check(roundTripped.codes.length === roundTripped.count * roundTripped.dims,
+          `Record shape: structured clone drops a forged own length (codes.length ${roundTripped.codes.length})`);
+        const afterForgery = await db.querySideStore([1, 0], query);
+        check(afterForgery.results[0].key === 'best', 'Record shape: the record still ranks after the forged length is stripped');
         await db.close();
       }
 

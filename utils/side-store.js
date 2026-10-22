@@ -231,6 +231,20 @@ function scoreableQueryMagnitude(queryVector, label) {
   return magnitude || 1;
 }
 
+// A typed array's real length comes from %TypedArray%.prototype's `length`
+// getter, not from `codes.length`: `length` is configurable on a typed array
+// instance, so an own property shadows the getter and reports a length the
+// buffer does not have. A real Int8Array(1) carrying
+// Object.defineProperty(codes, 'length', { value: 4 }) passed
+// ArrayBuffer.isView + instanceof + a `.length` comparison and then ranked
+// [{"key":"worst","score":"NaN"},{"key":"best","score":"NaN"}] (review finding
+// idb-vector-5xr). Capture the intrinsic accessor once and call it, so no own
+// property can answer for the buffer.
+const typedArrayLength = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype),
+  'length',
+).get;
+
 // A persisted code record is untrusted input. buildCodeRecord() is the only
 // correct producer, but a scan reads whatever IndexedDB hands back: a record
 // written by an older layout, a truncated write, or an object a caller
@@ -246,9 +260,27 @@ function scoreableQueryMagnitude(queryVector, label) {
 //
 // A length is not a shape: `{ length: count * dims }` is storable in IndexedDB
 // and has the right length with no elements at all, so each table must also be
-// a real Array or typed array (review finding on idb-vector-bmq, P2). The four
-// tables are then defended where they are read, at a cost that stays off the
-// hot loop:
+// a real Array or typed array, identified by internal slot rather than by a
+// forgeable brand (review findings on idb-vector-bmq, P2).
+//
+// THREAT MODEL - what this guard is and is not (coord ruling after the third
+// review round). It defends the PERSIST / READ-BACK path: a record arrives from
+// IndexedDB structured clone, which preserves an Array's or typed array's type
+// and intrinsic length and drops own non-index properties, so a truncated
+// write, a foreign or older layout, an array-like stand-in, or a value that
+// does not fit its table is refused instead of mis-ranking.
+// It is NOT a sandbox against code running in the same realm as the caller: a
+// caller that can redefine properties on built-ins (own `length` on a typed
+// array, patching ArrayBuffer.isView) can also write the records it wants
+// straight into the store, so it needs no bypass. Where a forgery is cheap to
+// close we close it anyway - codes is identified by internal slot and its
+// length is read through the intrinsic getter (idb-vector-44v, idb-vector-5xr)
+// - but anything that only works by forging properties in-process is OUT OF
+// SCOPE by design, and the right answer to it is this paragraph, not another
+// round of guessing which built-in gets shadowed next.
+//
+// The four tables are then defended where they are read, at a cost that stays
+// off the hot loop:
 //   - codes is the big one (count * dims). It is checked by TYPE, not value:
 //     the ADR's format is Int8Array, and an integer container cannot carry
 //     undefined or NaN into the dot product. A value scan here would double the
@@ -300,13 +332,17 @@ function assertCodeRecordShape(codeRecord) {
   };
 
   // A table must be a real indexed container of at least the required length:
-  // a plain object that only reports a length has nothing to read.
+  // a plain object that only reports a length has nothing to read. A typed
+  // array's length is read through the intrinsic getter, so an own `length`
+  // property cannot claim buffer space that does not exist.
+  const tableLength = (value) => (ArrayBuffer.isView(value) ? typedArrayLength.call(value) : value.length);
   const requireTable = (name, value, required) => {
     if (!Array.isArray(value) && !ArrayBuffer.isView(value)) {
       throw corrupt(`${name} must be an Array or a typed array, got ${shape(value)}`);
     }
-    if (!Number.isSafeInteger(value.length) || value.length < required) {
-      throw corrupt(`${name}.length is ${Number.isSafeInteger(value.length) ? value.length : 'missing or not an integer'}, expected at least ${required}`);
+    const length = tableLength(value);
+    if (!Number.isSafeInteger(length) || length < required) {
+      throw corrupt(`${name}.length is ${Number.isSafeInteger(length) ? length : 'missing or not an integer'}, expected at least ${required}`);
     }
   };
 
