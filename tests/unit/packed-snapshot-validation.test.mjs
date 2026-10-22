@@ -172,6 +172,27 @@ test('a record whose squared magnitude overflows Float64 is refused by key, not 
   await assert.rejects(live.query([1, 0]), refusal, 'live mode must refuse the overflowing record, not hang');
   live.close();
 
+  // idb-vector-dy5: a representable but large QUERY (1e150) makes the dot product overflow to
+  // Infinity while the record's own norm also overflows, so cosine is Infinity/Infinity = NaN
+  // rather than 0. Checking only the 0 shape let the live path skip the record instead of refusing
+  // it, while snapshot mode refused it. Both shapes must name the record.
+  const overflowRows = [{ key: 54, value: { embedding: [1e200, 0] } }];
+  const hugeQuery = [1e150, 0];
+  const packedHuge = await createPackedSnapshot(database(overflowRows), 'vectors', 'embedding', { maxBytes: 1024 }, cosine);
+  assert.equal(packedHuge.mode, 'snapshot');
+  await assert.rejects(packedHuge.query(hugeQuery), refusal, 'snapshot mode must refuse it for a large query too');
+  packedHuge.close();
+  const liveHuge = await createPackedSnapshot(database(overflowRows), 'vectors', 'embedding', { maxBytes: 0 }, cosine);
+  assert.equal(liveHuge.mode, 'live');
+  await assert.rejects(liveHuge.query(hugeQuery), refusal, 'live mode must refuse it, not skip it as a non-finite score');
+  liveHuge.close();
+
+  // A zero vector still skips (its norm is representable; NaN is a corpus-shape fact, not this bug).
+  const zero = await createPackedSnapshot(database([{ key: 7, value: { embedding: [0, 0] } }]), 'vectors', 'embedding', { maxBytes: 0 }, cosine);
+  const zeroResult = await zero.query(hugeQuery);
+  assert.deepEqual(zeroResult.skipped, { total: 1, dimensionMismatch: 0, unsupportedVector: 0, nonFiniteSimilarity: 1 });
+  zero.close();
+
   // The refusal is about magnitude, not about a zero score: an orthogonal record with a
   // representable magnitude still ranks 0 and is reported as a match.
   const clean = await createPackedSnapshot(database(rows.slice(0, 2)), 'vectors', 'embedding', { maxBytes: 1024 }, cosine);

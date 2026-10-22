@@ -121,15 +121,20 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
             else if (vector.length !== query.length) skip('dimensionMismatch');
             else {
               const similarity = cosine(query, vector);
-              if (!Number.isFinite(similarity)) skip('nonFiniteSimilarity');
-              else if (similarity === 0) {
-                // Only a zero score can hide an overflowing magnitude, so the extra pass over the
-                // record runs exactly where the bug would be: an orthogonal record pays it too,
-                // everything else pays nothing.
+              // An overflowing stored magnitude shows up as an UNSCORABLE score, and there are two
+              // shapes of it: 0 when only the record's norm overflows (finite / Infinity), and NaN
+              // when the query's magnitude is large enough that the dot product overflows too
+              // (Infinity / Infinity). Checking only the 0 shape let the NaN shape fall through to
+              // the skip below and bury the record silently (idb-vector-dy5), so both are tested -
+              // and the record's own norm is what decides, because the query's magnitude is the
+              // caller's business, not this record's. A healthy score pays nothing extra, and an
+              // orthogonal record pays one pass over the vector.
+              if (!Number.isFinite(similarity) || similarity === 0) {
                 const normSq = vector.reduce((sum, value) => sum + value * value, 0);
                 if (!Number.isFinite(normSq)) throw overflowingRecord(vectorPath, cursor.key);
-                top.insert({ key: cursor.key, similarity });
-              } else top.insert({ key: cursor.key, similarity });
+              }
+              if (Number.isFinite(similarity)) top.insert({ key: cursor.key, similarity });
+              else skip('nonFiniteSimilarity');
             }
             cursor.continue();
           } catch (error) {
