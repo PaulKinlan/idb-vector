@@ -2,3 +2,11 @@
    demo (style.css) and the compute lab (compute/index.html). Page-specific
    colours stay in the page's own stylesheet. */
 :root { color-scheme: light dark; --accent: light-dark(#075b56, #73e0cc); --line: light-dark(#c8d6ce, #48605a); --line-soft: light-dark(#d5dfd9, #40564f); }
+
+/* Shared control states, so both pages agree about what a focused, hovered or
+   disabled control looks like (idb-vector-tjn). The focus ring is an outline
+   (not box-shadow, so forced-colors mode keeps it) paired with outline-offset. */
+:focus-visible { outline: 3px solid light-dark(#915400, #ffd185); outline-offset: 3px; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+button:not(:disabled):hover { filter: brightness(1.08); }
+button:not(:disabled):active { filter: brightness(.94); }

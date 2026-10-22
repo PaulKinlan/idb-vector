@@ -14,8 +14,6 @@ a { color: var(--accent); }
 label { display: block; font-weight: 650; margin-bottom: 8px; }
 select, input, button { font: inherit; padding: 10px 14px; border: 1px solid light-dark(#7b9189, #839e94); border-radius: 6px; max-width: 100%; min-height: 46px; }
 button { cursor: pointer; background: var(--accent); color: light-dark(#fff, #10211c); }
-button:disabled { opacity: .55; cursor: not-allowed; }
-:focus-visible { outline: 3px solid light-dark(#915400, #ffd185); outline-offset: 3px; }
 #load { margin-top: 12px; }
 progress { display: block; width: 100%; margin: 16px 0; accent-color: var(--accent); }
 .metric { font-variant-numeric: tabular-nums; font-weight: 600; }
