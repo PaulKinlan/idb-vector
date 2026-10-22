@@ -7,7 +7,7 @@ header { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wr
 h1 { font-size: clamp(2rem, 6vw, 3.5rem); line-height: 1.12; letter-spacing: -.04em; margin: 48px 0 16px; }
 h2 { font-size: 1.2rem; }
 h1, h2, li h3 { text-wrap: balance; }
-p { text-wrap: pretty; }
+p { text-wrap: pretty; max-width: 65ch; }
 .lead { font-size: 1.25rem; }
 section, aside { border: 1px solid var(--line); border-radius: 12px; padding: 22px; margin: 24px 0; background: light-dark(#fff, #192725); }
 a { color: var(--accent); }
@@ -25,5 +25,5 @@ input { flex: 1 1 250px; min-width: 0; }
 ol { padding-left: 24px; }
 li { padding: 16px 0; border-top: 1px solid var(--line-soft); }
 li h3, li p { margin: 6px 0; }
-footer { margin: 32px 0; }
+footer { margin: 32px 0; max-width: 65ch; }
 @media(max-width: 500px) { main { padding: 16px; } section, aside { padding: 16px; } }
