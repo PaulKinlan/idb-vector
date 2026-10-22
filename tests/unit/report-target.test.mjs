@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
-import { reportTarget } from '../../tools/report-target.mjs';
+import { reportTarget, runDir } from '../../tools/report-target.mjs';
 
 test('two unpinned runs get distinct, real directories under the temp root', async (t) => {
   const a = reportTarget(undefined, 'idb-vector-test-');
@@ -41,4 +41,23 @@ test('the report file keeps its descriptive name inside the unique directory', a
   assert.ok(target.path.endsWith(join(target.dir.split('/').pop(), 'side-store-query-smoke.json'))
     || target.path === join(target.dir, 'side-store-query-smoke.json'));
   await writeFile(target.path, '{}');
+});
+
+test('runDir: two unpinned runs get distinct real directories; a pinned one is created and kept', async (t) => {
+  const a = runDir(undefined, 'idb-vector-test-');
+  const b = runDir(undefined, 'idb-vector-test-');
+  t.after(async () => {
+    await rm(a.dir, { recursive: true, force: true });
+    await rm(b.dir, { recursive: true, force: true });
+  });
+  assert.notEqual(a.dir, b.dir);
+  assert.ok(a.owned && b.owned);
+  assert.ok(existsSync(a.dir) && existsSync(b.dir));
+
+  const pinned = join(os.tmpdir(), `idb-vector-test-pinned-${process.pid}`);
+  t.after(() => rm(pinned, { recursive: true, force: true }));
+  const p = runDir(pinned, 'idb-vector-test-');
+  assert.equal(p.dir, pinned);
+  assert.equal(p.owned, false);
+  assert.ok(existsSync(pinned), 'a pinned directory is created if missing');
 });

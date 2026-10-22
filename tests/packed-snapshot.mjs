@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { rm, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
+import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { serve } from '../tools/demo-server.mjs';
@@ -177,7 +178,9 @@ try {
   const target = reportTarget(process.env.PACKED_SNAPSHOT_REPORT, 'idb-packed-snapshot-', 'packed-snapshot.json');
   try {
     await writeFile(target.path, JSON.stringify(report,null,2)+'\n');
-    await page.screenshot('/tmp/idb-packed-snapshot.png');
+    // The screenshot is evidence: beside the report, which is a unique per-run directory unless
+    // PACKED_SNAPSHOT_REPORT pinned one (a fixed /tmp name was clobbered by concurrent runs).
+    await page.screenshot(join(target.dir ?? dirname(target.path), 'packed-snapshot.png'));
     console.log(JSON.stringify(report,null,2));
     if (!target.dir) console.log(`Report: ${target.path}`);
   } finally {

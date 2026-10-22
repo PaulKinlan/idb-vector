@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { launch } from './lib/cdp.mjs';
 import { serve } from '../tools/wiki-demo-server.mjs';
+import { runDir } from '../tools/report-target.mjs';
 const external = process.argv[2];
 const local = external ? null : await serve();
 const url = external || local.url;
-const evidence = process.env.IDB_DEMO_EVIDENCE || '/tmp/idb-wikipedia-demo';
-await mkdir(evidence, { recursive: true });
+// Unique per-run evidence directory (a fixed /tmp name let two runs share one - idb-vector-8oy).
+const { dir: evidence } = runDir(process.env.IDB_DEMO_EVIDENCE, 'idb-wikipedia-demo-');
 const page = await launch();
 const report = { url, at: new Date().toISOString(), browser: await page.send('Browser.getVersion'), model: 'Xenova/all-MiniLM-L6-v2 quantized, 384 dimensions', measurements: [] };
 const text = id => page.evaluate(id => document.getElementById(id).textContent, id);

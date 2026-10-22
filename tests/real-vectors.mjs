@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launch } from './lib/cdp.mjs';
 import { realVectorAssets } from '../tools/real-vector-assets.mjs';
+import { reportTarget } from '../tools/report-target.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const corpora = (process.env.IDB_REAL_CORPORA || 'glove25-10000,glove25-100000,glove25-1183514,wiki-api-10000').split(',');
@@ -34,8 +35,11 @@ const server = createServer(async (req, res) => {
 });
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
 const url = `http://127.0.0.1:${server.address().port}`;
-const output = process.env.IDB_REAL_REPORT || '/tmp/idb-vector-real-measurements.json';
-const evidence = path.dirname(output);
+// Unique per-run report path (a fixed /tmp name let two runs clobber one report - idb-vector-8oy);
+// screenshots live beside it and are kept as evidence.
+const out = reportTarget(process.env.IDB_REAL_REPORT, 'idb-vector-real-', 'real-measurements.json');
+const output = out.path;
+const evidence = out.dir ?? path.dirname(output);
 await mkdir(evidence, { recursive: true });
 async function disk(directory) {
   let logicalBytes = 0, allocatedBytes = 0, files = 0;

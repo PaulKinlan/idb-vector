@@ -2,15 +2,22 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
+import { join } from 'node:path';
 import { serve } from '../tools/demo-server.mjs';
 import { launch } from './lib/cdp.mjs';
+import { runDir } from '../tools/report-target.mjs';
+
+// Evidence (screenshots, measurements) goes to a unique per-run directory: fixed /tmp names let
+// two concurrent runs clobber each other (idb-vector-8oy). The directory is kept for inspection.
+const out = runDir(undefined, 'idb-vector-browser-');
+console.log(`Evidence: ${out.dir}`);
 
 const { server, url } = await serve();
 let page;
 try {
   page = await launch();
   await page.goto(url);
-  await page.screenshot('/tmp/idb-vector-before.png');
+  await page.screenshot(join(out.dir, 'before.png'));
   await page.click('#generate');
   await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready:'), { timeout: 120000 });
   await page.click('#run');
@@ -30,14 +37,14 @@ try {
   await page.click('#run');
   await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Search complete'));
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('#results tr')].every(row => row.children[1].textContent === '7')), true);
-  await page.screenshot('/tmp/idb-vector-after.png', { fullPage: true });
+  await page.screenshot(join(out.dir, 'after.png'), { fullPage: true });
   for (const width of [360, 390, 430]) {
     await page.emulateViewport({ width, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
   await page.emulateViewport({ width: 844, height: 390 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.screenshot('/tmp/idb-vector-landscape.png');
+  await page.screenshot(join(out.dir, 'landscape.png'));
   console.log('PASS: real clicks, dataset creation, self-match, changed query, category results, 360/390/430/landscape no overflow');
 
   if (process.argv.includes('--measure')) {
@@ -97,7 +104,7 @@ try {
       return { emptyOptionsCount, scores, rejectedWrites, nestedError, acknowledged, writeError, transactionAborted, stillPresent };
     });
     report.finished = new Date().toISOString(); report.loadEnd = os.loadavg();
-    const output = process.env.IDB_VECTOR_REPORT || '/tmp/idb-vector-measurements.json';
+    const output = process.env.IDB_VECTOR_REPORT || join(out.dir, 'measurements.json');
     await writeFile(output, JSON.stringify(report, null, 2) + '\n');
     console.log(`Measurements: ${output}`);
   }
