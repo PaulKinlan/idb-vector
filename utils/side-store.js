@@ -231,10 +231,157 @@ function scoreableQueryMagnitude(queryVector, label) {
   return magnitude || 1;
 }
 
+// A typed array's real length comes from %TypedArray%.prototype's `length`
+// getter, not from `codes.length`: `length` is configurable on a typed array
+// instance, so an own property shadows the getter and reports a length the
+// buffer does not have. A real Int8Array(1) carrying
+// Object.defineProperty(codes, 'length', { value: 4 }) passed
+// ArrayBuffer.isView + instanceof + a `.length` comparison and then ranked
+// [{"key":"worst","score":"NaN"},{"key":"best","score":"NaN"}] (review finding
+// idb-vector-5xr). Capture the intrinsic accessor once and call it, so no own
+// property can answer for the buffer.
+const typedArrayLength = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype),
+  'length',
+).get;
+
+// A persisted code record is untrusted input. buildCodeRecord() is the only
+// correct producer, but a scan reads whatever IndexedDB hands back: a record
+// written by an older layout, a truncated write, or an object a caller
+// assembled itself. Every indexed read in the scan below trusts the shape —
+// keys[i], norms[i], codes[i * dims + d], mins[d], scales[d] — so a short or
+// missing array reads `undefined`, poisons the dot product to NaN, and
+// SortedArray inserts that NaN score quite happily: the caller gets a
+// plausible, wrong top-k instead of a refusal (idb-vector-bmq). Validate the
+// shape once, up front, and fail loudly with a rebuild instruction, the same
+// stance the norm and scale tripwires take for degenerate values. Only the
+// truncation direction is a hazard, so trailing extra entries are accepted:
+// they are never read and cannot change a score.
+//
+// A length is not a shape: `{ length: count * dims }` is storable in IndexedDB
+// and has the right length with no elements at all, so each table must also be
+// a real Array or typed array, identified by internal slot rather than by a
+// forgeable brand (review findings on idb-vector-bmq, P2).
+//
+// THREAT MODEL - what this guard is and is not (coord ruling after the third
+// review round). It defends the PERSIST / READ-BACK path: a record arrives from
+// IndexedDB structured clone, which preserves an Array's or typed array's type
+// and intrinsic length and drops own non-index properties, so a truncated
+// write, a foreign or older layout, an array-like stand-in, or a value that
+// does not fit its table is refused instead of mis-ranking.
+// It is NOT a sandbox against code running in the same realm as the caller: a
+// caller that can redefine properties on built-ins (own `length` on a typed
+// array, patching ArrayBuffer.isView) can also write the records it wants
+// straight into the store, so it needs no bypass. Where a forgery is cheap to
+// close we close it anyway - codes is identified by internal slot and its
+// length is read through the intrinsic getter (idb-vector-44v, idb-vector-5xr)
+// - but anything that only works by forging properties in-process is OUT OF
+// SCOPE by design, and the right answer to it is this paragraph, not another
+// round of guessing which built-in gets shadowed next.
+//
+// The four tables are then defended where they are read, at a cost that stays
+// off the hot loop:
+//   - codes is the big one (count * dims). It is checked by TYPE, not value:
+//     the ADR's format is Int8Array, and an integer container cannot carry
+//     undefined or NaN into the dot product. A value scan here would double the
+//     cost of the hottest loop in the store for no extra guarantee.
+//   - mins is dims long, so its values are checked up front: a NaN min poisons
+//     baseOffset for EVERY score, which no per-row tripwire would see.
+//   - scales are checked by sq8QueryWeights() for every dimension before any
+//     score is computed (positive and finite), and norms per scored row, so
+//     neither needs a second pass here.
+function assertCodeRecordShape(codeRecord) {
+  const corrupt = (reason) =>
+    new TypeError(`Stored code record is not scorable: ${reason}. Rebuild the side-store.`);
+
+  if (codeRecord === null || typeof codeRecord !== 'object') {
+    throw corrupt(`expected a code-record object, got ${codeRecord === null ? 'null' : typeof codeRecord}`);
+  }
+
+  const { count, dims, keys, norms, mins, scales, codes } = codeRecord;
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw corrupt(`count must be a non-negative integer, got ${String(count)}`);
+  }
+  // The epoch stamp (mirrored as revision since the format was introduced) is
+  // what ties a record to the corpus it was built from (ADR 0001 Invariant 8).
+  // querySideStore() pins and compares it, but the scan itself must not score
+  // an unstamped record either: nothing would show it belongs to the corpus
+  // being queried, and every build since this format existed stamps it.
+  for (const field of ['epoch', 'revision']) {
+    if (codeRecord[field] === undefined || codeRecord[field] === null) {
+      throw corrupt(`the ${field} stamp is missing, so the record cannot be tied to a corpus revision (ADR 0001 Invariant 8)`);
+    }
+  }
+  if (count === 0) return;
+  if (!Number.isSafeInteger(dims) || dims < 1) {
+    throw corrupt(`dims must be a positive integer for ${count} records, got ${String(dims)}`);
+  }
+  // Checking `length >= count * dims` is only meaningful if the product itself
+  // is exact; beyond 2^53 the comparison would pass for a truncated array.
+  if (!Number.isSafeInteger(count * dims)) {
+    throw corrupt(`count * dims (${count} x ${dims}) is not a safe integer, so the code array length cannot be verified`);
+  }
+
+  // How a refusing message names the container it was handed.
+  const shape = (value) => {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return 'an Array';
+    if (ArrayBuffer.isView(value)) return `a ${Object.prototype.toString.call(value).slice(8, -1)}`;
+    const length = typeof value === 'object' && Number.isSafeInteger(value.length) ? ` with length ${value.length}` : '';
+    return `a ${typeof value}${length}`;
+  };
+
+  // A table must be a real indexed container of at least the required length:
+  // a plain object that only reports a length has nothing to read. A typed
+  // array's length is read through the intrinsic getter, so an own `length`
+  // property cannot claim buffer space that does not exist.
+  const tableLength = (value) => (ArrayBuffer.isView(value) ? typedArrayLength.call(value) : value.length);
+  const requireTable = (name, value, required) => {
+    if (!Array.isArray(value) && !ArrayBuffer.isView(value)) {
+      throw corrupt(`${name} must be an Array or a typed array, got ${shape(value)}`);
+    }
+    const length = tableLength(value);
+    if (!Number.isSafeInteger(length) || length < required) {
+      throw corrupt(`${name}.length is ${Number.isSafeInteger(length) ? length : 'missing or not an integer'}, expected at least ${required}`);
+    }
+  };
+
+  // Exact primary keys: an Array, since a key can be any IndexedDB key type and
+  // the scan canonicalises each one.
+  requireTable('keys', keys, count);
+  if (!Array.isArray(keys)) {
+    throw corrupt(`keys must be an Array of exact primary keys, got ${shape(keys)}`);
+  }
+  // Identity by internal slot, never by a brand a caller can forge: `codes`
+  // must be a real Int8Array (ADR 0001's format). Symbol.toStringTag is an own
+  // property anyone can set, so a SPARSE Array with a forged tag read
+  // `[object Int8Array]` and ranked NaN (review finding idb-vector-44v);
+  // ArrayBuffer.isView() reads the slot instead, and `instanceof` keeps the
+  // element type pinned while a prototype-only fake (Object.create(
+  // Int8Array.prototype)) fails isView. An integer view cannot hold undefined
+  // or NaN, and a value pass over count * dims would double the cost of the
+  // store's hottest loop.
+  if (!ArrayBuffer.isView(codes) || !(codes instanceof Int8Array)) {
+    throw corrupt(`codes must be a real Int8Array of count * dims SQ8 codes (ADR 0001's format), got ${shape(codes)}; a sparse Array, an array-like object or a forged Symbol.toStringTag tag can carry undefined or NaN into the dot product`);
+  }
+  requireTable('codes', codes, count * dims);
+  requireTable('norms', norms, count);
+  requireTable('mins', mins, dims);
+  requireTable('scales', scales, dims);
+  // A NaN min reaches baseOffset once and poisons every score, so no per-row
+  // check can catch it later.
+  for (let d = 0; d < dims; d++) {
+    if (!Number.isFinite(mins[d])) {
+      throw corrupt(`mins[${d}] is ${String(mins[d])}, so every score's base offset would be NaN`);
+    }
+  }
+}
+
 // Scan int8 codes to select at most candidateBudget eligible candidates.
 // Intersects eligibleKeys BEFORE candidate budget truncation (ADR 0001 Invariant 11).
 // Uses canonical key serialization to match Date and Array keys by value (ADR 0001 Invariant 10).
 export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, eligibleKeys = null) {
+  assertCodeRecordShape(codeRecord);
   const { count, dims, keys, norms, mins, scales, codes } = codeRecord;
   if (count === 0 || candidateBudget <= 0) return [];
   if (queryVector.length !== dims) {
@@ -263,6 +410,12 @@ export function scanSideStore(codeRecord, queryVector, candidateBudget = 300, el
 
   for (let i = 0; i < count; i++) {
     const key = keys[i];
+    // The keys table can be a plain Array, so it can be sparse or hold explicit
+    // undefined: without this the candidates come back with `key: undefined` and
+    // the caller's fetch fails somewhere else, naming nothing (idb-vector-44v).
+    if (key === undefined) {
+      throw new TypeError(`Stored code record has no primary key at index ${i}, so its row cannot be matched to a stored record. Rebuild the side-store.`);
+    }
 
     // Eligibility check before candidate scoring/truncation (ADR 0001 Invariant 11 & 10)
     if (eligibleCanonicalSet !== null && !eligibleCanonicalSet.has(canonicalKey(key))) {

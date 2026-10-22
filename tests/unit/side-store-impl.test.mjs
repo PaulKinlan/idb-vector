@@ -467,3 +467,250 @@ test('scanSideStore and rerankCandidates refuse a query whose L2 magnitude overf
     /non-finite L2 magnitude \(NaN\)/,
   );
 });
+
+test('scanSideStore refuses a truncated or legacy code record before it can mis-rank (idb-vector-bmq)', () => {
+  // A persisted record is untrusted: IndexedDB can hand back one written by an
+  // older layout or cut short. Every indexed read assumes count keys, count
+  // norms, count*dims codes and dims mins/scales, so a short table read
+  // `undefined`, turned the dot product into NaN, and SortedArray inserted the
+  // NaN score — a plausible wrong top-k instead of a refusal.
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+  ];
+  const keys = ['best', 'worst'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  // Each mutation below is a real truncation: the read the scan would reach is
+  // genuinely `undefined`, which is the mechanism of the silent NaN.
+  const truncations = [
+    ['codes', (r) => { r.codes = r.codes.slice(0, r.count * r.dims - 1); }, 3],
+    ['keys', (r) => { r.keys = r.keys.slice(0, r.count - 1); }, 1],
+    ['norms', (r) => { r.norms = r.norms.slice(0, r.count - 1); }, 1],
+    ['mins', (r) => { r.mins = r.mins.slice(0, r.dims - 1); }, 1],
+    ['scales', (r) => { r.scales = r.scales.slice(0, r.dims - 1); }, 1],
+  ];
+
+  for (const [table, truncate, lastIndex] of truncations) {
+    const record = fresh();
+    truncate(record);
+    assert.equal(record[table][lastIndex], undefined, `${table} truncation must leave an unread slot undefined`);
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      (error) => {
+        assert.ok(error instanceof TypeError, `truncated ${table} must throw a TypeError, got ${error?.constructor?.name}`);
+        assert.match(error.message, new RegExp(`${table}\\.length`), `message must name the truncated table: ${error.message}`);
+        assert.match(error.message, /Rebuild the side-store/, `message must say what to do instead: ${error.message}`);
+        return true;
+      },
+      `scanSideStore() must refuse a truncated ${table} table`,
+    );
+  }
+
+  // A record from an older layout that simply lacks the tables is the same bug
+  // with a whole table missing, not a different one.
+  for (const table of ['keys', 'norms', 'codes', 'mins', 'scales']) {
+    const record = fresh();
+    delete record[table];
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      /not scorable: .*Rebuild the side-store/s,
+      `scanSideStore() must refuse a record with no ${table} table`,
+    );
+  }
+
+  // The epoch/revision envelope is part of the shape too: an unstamped record
+  // cannot be tied to the corpus being queried (ADR 0001 Invariant 8). Every
+  // build since this format existed stamps both, so refusing a missing one
+  // rejects only a foreign or hand-built record.
+  for (const field of ['epoch', 'revision']) {
+    const record = fresh();
+    delete record[field];
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      new RegExp(`the ${field} stamp is missing`),
+      `scanSideStore() must refuse a record with no ${field} stamp`,
+    );
+    record[field] = null;
+    assert.throws(() => scanSideStore(record, [1, 0], 10), new RegExp(`the ${field} stamp is missing`));
+  }
+
+  // keys is the container of exact primary keys, so a non-array cannot be
+  // indexed safely even when its `length` happens to look right.
+  const stringKeys = fresh();
+  stringKeys.keys = 'best,worst';
+  assert.throws(() => scanSideStore(stringKeys, [1, 0], 10), /keys must be an Array or a typed array/);
+
+  // count/dims must be integers the array lengths can be checked against, and
+  // count * dims must be exact or the codes length comparison proves nothing.
+  for (const [patch, pattern] of [
+    [{ count: 2.5 }, /count must be a non-negative integer/],
+    [{ count: -1 }, /count must be a non-negative integer/],
+    [{ count: '2' }, /count must be a non-negative integer/],
+    [{ dims: 0 }, /dims must be a positive integer/],
+    [{ dims: 2.5 }, /dims must be a positive integer/],
+    [{ count: Number.MAX_SAFE_INTEGER, dims: 3 }, /is not a safe integer/],
+  ]) {
+    const record = fresh();
+    Object.assign(record, patch);
+    assert.throws(() => scanSideStore(record, [1, 0], 10), pattern, `shape check must refuse ${JSON.stringify(patch)}`);
+  }
+  assert.throws(() => scanSideStore(null, [1, 0], 10), /expected a code-record object, got null/);
+
+  // The guard is truncation-only, so a padded record (extra trailing entries
+  // that no index below count/dims ever reads) still ranks exactly as before.
+  const padded = fresh();
+  padded.keys = [...padded.keys, 'extra'];
+  padded.norms = new Float64Array([...padded.norms, 99]);
+  padded.codes = new Int8Array([...padded.codes, 99, 99]);
+  padded.mins = new Float64Array([...padded.mins, -42]);
+  padded.scales = new Float64Array([...padded.scales, 42]);
+  const paddedTop = scanSideStore(padded, [1, 0], 2).map((c) => c.key);
+  const exactTop = scanSideStore(fresh(), [1, 0], 2).map((c) => c.key);
+  assert.deepEqual(paddedTop, exactTop);
+  assert.equal(paddedTop[0], 'best');
+
+  // An empty corpus stays a no-op rather than a shape error: its tables are
+  // genuinely empty and the scan returns [] before reading anything.
+  const empty = buildCodeRecord([], { keys: [], epoch: 1 });
+  assert.deepEqual(scanSideStore(empty, [], 10), []);
+  assert.deepEqual(scanSideStore(fresh(), [1, 0], 0), []);
+});
+
+test('an array-like table with only a length is not a shape, and codes is refused by type (bmq review finding)', () => {
+  // Review finding on idb-vector-bmq (P2): the first version of this guard only
+  // compared lengths, and `{ length: count * dims }` is storable in IndexedDB
+  // with the right length and no elements at all - so the NaN came straight
+  // back. A table must now be a real indexed container.
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+  ];
+  const keys = ['best', 'worst'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  for (const [table, length, pattern] of [
+    ['codes', 4, /codes must be a real Int8Array/],
+    ['norms', 2, /norms must be an Array or a typed array/],
+    ['mins', 2, /mins must be an Array or a typed array/],
+    ['scales', 2, /scales must be an Array or a typed array/],
+    ['keys', 2, /keys must be an Array or a typed array/],
+  ]) {
+    const record = fresh();
+    record[table] = { length };
+    assert.throws(
+      () => scanSideStore(record, [1, 0], 10),
+      pattern,
+      `a ${table} table that only reports a length has nothing to read and must be refused`,
+    );
+  }
+
+  // codes is the only table too big to value-check on the hot path, so it is
+  // pinned to the format's own type: a float table can hold NaN with the exact
+  // right length, and an integer container cannot.
+  const floatCodes = fresh();
+  floatCodes.codes = new Float64Array(floatCodes.count * floatCodes.dims);
+  floatCodes.codes[0] = Number.NaN;
+  assert.throws(() => scanSideStore(floatCodes, [1, 0], 10), /codes must be a real Int8Array/);
+
+  // A NaN min would poison baseOffset for every score, which no per-row tripwire
+  // can see, so mins is value-checked up front (dims long, off the hot loop).
+  const nanMin = fresh();
+  nanMin.mins = Float64Array.from(nanMin.mins);
+  nanMin.mins[1] = Number.NaN;
+  assert.throws(() => scanSideStore(nanMin, [1, 0], 10), /mins\[1\] is NaN/);
+
+  // Legacy Float32 tables with sane values still scan: only the container shape
+  // is strict, the value tripwires stay the ones that refuse a degenerate record.
+  const legacy = fresh();
+  legacy.norms = Float32Array.from(legacy.norms);
+  legacy.mins = Float32Array.from(legacy.mins);
+  legacy.scales = Float32Array.from(legacy.scales);
+  assert.deepEqual(scanSideStore(legacy, [1, 0], 2).map((c) => c.key), ['best', 'worst']);
+});
+
+test('codes identity is the internal slot, not a forgeable brand, and a sparse keys table is refused (idb-vector-44v)', () => {
+  // Review finding idb-vector-44v: Symbol.toStringTag is an own property, so a
+  // SPARSE Array wearing a forged 'Int8Array' tag passed the previous brand
+  // check and ranked [{"key":"worst","score":"NaN"},{"key":"best","score":"NaN"}].
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+  ];
+  const keys = ['best', 'worst'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  const forged = fresh();
+  const sparse = new Array(forged.count * forged.dims);
+  Object.defineProperty(sparse, Symbol.toStringTag, { value: 'Int8Array' });
+  assert.equal(Object.prototype.toString.call(sparse), '[object Int8Array]', 'the tag really does fool toString');
+  assert.deepEqual(scanSideStore(fresh(), [1, 0], 2).map((c) => c.key), ['best', 'worst'], 'the pristine record scans');
+  forged.codes = sparse;
+  assert.throws(() => scanSideStore(forged, [1, 0], 2), /codes must be a real Int8Array/,
+    'a sparse Array with a forged tag is not an Int8Array');
+
+  // A prototype-only fake passes `instanceof` but has no internal slot.
+  const fakeProto = fresh();
+  fakeProto.codes = Object.create(Int8Array.prototype);
+  Object.defineProperty(fakeProto.codes, 'length', { value: fakeProto.count * fakeProto.dims });
+  assert.throws(() => scanSideStore(fakeProto, [1, 0], 2), /codes must be a real Int8Array/);
+
+  // An object with only a tag and a length is not a container at all.
+  const taggedObject = fresh();
+  taggedObject.codes = { length: taggedObject.count * taggedObject.dims, [Symbol.toStringTag]: 'Int8Array' };
+  assert.throws(() => scanSideStore(taggedObject, [1, 0], 2), /codes must be a real Int8Array/);
+
+  // A genuine Int8Array still scans: the check refuses forgeries, not the format.
+  assert.deepEqual(scanSideStore(fresh(), [1, 0], 2).map((c) => c.key), ['best', 'worst']);
+
+  // Sparse metadata tables: holes are refused where they are read, so no sparse
+  // table can produce a candidate set built from undefined values.
+  const sparseExpectations = [
+    ['norms', 2, /non-finite or zero norm/],
+    ['mins', 2, /mins\[0\] is undefined/],
+    ['scales', 2, /non-positive or non-finite scale/],
+    ['keys', 2, /no primary key at index 0/],
+  ];
+  for (const [table, length, pattern] of sparseExpectations) {
+    const record = fresh();
+    record[table] = new Array(length); // holes, correct length
+    assert.throws(() => scanSideStore(record, [1, 0], 2), pattern,
+      `a sparse ${table} table must be refused, not ranked from undefined`);
+  }
+});
+
+test('codes length comes from the intrinsic getter, so an own length cannot lie (idb-vector-5xr)', () => {
+  // Coord ruling after the third review round: read the length through
+  // %TypedArray%.prototype's accessor, because `length` is configurable on an
+  // instance and an own property shadows it. On f10746d this exact object
+  // passed ArrayBuffer.isView + instanceof + the .length comparison and ranked
+  // [{"key":"worst","score":"NaN"},{"key":"best","score":"NaN"}].
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [0, 1] },
+  ];
+  const keys = ['best', 'worst'];
+  const fresh = () => buildCodeRecord(rows, { keys, epoch: 1 });
+
+  const shadowed = fresh();
+  shadowed.codes = new Int8Array(1);
+  Object.defineProperty(shadowed.codes, 'length', { value: shadowed.count * shadowed.dims });
+  assert.equal(shadowed.codes.length, 4, 'the own property really does report a length the buffer does not have');
+  assert.throws(
+    () => scanSideStore(shadowed, [1, 0], 2),
+    /codes\.length is 1, expected at least 4/,
+    'the buffer is one byte long, whatever the own property claims',
+  );
+
+  // The converse pins that the intrinsic getter is what the guard uses: a full
+  // buffer wearing a small own length is still the full buffer.
+  const lyingSmall = fresh();
+  Object.defineProperty(lyingSmall.codes, 'length', { value: 1 });
+  assert.deepEqual(scanSideStore(lyingSmall, [1, 0], 2).map((c) => c.key), ['best', 'worst']);
+
+  // THREAT MODEL (documented in assertCodeRecordShape): this guard covers the
+  // persist/read-back path - structured clone preserves type and intrinsic
+  // length and drops own non-index properties - not an adversarial object built
+  // in the caller's own realm. Both directions above are cheap to close, so
+  // they are closed; further built-in shadowing is out of scope by ruling.
+});

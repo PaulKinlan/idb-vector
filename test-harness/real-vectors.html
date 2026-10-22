@@ -32,7 +32,7 @@
         }
         document.querySelector('#results').append(tr);
       }
-      document.querySelector('#build').textContent = `IDB build ${window.measurement.buildMs.toFixed(1)} ms; offline IVF training ${window.measurement.offlineTrainingMs.toFixed(1)} ms. Disk footprint captured separately by the Node driver.`;
+      document.querySelector('#build').textContent = `IDB build ${window.measurement.buildMs.toFixed(1)} ms; offline IVF training ${window.measurement.unpinnedTrainingMs.toFixed(1)} ms (unpinned telemetry, outside the corpus pin). Disk footprint captured separately by the Node driver.`;
     } catch (error) {
       window.measurementError = error.message;
       document.querySelector('#status').textContent = `FAILED: ${error.message}`;
