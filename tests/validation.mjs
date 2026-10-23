@@ -204,6 +204,36 @@ try {
       { type: TypeError, includes: ["insert() 'embedding' vector", 'non-finite L2 magnitude (Infinity)'] });
     check((await count(name)) === 13, 'the refused-then-mutated insert wrote nothing');
 
+    // --- accessor bypass regression (idb-vector-qnh): ONE read pass over the caller's vector, and
+    // the snapshot is both validated and persisted. The getter returns a VALID vector on the first
+    // read and an overflowing one on every later read; a second read (for the snapshot or the
+    // record copy) would persist [1e200, 0] and the query below would reject wholesale.
+    let insertReads = 0;
+    const accessorRecord = {};
+    Object.defineProperty(accessorRecord, 'embedding', {
+      enumerable: true,
+      get() {
+        insertReads += 1;
+        return insertReads === 1 ? [0, 1] : [1e200, 0];
+      },
+    });
+    const accessorKey = await db.insert(accessorRecord, 'accessor-insert');
+    check(insertReads === 1, `insert() must read an accessor-backed embedding exactly once, got ${insertReads}`);
+    let updateReads = 0;
+    const accessorUpdate = {};
+    Object.defineProperty(accessorUpdate, 'embedding', {
+      enumerable: true,
+      get() {
+        updateReads += 1;
+        return updateReads === 1 ? [3, 0] : [1e200, 0];
+      },
+    });
+    await db.update(keys[2], accessorUpdate);
+    check(updateReads === 1, `update() must read an accessor-backed embedding exactly once, got ${updateReads}`);
+    const afterAccessor = await db.query([0, 1], { limit: 20 });
+    check(afterAccessor.length === 14, `the accessor-backed writes persisted exactly the validated vectors: the store is still queryable (got ${afterAccessor.length})`);
+    check(afterAccessor.some(r => r.key === accessorKey), 'the accessor insert persisted the vector read on the single pass');
+
     // --- 2. query vector validation -----------------------------------------------------------
     await refusal('zero query vector', () => db.query([0, 0]), { type: TypeError, includes: ['query() vector', 'all zeros'] });
     await refusal('empty query vector', () => db.query([]), { type: TypeError, includes: ['query() vector', 'must not be empty'] });

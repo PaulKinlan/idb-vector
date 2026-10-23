@@ -84,6 +84,37 @@ test('insert() and update() refuse a vector whose squared magnitude underflows t
   });
 });
 
+test('insert() and update() read an accessor-backed vector exactly once (idb-vector-qnh)', async () => {
+  // An accessor can return a different array on every read: [0, 1] on the first, [1e200, 0]
+  // afterwards. A write path that reads the property once to validate and again to snapshot would
+  // validate the first array and persist the second - the bypass the reviewer reproduced. The
+  // write path must take ONE read pass; the assertion below counts the getter invocations.
+  await withValidatingOnlyDB(async (db) => {
+    for (const [name, run] of [
+      ['insert', (row) => db.insert(row)],
+      ['update', (row) => db.update(1, row)],
+    ]) {
+      const state = { reads: 0 };
+      const row = {};
+      Object.defineProperty(row, 'embedding', {
+        enumerable: true,
+        get() {
+          state.reads += 1;
+          return state.reads === 1 ? [0, 1] : [1e200, 0];
+        },
+      });
+      // The harness has no database: a write that passes validation rejects with
+      // InvalidStateError (non-TypeError). Any second read of the property would return the
+      // overflowing array - and either a TypeError from validation or a persisted overflow.
+      await assert.rejects(run(row), (error) => {
+        assert.ok(!(error instanceof TypeError), `${name}() must not refuse the vector it read on the single pass; got ${error?.message}`);
+        return true;
+      }, `${name}() must validate exactly the vector it snapshotted`);
+      assert.equal(state.reads, 1, `${name}() must read the caller's vector exactly once, got ${state.reads}`);
+    }
+  });
+});
+
 test('a vector below the overflow boundary is still accepted by both write paths', async () => {
   // 1e150 squares to 1e300, which fits, and 1e-160 squares to the smallest subnormal: both must get
   // past argument validation and fail only because this harness has no database. Any TypeError here
