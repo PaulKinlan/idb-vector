@@ -266,6 +266,24 @@ function assertScoreableQuery(vector, label) {
   return vector;
 }
 
+// The write boundary (insert()/update()) enforces the same scoreability the query boundary does
+// (idb-vector-1d3): a vector that cannot be scored must never reach the store, because every query
+// that scans it rejects WHOLESALE through storedVectorError() - one write would make the whole
+// store unqueryable, and insert() used to accept the same vector again, so the store could not
+// even heal itself by re-inserting a repaired record. Overflow (any |coordinate| above ~1.34e154)
+// is refused by vectorMagnitude(); the underflow case (every coordinate below ~2.2e-162 squares to
+// 0, so the score would be dot / (norm * 0) = Infinity) needs its own refusal, exactly as
+// assertScoreableQuery does for the query side. Runs before the transaction opens, so a refused
+// write stores nothing.
+function assertScoreableStoredVector(vector, label) {
+  assertVector(vector, label);
+  const magnitude = vectorMagnitude(vector, label);
+  if (magnitude === 0) {
+    throw new TypeError(`${label} has an L2 magnitude that underflows Float64 (0): every coordinate is below ~2.2e-162, so its squares vanish and every cosine score against it would be Infinity. Normalize or scale the vector before storing it.`);
+  }
+  return vector;
+}
+
 // A successful request can still be rolled back by its transaction.
 function committed(transaction, request) {
   return new Promise((resolve, reject) => {
@@ -364,7 +382,7 @@ class VectorDB {
       throw new TypeError(`insert() record has no '${this.#vectorPath}' property (vectorPath); add the vector before inserting`);
     }
 
-    assertVector(object[this.#vectorPath], `insert() '${this.#vectorPath}' vector`);
+    assertScoreableStoredVector(object[this.#vectorPath], `insert() '${this.#vectorPath}' vector`);
 
     const db = await this.#connection();
     const storeName = this.#objectStore;
@@ -407,7 +425,7 @@ class VectorDB {
       throw new TypeError(`update() record has no '${this.#vectorPath}' property (vectorPath); add the vector before updating`);
     }
 
-    assertVector(object[this.#vectorPath], `update() '${this.#vectorPath}' vector`);
+    assertScoreableStoredVector(object[this.#vectorPath], `update() '${this.#vectorPath}' vector`);
 
     const db = await this.#connection();
     const storeName = this.#objectStore;

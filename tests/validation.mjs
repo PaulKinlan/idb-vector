@@ -6,7 +6,9 @@
 //
 // The contract under test (README.md, "Contract and validation"):
 //   1. vectorPath names ONE top-level property; a dotted name is refused at construction.
-//   2. a vector is a non-empty Array of finite numbers with at least one nonzero coordinate.
+//   2. a vector is a non-empty Array of finite numbers with at least one nonzero coordinate, and
+//      its L2 magnitude must be scoreable in Float64 (neither squared-magnitude overflow nor
+//      underflow) — insert() and update() enforce that at the write boundary (idb-vector-1d3).
 //   3. limit is a positive integer and missing options mean limit 10.
 //   4. every vector in a store shares one dimension; a record that is present but invalid makes
 //      query() reject and NAME the offending key, instead of silently skipping it and letting a
@@ -133,6 +135,15 @@ try {
     await refusal('non-record insert',
       () => db.insert([1, 0]),
       { type: TypeError, includes: ['record object'] });
+    // The magnitude contract (idb-vector-1d3): a vector whose squared magnitude overflows Float64,
+    // or whose squares all underflow to 0, can never be scored — every query that scanned the
+    // stored record would reject wholesale — so the write boundary refuses it before any write.
+    await refusal('overflowing vector insert',
+      () => db.insert({ embedding: [0, 1e160] }),
+      { type: TypeError, includes: ["insert() 'embedding' vector", 'non-finite L2 magnitude (Infinity)'] });
+    await refusal('underflowing vector insert',
+      () => db.insert({ embedding: [1e-200, 0] }),
+      { type: TypeError, includes: ["insert() 'embedding' vector", 'underflows Float64'] });
     check((await count(name)) === 0, 'no refused insert wrote a record');
 
     const keys = [];
@@ -142,6 +153,9 @@ try {
     await refusal('zero vector update',
       () => db.update(keys[0], { embedding: [0, 0] }),
       { type: TypeError, includes: ['all zeros'] });
+    await refusal('overflowing vector update',
+      () => db.update(keys[0], { embedding: [0, 1e160] }),
+      { type: TypeError, includes: ["update() 'embedding' vector", 'non-finite L2 magnitude (Infinity)'] });
     const afterRefusedUpdate = await db.query([1, 0], { limit: 12 });
     check(afterRefusedUpdate.length === 12, 'a refused update left twelve records queryable');
     check((await count(name)) === 12, 'a refused update wrote nothing');
