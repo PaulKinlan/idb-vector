@@ -22,7 +22,7 @@ bd close <id>         # Complete work
 - Run `bd prime` for detailed command reference and session close protocol
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+**Architecture in one line:** issues live in a local embedded Dolt DB (`.beads/embeddeddolt/`, git-ignored); sync uses `bd dolt push/pull` via `refs/dolt/data` on the git remote; no JSONL export is tracked — `.beads/backup/*.darc` are local, git-ignored backups. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 
 ## Agent Context Profiles
 
