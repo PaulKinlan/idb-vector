@@ -319,6 +319,13 @@ vector dataset, choose a query vector and see nearest neighbours and timings. Th
 experimental metadata-index comparisons do not change the library API.
 No model downloads, new dependencies or fixed ports are required.
 
+`npm start` serves the Wikipedia demo the same way, through the repository's own allowlist
+server: it binds `127.0.0.1` on an ephemeral port, serves only `demo/**`, `index.js` and the
+utility modules the demo imports, and answers everything else with 404. **Remote and LAN access
+is deliberately not supported** — nothing is exposed beyond loopback and there is no flag to
+widen that. If you need the demo reachable from another machine, run your own static server
+for the paths you choose and treat that as your own decision, not a default of this repo.
+
 `npm test` drives the demo in installed Chromium and then runs `tests/validation.mjs`, which
 drives the numeric/options/path contract (refusals, error classes and messages, no partial
 writes) in the same browser, `tests/candidates.mjs`, which checks candidate queries against a
