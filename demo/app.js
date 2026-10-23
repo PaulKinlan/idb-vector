@@ -1,6 +1,7 @@
 import { VectorDB } from '../index.js';
 import { browserLabel } from './ua.js';
 import { loadManifest, verifyBytes } from './integrity.js';
+import { resultsView } from './results.js';
 const $ = id => document.getElementById(id);
 const dbName = 'idb-vector-wikipedia-minilm-v1';
 let encoder, vectorDB, count = 0, busy = false;
@@ -160,6 +161,7 @@ $('search').addEventListener('submit', async event => {
   if (!query) return;
   controls(true);
   $('results').replaceChildren();
+  $('result-summary').textContent = '';
   $('query-timing').textContent = 'Encoding question on this device…';
   try {
     const start = performance.now();
@@ -168,22 +170,35 @@ $('search').addEventListener('submit', async event => {
     const results = await vectorDB.query(vector, { limit: 5 });
     const end = performance.now();
     $('query-timing').textContent = `Question encoding ${(encoded - start).toFixed(1)} ms · IndexedDB search ${(end - encoded).toFixed(1)} ms · total ${(end - start).toFixed(1)} ms. ${condition()}`;
-    for (const { object, similarity } of results) {
+    const view = resultsView(results, query);
+    $('result-summary').textContent = view.summary;
+    const list = $('results');
+    for (const item of view.items) {
       const li = document.createElement('li'), heading = document.createElement('h3'), link = document.createElement('a');
-      link.textContent = object.title;
-      link.href = `https://en.wikipedia.org/w/index.php?oldid=${object.revision}`;
+      link.textContent = item.title;
+      link.href = item.href;
       heading.append(link);
       const text = document.createElement('p');
-      text.textContent = object.text;
+      text.textContent = item.text;
       const score = document.createElement('p');
       score.className = 'detail';
-      score.textContent = `Cosine similarity ${similarity.toFixed(4)} · cosine distance (1 − similarity) ${(1 - similarity).toFixed(4)}`;
+      score.textContent = item.score;
       const attribution = document.createElement('a');
-      attribution.href = `https://en.wikipedia.org/w/index.php?curid=${object.pageid}&action=history`;
-      attribution.textContent = 'Wikipedia contributors / history';
+      attribution.href = item.sourceHref;
+      attribution.textContent = item.sourceText;
       attribution.className = 'detail';
       li.append(heading, text, score, attribution);
-      $('results').append(li);
+      list.append(li);
+    }
+    // The zero-result answer is rendered as a result, not as an empty list: same heading level,
+    // same list, so it reads as the outcome of the search instead of a panel still filling in.
+    if (view.empty) {
+      const li = document.createElement('li'), heading = document.createElement('h3'), text = document.createElement('p');
+      li.className = 'empty';
+      heading.textContent = view.empty.heading;
+      text.textContent = view.empty.body;
+      li.append(heading, text);
+      list.append(li);
     }
   } catch (error) { $('query-timing').textContent = `Search failed: ${error.message}. Try loading again.`; }
   finally { controls(false); }
@@ -205,6 +220,7 @@ $('clear').addEventListener('click', async () => {
     }
     count = 0;
     $('results').replaceChildren();
+    $('result-summary').textContent = '';
     $('status').textContent = 'Stored passages, vectors and model cache removed. The running model remains in memory until you close this tab.';
     $('storage').textContent = '';
     $('load-timing').textContent = 'Load timing will appear here.';

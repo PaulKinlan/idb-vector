@@ -25,6 +25,7 @@
     <h2 id="search-title">2. Search — then try it offline</h2>
     <form id="search" toolname="wikipedia_search" tooldescription="Semantic search over Wikipedia passage vectors stored in this browser; returns the five closest passages with cosine similarities."><label for="query">Ask a question in English</label><div class="query-row"><input id="query" name="query" maxlength="500" required placeholder="How do plants turn sunlight into food?"><button id="run" disabled>Search locally</button></div></form>
     <p id="query-timing" class="metric">Search timing will appear here.</p>
+    <p id="result-summary" class="visually-hidden" role="status" aria-live="polite"></p>
     <p id="conditions" class="detail">384 dimensions · quantized all-MiniLM-L6-v2 · cosine similarity · exact IndexedDB cursor scan, no ANN. Scores are similarity, not confidence or factual accuracy.</p>
     <ol id="results"></ol>
   </section>

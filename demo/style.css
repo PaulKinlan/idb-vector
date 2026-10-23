@@ -22,6 +22,13 @@ progress { display: block; width: 100%; margin: 16px 0; accent-color: var(--acce
 input { flex: 1 1 250px; min-width: 0; }
 ol { padding-left: 24px; }
 li { padding: 16px 0; border-top: 1px solid var(--line-soft); }
+/* A zero-result search answers the question in the list itself, in the quiet colour, so it reads as
+   an outcome rather than a panel that has not finished filling in (idb-vector-1m0). It is not a
+   ranked passage, so it carries no position number. */
+li.empty { color: light-dark(#3c4f4a, #c3d6ce); list-style: none; }
+li.empty h3 { font-size: 1rem; }
+/* The result count and outcome are announced without being read twice to sighted users. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 li h3, li p { margin: 6px 0; }
 footer { margin: 32px 0; max-width: 65ch; }
 /* Links answer a real pointer: a thicker underline on hover, and pressed
