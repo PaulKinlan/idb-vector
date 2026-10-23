@@ -513,7 +513,23 @@ export function rerankCandidates(
       normSq += v * v;
     }
     if (normSq === 0) throw new TypeError(`Record ${JSON.stringify(key)} has a zero vector`);
-    const similarity = dot / (queryMagnitude * (Math.sqrt(normSq) || 1));
+    // idb-vector-jdr: measure the record magnitude and refuse a non-finite one BY KEY, mirroring the
+    // exact scan (index.js cfr) and the snapshot reads (c2o). normSq had no finiteness check, so a
+    // coordinate above ~1.34e154 squared to Infinity, the norm became Infinity, and the score
+    // dot / Infinity = 0 - a FINITE 0 that ranked the unscoreable record as orthogonal, silently
+    // disagreeing with the exact paths that refuse the same record.
+    const recordMagnitude = Math.sqrt(normSq);
+    if (!Number.isFinite(recordMagnitude)) {
+      throw new TypeError(`Record ${JSON.stringify(key)} has a vector whose squared magnitude overflows Float64 (norm ${recordMagnitude}): a coordinate above ~1.34e154 overflows, so its exact cosine score cannot be computed. Scale that record's vector to a sane magnitude or delete it, then query again.`);
+    }
+    // The former `Math.sqrt(normSq) || 1` is dead now: zero throws above, non-finite throws here.
+    const similarity = dot / (queryMagnitude * recordMagnitude);
+    // Mirrors index.js:551-557: the ranking must only ever see finite scores. Unreachable while the
+    // two magnitude guards above hold (Cauchy-Schwarz bounds dot by MAX_VALUE), but it keeps that
+    // invariant local if the hoisting changes, and a NaN score used to rank (idb-vector-dy5).
+    if (!Number.isFinite(similarity)) {
+      throw new TypeError(`Record ${JSON.stringify(key)} produced a non-finite cosine similarity (${similarity}) against a scoreable query, so its exact score cannot be computed. Scale the record's vector or the query, or delete the record, then query again.`);
+    }
 
     if (threshold !== null && similarity < threshold) {
       continue;

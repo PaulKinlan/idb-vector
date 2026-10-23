@@ -468,6 +468,42 @@ test('scanSideStore and rerankCandidates refuse a query whose L2 magnitude overf
   );
 });
 
+test('rerankCandidates refuses a record whose squared magnitude overflows Float64, by key (idb-vector-jdr)', () => {
+  // The exact paths refuse this record (cfr via storedVectorError, c2o in snapshot reads), but
+  // rerankCandidates accumulated normSq with no finiteness check: the norm became Infinity and the
+  // score dot / Infinity = 0 - a FINITE 0 that SortedArray ranked as a confident orthogonal, so the
+  // side-store read silently disagreed with the exact read it exists to reproduce. One bad record
+  // (written by an older version or a second connection) must refuse the rerank by key instead.
+  const rows = [
+    { embedding: [1, 0] },
+    { embedding: [1e200, 0] }, // finite coordinates, squared magnitude overflows
+  ];
+  const keys = ['healthy', 'overflowing'];
+
+  assert.throws(
+    () => rerankCandidates(rows, 'embedding', [1, 0], 2, null, keys),
+    (error) => {
+      assert.ok(error instanceof TypeError, `must refuse with a TypeError, got ${error?.constructor?.name}: ${error?.message}`);
+      assert.match(error.message, /"overflowing"/, `refusal must name the record's key: ${error.message}`);
+      assert.match(error.message, /overflows Float64 \(norm Infinity\)/, `refusal must name the overflow: ${error.message}`);
+      assert.match(error.message, /Scale that record's vector/, `refusal must say what to do: ${error.message}`);
+      return true;
+    },
+    'rerankCandidates must refuse an overflowing stored record instead of scoring it 0',
+  );
+
+  // Boundary: a representable large record still ranks exactly, so the guard did not overshoot.
+  // The diagonal record's normSq is 2e300 - finite, but big enough that a squaring overshoot would
+  // have tipped it to Infinity and a refusal.
+  const large = [
+    { embedding: [1, 0] },
+    { embedding: [1e150, 1e150] },
+  ];
+  const ranked = rerankCandidates(large, 'embedding', [1e150, 0], 2, null, ['top', 'diagonal']);
+  assert.deepEqual(ranked.map(r => r.key), ['top', 'diagonal']);
+  assert.ok(Math.abs(ranked[1].similarity - Math.SQRT1_2) < 1e-12, `the diagonal record must score exactly 1/sqrt(2), got ${ranked[1].similarity}`);
+});
+
 test('scanSideStore refuses a truncated or legacy code record before it can mis-rank (idb-vector-bmq)', () => {
   // A persisted record is untrusted: IndexedDB can hand back one written by an
   // older layout or cut short. Every indexed read assumes count keys, count
