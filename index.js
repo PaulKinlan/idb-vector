@@ -384,13 +384,23 @@ class VectorDB {
 
     assertScoreableStoredVector(object[this.#vectorPath], `insert() '${this.#vectorPath}' vector`);
 
+    // TOCTOU guard (review of idb-vector-1d3): the record holds the vector BY REFERENCE and
+    // #connection() always awaits, so persisting `object` itself would let a caller mutate the
+    // array during that gap and store values that were never validated - one overflowing write
+    // makes the whole store unqueryable. The snapshot is taken in the SAME synchronous block as
+    // the validation above (no await in between, so no mutation window), and the snapshot is what
+    // gets written: the values checked are the values written. The store structured-clones the
+    // record at add() time anyway, so persisting the shallow copy is observably identical.
+    const vector = Array.from(object[this.#vectorPath]);
+    const record = { ...object, [this.#vectorPath]: vector };
+
     const db = await this.#connection();
     const storeName = this.#objectStore;
 
     const transaction = db.transaction([storeName], "readwrite");
     const store = transaction.objectStore(storeName);
 
-    const request = key !== undefined ? store.add(object, key) : store.add(object);
+    const request = key !== undefined ? store.add(record, key) : store.add(record);
     return committed(transaction, request);
   }
 
@@ -427,13 +437,19 @@ class VectorDB {
 
     assertScoreableStoredVector(object[this.#vectorPath], `update() '${this.#vectorPath}' vector`);
 
+    // Same TOCTOU guard as insert() (review of idb-vector-1d3): snapshot the validated vector in
+    // the same synchronous block as the validation, and write the snapshot, so a caller mutating
+    // the array during the connection await cannot persist unvalidated values.
+    const vector = Array.from(object[this.#vectorPath]);
+    const record = { ...object, [this.#vectorPath]: vector };
+
     const db = await this.#connection();
     const storeName = this.#objectStore;
 
     const transaction = db.transaction([storeName], "readwrite");
     const store = transaction.objectStore(storeName);
 
-    const request = updateRequest(store, key, object);
+    const request = updateRequest(store, key, record);
 
     return committed(transaction, request);
   }

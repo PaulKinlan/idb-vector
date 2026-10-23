@@ -160,6 +160,7 @@ try {
     check(afterRefusedUpdate.length === 12, 'a refused update left twelve records queryable');
     check((await count(name)) === 12, 'a refused update wrote nothing');
 
+
     // --- 3. query options: default 10, and only a positive integer is a limit -----------------
     await refusal('limit 0', () => db.query([1, 0], { limit: 0 }), { type: RangeError, includes: ['positive integer', '0'] });
     await refusal('limit -1', () => db.query([1, 0], { limit: -1 }), { type: RangeError, includes: ['positive integer'] });
@@ -173,6 +174,35 @@ try {
     check((await db.query([1, 0], {})).length === 10, 'query(vector, {}) defaults to ten results');
     check((await db.query([1, 0], { limit: 3 })).length === 3, 'explicit limit is honoured');
     check((await db.query([1, 0], { limit: 20 })).length === 12, 'a limit above the corpus returns the whole corpus');
+
+    // --- TOCTOU regression (review of idb-vector-1d3): the values checked are the values written.
+    // insert()/update() await the connection between validation and the write, so a caller who
+    // mutates the vector array during that gap used to persist values that were never validated -
+    // one overflowing write would make the store unqueryable. The writes below snapshot the
+    // validated vector, so the mutation must not reach the store: the query afterwards would
+    // REJECT WHOLESALE if either [1e200, 0] or [2, 1e200] had been persisted.
+    const toctouInsert = { embedding: [1, 0], id: 'toctou-insert' };
+    const pendingInsert = db.insert(toctouInsert, 'toctou-insert');
+    toctouInsert.embedding[0] = 1e200; // runs inside insert()'s connection await
+    const toctouKey = await pendingInsert;
+    const toctouUpdate = { embedding: [2, 0], id: 'toctou-update' };
+    const pendingUpdate = db.update(keys[1], toctouUpdate);
+    toctouUpdate.embedding[1] = 1e200; // runs inside update()'s connection await
+    await pendingUpdate;
+    const afterToctou = await db.query([1, 0], { limit: 20 });
+    check(afterToctou.length === 13, `both mutated-during-await writes persisted exactly one record (thirteen queryable), got ${afterToctou.length}`);
+    check(afterToctou.some(r => r.key === toctouKey), 'the snapshot insert persists the validated vector: the store is still queryable');
+    check(afterToctou.some(r => r.object.id === toctouUpdate.id), 'the snapshot update persists the validated vector: the store is still queryable');
+    // A refusal is decided on the values as validated: mutating a refused vector to a valid one
+    // during the await must not resurrect the write, and must store nothing either way.
+    const refusedToctou = { embedding: [0, 1e160], id: 'refused-toctou' };
+    const pendingRefused = db.insert(refusedToctou, 'refused-toctou');
+    refusedToctou.embedding[0] = 1;
+    refusedToctou.embedding[1] = 0;
+    await refusal('a vector refused for overflow stays refused after a during-await mutation to a valid one',
+      () => pendingRefused,
+      { type: TypeError, includes: ["insert() 'embedding' vector", 'non-finite L2 magnitude (Infinity)'] });
+    check((await count(name)) === 13, 'the refused-then-mutated insert wrote nothing');
 
     // --- 2. query vector validation -----------------------------------------------------------
     await refusal('zero query vector', () => db.query([0, 0]), { type: TypeError, includes: ['query() vector', 'all zeros'] });

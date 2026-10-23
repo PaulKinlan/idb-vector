@@ -111,7 +111,9 @@ The `limit` option allows you to specify the maximum number of results to return
 ### Contract and validation
 
 `insert()`, `update()` and `query()` refuse invalid input **before** opening a transaction, so a
-refused call writes nothing. Invalid arguments reject with a `TypeError` (a bad vector, path or
+refused call writes nothing. The write paths persist a snapshot of the vector they validated, taken
+in the same synchronous block, so a caller who mutates the record during the call cannot store
+values that were never checked. Invalid arguments reject with a `TypeError` (a bad vector, path or
 options shape) or a `RangeError` (a `limit` that is not a positive integer), and every message names
 the value at fault.
 
