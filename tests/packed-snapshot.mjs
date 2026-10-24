@@ -158,9 +158,24 @@ try {
     }
     const realVectors = Array.from({length:2000},(_,i)=>Array.from(real.subarray(i*384,(i+1)*384)));
     const fitStart=performance.now(), realFit=fitWhitening(realVectors), fitMs=performance.now()-fitStart;
-    const { library: whiteDB } = await open(`whitened-${crypto.randomUUID()}`);
-    const { library: originalDB } = await open(`original-${crypto.randomUUID()}`);
-    for(let i=0;i<realVectors.length;i++) { await originalDB.insert({embedding:realVectors[i]}); await whiteDB.insert({embedding:realFit.transform(realVectors[i])}); }
+    const { library: whiteDB, raw: whiteRaw } = await open(`whitened-${crypto.randomUUID()}`);
+    const { library: originalDB, raw: originalRaw } = await open(`original-${crypto.randomUUID()}`);
+    // Batched writes, not 4000 awaited single-record inserts. `insert()` is one transaction per record, which
+    // measured ~165ms each in this headless environment: writing the two whitening corpora one record at a
+    // time cost ~660s of the full gate by itself, more than the 100000-vector measurement this leg used to
+    // carry (idb-vector-bqw). The records written here are identical - same rows, numeric keys i+1, same
+    // stores - so the ranking comparison below is unchanged; only the harness stops committing per row.
+    const writeReal = async (raw, rows) => {
+      const writeStart = performance.now();
+      for (let offset = 0; offset < rows.length; offset += 1000) {
+        const tx = raw.transaction('vectors','readwrite'), done = complete(tx), store = tx.objectStore('vectors');
+        for (let i = offset; i < Math.min(offset + 1000, rows.length); i++) store.put({ embedding: rows[i] }, i + 1);
+        await done;
+      }
+      return Math.round(performance.now() - writeStart);
+    };
+    const whiteningWriteMs = await writeReal(originalRaw, realVectors);
+    const whiteningWriteWhitenedMs = await writeReal(whiteRaw, realVectors.map(v => realFit.transform(v)));
     const comparisons=[];
     for(const id of [42,43,44]) {
       const before=await originalDB.query(realVectors[id]), after=await whiteDB.query(realFit.transform(realVectors[id]));
@@ -168,7 +183,7 @@ try {
       check(before[0].key===id+1 && after[0].key===id+1,'self-match retained with same fitted corpus/query transform');
     }
     check(comparisons.some(x => x.overlap < 10), 'real-corpus opt-in ranking change is observable');
-    const output={checks:'cache/refresh/external writes/budget eviction/unsupported keys/close/transaction aborts/whitening covariance/inverse/invalid inputs/low-D diagnostic/synthetic 1000x128 exactness (100000x128 stress: measure:packed-snapshot)',measured,whitening:{fitMs,diagnostic:realFit.diagnostic,comparisons,qualityClaim:'None: ranking changes are not labelled retrieval improvement; no held-out relevance labels.'}};
+    const output={timings:{fitMs:Math.round(fitMs),whiteningWriteMs,whiteningWriteWhitenedMs},checks:'cache/refresh/external writes/budget eviction/unsupported keys/close/transaction aborts/whitening covariance/inverse/invalid inputs/low-D diagnostic/synthetic 1000x128 exactness (100000x128 stress: measure:packed-snapshot)',measured,whitening:{fitMs,diagnostic:realFit.diagnostic,comparisons,qualityClaim:'None: ranking changes are not labelled retrieval improvement; no held-out relevance labels.'}};
     document.body.textContent=JSON.stringify(output,null,2);
     return output;
   });
