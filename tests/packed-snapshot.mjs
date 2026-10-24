@@ -123,9 +123,14 @@ try {
     check(singular.transform([4,4]).every(Number.isFinite),'regularized rank deficient covariance');
     const real = new Float32Array(await (await fetch('/demo/data/vectors-2000.f32')).arrayBuffer());
     check(real.length === 2000*384, 'real corpus shape');
+    // Two SMALL corpora, one real and one synthetic: this leg is the merger's correctness gate, and a
+    // 100000x128 measurement here turned it into a benchmark that exceeded 900s at load ~10, 37% of the
+    // 2400s full-gate allowance (idb-vector-bqw, ADR idb-vector-80j). The high-cardinality stress
+    // measurement lives in tests/packed-snapshot-stress.mjs (`npm run measure:packed-snapshot`) and is
+    // run on a schedule, so size-dependent behaviour still has an exercised owner.
     const corpora = [
       { name: 'Wikipedia all-MiniLM-L6-v2 2000x384 (committed f32 embeddings)', count: 2000, dimensions:384, vector: i => Array.from(real.subarray(i*384,(i+1)*384)) },
-      { name: 'seeded uniform 100000x128', count:100000, dimensions:128, vector: i => vector(i,128) }
+      { name: 'seeded uniform 1000x128', count:1000, dimensions:128, vector: i => vector(i,128) }
     ];
     const measured = [];
     for (const corpus of corpora) {
@@ -163,7 +168,7 @@ try {
       check(before[0].key===id+1 && after[0].key===id+1,'self-match retained with same fitted corpus/query transform');
     }
     check(comparisons.some(x => x.overlap < 10), 'real-corpus opt-in ranking change is observable');
-    const output={checks:'cache/refresh/external writes/budget eviction/unsupported keys/close/transaction aborts/whitening covariance/inverse/invalid inputs/low-D diagnostic',measured,whitening:{fitMs,diagnostic:realFit.diagnostic,comparisons,qualityClaim:'None: ranking changes are not labelled retrieval improvement; no held-out relevance labels.'}};
+    const output={checks:'cache/refresh/external writes/budget eviction/unsupported keys/close/transaction aborts/whitening covariance/inverse/invalid inputs/low-D diagnostic/synthetic 1000x128 exactness (100000x128 stress: measure:packed-snapshot)',measured,whitening:{fitMs,diagnostic:realFit.diagnostic,comparisons,qualityClaim:'None: ranking changes are not labelled retrieval improvement; no held-out relevance labels.'}};
     document.body.textContent=JSON.stringify(output,null,2);
     return output;
   });

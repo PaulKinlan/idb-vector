@@ -316,7 +316,12 @@ to 1e-6 relative to mean variance and must be positive. No automatic fitting or 
 of stored vectors occurs. See [details and real-corpus comparison](reports/packed-snapshot.md).
 
 `npm run measure:packed` repeats the storage experiment; `npm run test:packed` drives
-snapshot behavior, exact scores, rollback and optional whitening in Chromium.
+snapshot behavior, exact scores, rollback and optional whitening in Chromium at small
+cardinality. The high-cardinality measurement is opt-in and separate, so the correctness gate
+stays inside its budget: `npm run measure:packed-snapshot` writes 100,000 x 128 seeded vectors,
+builds a packed cache and asserts bit-identical keys, scores and order against the plain scan,
+keeping its report and screenshot in a unique directory it prints. It runs on a schedule and on
+changes to the packed-snapshot path (`.github/workflows/packed-stress.yml`); `PACKED_SNAPSHOT_STRESS_COUNT` and `PACKED_SNAPSHOT_STRESS_DIR` resize or redirect it.
 
 ## Browser demo and measurements
 
