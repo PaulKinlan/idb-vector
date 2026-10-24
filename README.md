@@ -389,9 +389,10 @@ not pinned or no longer matches. A manifest served beside the data cannot attest
 Repinning is a commit, and `tests/unit/real-vector-pins.test.mjs` requires the pins to agree with
 the published `reports/real-*.json` evidence, so numbers cannot change without published evidence.
 
-One command to replay prepared corpora: **`npm run real:measure`**. Outputs default to
-`/tmp/idb-vector-real-measurements.json` and adjacent screenshots; set `IDB_REAL_REPORT`
-to keep a run elsewhere. Public-only quick run after preparation:
+One command to replay prepared corpora: **`npm run real:measure`**. Each run writes its
+measurements and screenshots into a unique per-run evidence directory under the system temp
+directory and prints the path when it finishes; set `IDB_REAL_REPORT` to pin the measurements
+file — the screenshots live beside it and are kept either way. Public-only quick run after preparation:
 `IDB_REAL_CORPORA=glove25-10000 npm run real:measure`. The full run includes 10k, 100k and
 1,183,514 GloVe vectors plus 10k API embeddings, 40 queries per setting; allow several
 minutes and temporary disk space. Every approach owns a fresh profile and ephemeral

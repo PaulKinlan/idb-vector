@@ -95,8 +95,9 @@ Tests use the existing raw-CDP helper and a fresh Chromium profile. They click
 Load, type unseen questions, assert topic retrieval and displayed scores, disable
 the network, require a real fetch failure, and repeat both the same and a new
 query. They also switch corpus size, reload/restore stored data, test mobile width
-and clear the demo's data. JSON receipts/screenshots go to `/tmp/idb-wikipedia-demo`
-(or `IDB_DEMO_EVIDENCE`). No browser-test dependency was added.
+and clear the demo's data. JSON receipts/screenshots go to a unique per-run evidence directory
+that the run prints before it starts and records in its report.json (`IDB_DEMO_EVIDENCE` pins
+one directory instead). No browser-test dependency was added.
 
 To rebuild public text and vectors (no key or paid API request):
 
