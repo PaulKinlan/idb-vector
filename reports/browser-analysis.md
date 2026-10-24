@@ -199,10 +199,11 @@ npm test              # fresh browser: real clicks, changed query, category resu
 npm run measure       # above checks plus 1k/10k/100k runs and defect observations
 ```
 
-Set `IDB_VECTOR_CHROME` to a nonstandard Chromium executable. The measurement command
-writes `/tmp/idb-vector-measurements.json` by default (`IDB_VECTOR_REPORT` overrides it).
-Each run writes screenshots to `/tmp/idb-vector-before.png`, `/tmp/idb-vector-after.png`,
-`/tmp/idb-vector-landscape.png`. Durable evidence from the final smoke drive is committed as
+Set `IDB_VECTOR_CHROME` to a nonstandard Chromium executable. The measurement run writes its
+screenshots (`before.png`, `after.png`, `landscape.png`) and its `measurements.json` into a
+unique per-run evidence directory under the system temp directory, and prints that directory
+when it starts (`Evidence: ...`); `IDB_VECTOR_REPORT` pins the measurements file. Durable
+evidence from the final smoke drive is committed as
 [screenshots/before.png](screenshots/before.png), [screenshots/after.png](screenshots/after.png)
 and [screenshots/landscape.png](screenshots/landscape.png). The screenshot timing values are
 from that separate smoke drive, not the three-repetition benchmark table above.

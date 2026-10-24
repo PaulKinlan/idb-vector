@@ -8,8 +8,11 @@ const local = external ? null : await serve();
 const url = external || local.url;
 // Unique per-run evidence directory (a fixed /tmp name let two runs share one - idb-vector-8oy).
 const { dir: evidence } = runDir(process.env.IDB_DEMO_EVIDENCE, 'idb-wikipedia-demo-');
+// Disclose the directory BEFORE the run starts (idb-vector-tkh): a run that hangs or dies at
+// launch would otherwise leave screenshots and report.json in a directory nothing names.
+console.log(`Evidence: ${evidence}`);
 const page = await launch();
-const report = { url, at: new Date().toISOString(), browser: await page.send('Browser.getVersion'), model: 'Xenova/all-MiniLM-L6-v2 quantized, 384 dimensions', measurements: [] };
+const report = { url, evidence, at: new Date().toISOString(), browser: await page.send('Browser.getVersion'), model: 'Xenova/all-MiniLM-L6-v2 quantized, 384 dimensions', measurements: [] };
 const text = id => page.evaluate(id => document.getElementById(id).textContent, id);
 async function query(value) {
   await page.type('#query', value);
