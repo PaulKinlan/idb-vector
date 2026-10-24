@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
-import { rm, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { serve } from '../tools/demo-server.mjs';
 import { launch } from './lib/cdp.mjs';
-import { reportTarget } from '../tools/report-target.mjs';
+import { reportTarget, runDir } from '../tools/report-target.mjs';
 const { server, url } = await serve();
 let page;
 try {
@@ -176,14 +176,21 @@ try {
   // as a mid-run tree mutation (STALE).
   // Regenerate the tracked report deliberately with PACKED_SNAPSHOT_REPORT=reports/packed-snapshot.json.
   const target = reportTarget(process.env.PACKED_SNAPSHOT_REPORT, 'idb-packed-snapshot-', 'packed-snapshot.json');
+  // The screenshot is evidence and must SURVIVE the run (idb-vector-09x): the run dir is kept,
+  // not removed - the old finally deleted the screenshot and the report in the same block, so
+  // the default run's evidence never existed after exit. A PINNED report path is TRACKED
+  // (reports/packed-snapshot.json); writing an untracked png beside it would make fleet-check's
+  // worktree digest read the repo as mutated mid-run (STALE, the reason the report left the repo
+  // in idb-vector-006), so a pinned run's screenshot gets its own unique kept directory.
+  const evidence = target.dir ?? runDir(undefined, 'idb-packed-screenshot-').dir;
   try {
     await writeFile(target.path, JSON.stringify(report,null,2)+'\n');
-    // The screenshot is evidence: beside the report, which is a unique per-run directory unless
-    // PACKED_SNAPSHOT_REPORT pinned one (a fixed /tmp name was clobbered by concurrent runs).
-    await page.screenshot(join(target.dir ?? dirname(target.path), 'packed-snapshot.png'));
+    await page.screenshot(join(evidence, 'packed-snapshot.png'));
     console.log(JSON.stringify(report,null,2));
-    if (!target.dir) console.log(`Report: ${target.path}`);
+    // Both paths are printed so the evidence is findable after the run (idb-vector-09x).
+    console.log(`Report: ${target.path}`);
+    console.log(`Screenshot: ${join(evidence, 'packed-snapshot.png')}`);
   } finally {
-    if (target.dir) await rm(target.dir, { recursive: true, force: true });
+    // Evidence is deliberately kept here - no rm (idb-vector-09x).
   }
 } finally { await page?.close(); await new Promise(resolve=>server.close(resolve)); }
