@@ -1,6 +1,17 @@
 import { SortedArray } from "./utils/sortedarray.js";
-import { createPackedSnapshot } from "./utils/packed-snapshot.js";
+import { assertSnapshotOptions, createPackedSnapshot } from "./utils/packed-snapshot.js";
 import { buildCodeRecord, scanSideStore, rerankCandidates } from "./utils/side-store.js";
+import {
+  CANDIDATE_OPTION_KEYS,
+  QUERY_OPTION_KEYS,
+  SIDE_STORE_BUILD_OPTION_KEYS,
+  SIDE_STORE_FACTORY_OPTION_KEYS,
+  SIDE_STORE_QUERY_OPTION_KEYS,
+  assertLimit,
+  assertOptionKeys,
+  describe,
+  isRecord,
+} from "./utils/options.js";
 export { diagnose, fitWhitening } from "./utils/geometry.js";
 export { buildCodeRecord, scanSideStore, rerankCandidates } from "./utils/side-store.js";
 
@@ -16,18 +27,6 @@ const DB_DEFAUlTS = {
 //   * a vector is a non-empty Array of finite numbers with at least one nonzero coordinate, because
 //     cosine similarity against a zero vector is NaN and would rank ahead of real matches.
 //   * limit is a positive safe integer, and missing options mean limit 10 (not "no limit").
-function describe(value) {
-  if (typeof value === "string") return JSON.stringify(value);
-  if (Array.isArray(value)) return `an Array of length ${value.length}`;
-  if (value === null) return "null";
-  if (typeof value === "object") return "an object";
-  return String(value);
-}
-
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function assertVectorPath(vectorPath) {
   if (typeof vectorPath !== "string" || vectorPath.length === 0) {
     throw new TypeError(`vectorPath must be a non-empty string naming one top-level property; got ${describe(vectorPath)}`);
@@ -61,13 +60,6 @@ function assertVector(value, label) {
   throw new TypeError(`${label} must not be all zeros; cosine similarity against a zero vector is undefined (NaN)`);
 }
 
-function assertLimit(limit) {
-  if (!Number.isSafeInteger(limit) || limit <= 0) {
-    throw new RangeError(`limit must be a positive integer; got ${describe(limit)}`);
-  }
-  return limit;
-}
-
 // A similarity threshold is applied BEFORE top-k truncation, so a result set shorter than `limit`
 // always means the eligible set itself holds fewer than `limit` records. Cosine similarity lies in
 // [-1, 1], so a threshold outside that range could only ever empty the result silently.
@@ -88,31 +80,14 @@ function assertThreshold(value) {
 // the available indexes, never a silent full scan. A candidate spec that cannot narrow the read
 // discloses `fullScanRequired`, because "fewer results than asked" must not be read as "no more
 // matches" when the corpus was restricted.
-const CANDIDATE_OPTION_KEYS = ["limit", "threshold", "index", "range", "predicate"];
-const QUERY_OPTION_KEYS = ["limit", "threshold"];
-const SIDE_STORE_BUILD_OPTION_KEYS = ["sideStore", "key", "epoch", "getEpoch", "revision"];
-const SIDE_STORE_QUERY_OPTION_KEYS = ["sideStore", "key", "epoch", "getEpoch", "candidateBudget", "limit", "threshold", "predicate", "eligibleKeys", "codeRecord", "revision"];
-const SIDE_STORE_FACTORY_OPTION_KEYS = ["sideStore", "key", "epoch", "revision", "candidateBudget", "getEpoch"];
-function assertSideStoreOptions(method, options, allowed) {
-  if (!isRecord(options)) throw new TypeError(`${method}() options must be an object; got ${describe(options)}`);
-  for (const key of Object.keys(options)) {
-    if (!allowed.includes(key)) {
-      throw new TypeError(`${method}() option ${describe(key)} is not supported; supported options are ${allowed.join(", ")}`);
-    }
-  }
-}
 const NO_CANDIDATES = { index: null, range: null, predicate: null };
 
 function normalizeCandidateOptions(options) {
   if (options === undefined || options === null) return { limit: 10, threshold: null, candidates: { ...NO_CANDIDATES } };
-  if (!isRecord(options)) {
-    throw new TypeError(`queryCandidates() options must be an object such as { index: "category", threshold: 0.5 }; got ${describe(options)}`);
-  }
-  for (const key of Object.keys(options)) {
-    if (CANDIDATE_OPTION_KEYS.includes(key) === false) {
-      throw new TypeError(`queryCandidates() option ${describe(key)} is not supported; supported options are ${CANDIDATE_OPTION_KEYS.join(", ")}`);
-    }
-  }
+  assertOptionKeys("queryCandidates", options, CANDIDATE_OPTION_KEYS, {
+    example: '{ index: "category", threshold: 0.5 }',
+    lead: "supported options are",
+  });
   const { limit = 10, threshold = null, index = null, range = null, predicate = null } = options;
   assertLimit(limit);
   // `threshold` is a scalar option like `limit`, not one of the candidate spec fields that document
@@ -483,16 +458,16 @@ class VectorDB {
       throw new TypeError(`query() options must be an object such as { limit: 10 }; got ${describe(options)}`);
     }
 
-    // query() accepts an allow-list. Ignoring an unknown key is how a caller ends up believing they
-    // filtered a query that never was: `query(vector, { predicate: fn })` would return an unfiltered
-    // ranking that looks filtered.
-    for (const key of Object.keys(options ?? {})) {
-      if (QUERY_OPTION_KEYS.includes(key)) continue;
-      const candidateHint = CANDIDATE_OPTION_KEYS.includes(key)
-        ? " Use queryCandidates() to select candidates with an index, key range or predicate."
-        : "";
-      throw new TypeError(`query() option ${describe(key)} is not supported; query() options are ${QUERY_OPTION_KEYS.join(", ")}.${candidateHint}`);
-    }
+    // query() accepts an allow-list, from the shared option contract in utils/options.js. Ignoring an
+    // unknown key is how a caller ends up believing they filtered a query that never was:
+    // `query(vector, { predicate: fn })` would return an unfiltered ranking that looks filtered, so the
+    // candidate-only keys get a pointer to the method that honours them.
+    assertOptionKeys("query", options, QUERY_OPTION_KEYS, {
+      absent: "allow",
+      hint: (key) => (CANDIDATE_OPTION_KEYS.includes(key)
+        ? "Use queryCandidates() to select candidates with an index, key range or predicate."
+        : ""),
+    });
 
     const limit = assertLimit(options?.limit === undefined ? 10 : options.limit);
     const threshold = options?.threshold === undefined ? null : assertThreshold(options.threshold);
@@ -635,6 +610,9 @@ class VectorDB {
 
   // Explicitly stale until refresh(); default query() remains authoritative.
   async createSnapshot(options) {
+    // Refuse a bad options object before opening a connection: the writer's contract is defined once
+    // (utils/packed-snapshot.js assertSnapshotOptions) and checked on both sides of this call.
+    assertSnapshotOptions(options);
     // The snapshot's own query() is a query entry point too, and both of its paths can mis-score an
     // unscoreable query: snapshot mode zero-scores every record silently, and live mode used to throw
     // inside the cursor callback (idb-vector-2yi). Hand it the same boundary validator query() uses so
@@ -647,7 +625,7 @@ class VectorDB {
   // Codes order candidates only; final scores come from an exact Float64 rerank of fetched originals.
   // Recommended for unfiltered non-resident workloads; selective filtered queries should use queryCandidates().
   async buildSideStore(options = {}) {
-    assertSideStoreOptions("buildSideStore", options, SIDE_STORE_BUILD_OPTION_KEYS);
+    assertOptionKeys("buildSideStore", options, SIDE_STORE_BUILD_OPTION_KEYS, { lead: "supported options are" });
     const {
       sideStore = "codes",
       key = "code_record",
@@ -734,7 +712,7 @@ class VectorDB {
 
   async querySideStore(queryVector, options = {}) {
     assertScoreableQuery(queryVector, "querySideStore() vector");
-    assertSideStoreOptions("querySideStore", options, SIDE_STORE_QUERY_OPTION_KEYS);
+    assertOptionKeys("querySideStore", options, SIDE_STORE_QUERY_OPTION_KEYS, { lead: "supported options are" });
     const {
       sideStore = "codes",
       key = "code_record",
@@ -886,7 +864,7 @@ class VectorDB {
   }
 
   async createSideStore(options = {}) {
-    assertSideStoreOptions("createSideStore", options, SIDE_STORE_FACTORY_OPTION_KEYS);
+    assertOptionKeys("createSideStore", options, SIDE_STORE_FACTORY_OPTION_KEYS, { lead: "supported options are" });
     const {
       sideStore = "codes",
       key = "code_record",

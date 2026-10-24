@@ -256,6 +256,13 @@ await snapshot.refresh(); // explicitly include intervening writes/deletes
 snapshot.close(); // release packed buffers
 ```
 
+Snapshots validate their options on both sides, against the same contract `query()` uses:
+`createSnapshot()` accepts only `maxBytes` and `snapshot.query()` only `limit`, and a key
+either one does not honour is refused with a message naming the options that do exist
+rather than silently dropped (`snapshot.query(v, { threshold: 0.5 })` is an error, not an
+unfiltered ranking that looks filtered). `limit` follows `query()`'s contract exactly: a
+positive safe integer, defaulting to 10.
+
 Over budget, allocation failure or unsupported keys/vectors evicts the cache and uses
 the live cursor without truncating valid records. Live fallback preserves string keys,
 but skips missing, malformed or non-finite vectors and undefined cosine scores

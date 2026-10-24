@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { requestPathname } from './request-pathname.mjs';
 const root = new URL('../', import.meta.url);
-const files = new Set(['index.js', 'utils/sortedarray.js', 'utils/geometry.js', 'utils/packed-snapshot.js', 'utils/side-store.js', 'demo/data/vectors-2000.f32', 'test-harness/index.html',
+const files = new Set(['index.js', 'utils/sortedarray.js', 'utils/geometry.js', 'utils/packed-snapshot.js', 'utils/side-store.js', 'utils/options.js', 'demo/data/vectors-2000.f32', 'test-harness/index.html',
   'test-harness/demo.js', 'test-harness/experiment.js', 'test-harness/quantized-pass.js', 'test-harness/side-store.js', 'reports/browser-analysis.md']);
 export async function serve() {
   const server = createServer(async (req, res) => {

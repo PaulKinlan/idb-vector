@@ -201,3 +201,77 @@ test('a record whose squared magnitude overflows Float64 is refused by key, not 
   assert.equal(cleanResult.skipped.total, 0);
   clean.close();
 });
+
+// idb-vector-cej: the writer and the reader validated different option lists, so a key nobody honoured
+// was silently dropped. `createSnapshot({ maxBytes, limit })` created a snapshot the caller believed was
+// bounded by limit; `snapshot.query(v, { limit: NaN })` disabled SortedArray's truncation test (the
+// ranking grows with the corpus) and a negative limit inverted slice(0, limit). Both entry points now
+// read the shared contract in utils/options.js and refuse, so a typo is an error rather than a silently
+// different result set. The accept path is proven by reaching the cursor, the reject path by never
+// touching the database at all.
+const untouched = { transaction() { throw new Error('the database must not be touched'); } };
+
+test('createSnapshot refuses options it does not honour instead of dropping them', async () => {
+  await assert.rejects(
+    createPackedSnapshot(untouched, 'vectors', 'embedding', { maxBytes: 0, limit: 5 }, cosine),
+    { name: 'TypeError', message: /createSnapshot\(\) option "limit" is not supported; createSnapshot\(\) options are maxBytes\. Query options \(limit, threshold\) belong on the returned snapshot's query\(\)/ },
+  );
+  await assert.rejects(
+    createPackedSnapshot(untouched, 'vectors', 'embedding', { maxBytes: 0, threshold: 0.5 }, cosine),
+    { name: 'TypeError', message: /createSnapshot\(\) option "threshold" is not supported/ },
+  );
+  // A missing or non-object options argument names the shape it wants, rather than destructuring undefined.
+  for (const absent of [undefined, null, 4, 'maxBytes', [1024]]) {
+    await assert.rejects(
+      createPackedSnapshot(untouched, 'vectors', 'embedding', absent, cosine),
+      { name: 'TypeError', message: /createSnapshot\(\) options must be an object such as \{ maxBytes: 64 \* 1024 \* 1024 \}/ },
+      `expected a refusal for ${JSON.stringify(absent)}`,
+    );
+  }
+  // The budget itself keeps its limits, now with a message that says what the number is for.
+  for (const maxBytes of [NaN, -1, 1.5, '1024', Infinity]) {
+    await assert.rejects(
+      createPackedSnapshot(untouched, 'vectors', 'embedding', { maxBytes }, cosine),
+      { name: 'TypeError', message: /createSnapshot\(\) maxBytes must be a nonnegative safe integer byte budget/ },
+      `expected a refusal for maxBytes ${String(maxBytes)}`,
+    );
+  }
+});
+
+test('snapshot.query applies the query limit contract and refuses keys it cannot honour', async () => {
+  const rows = [{ key: 1, value: { embedding: [1, 0] } }, { key: 2, value: { embedding: [0, 1] } }];
+  const snapshot = await createPackedSnapshot(database(rows), 'vectors', 'embedding', { maxBytes: 0 }, cosine);
+  try {
+    // Reject path: the same limit refusal db.query() gives, before any read happens.
+    for (const limit of [NaN, 0, -3, 3.14, '10', Infinity]) {
+      await assert.rejects(
+        snapshot.query([1, 0], { limit }),
+        { name: 'RangeError', message: /limit must be a positive integer/ },
+        `expected a limit refusal for ${String(limit)}`,
+      );
+    }
+    await assert.rejects(
+      snapshot.query([1, 0], { threshold: 0.5 }),
+      { name: 'TypeError', message: /snapshot\.query\(\) option "threshold" is not supported; snapshot\.query\(\) options are limit\./ },
+    );
+    await assert.rejects(
+      snapshot.query([1, 0], { maxBytes: 128 }),
+      { name: 'TypeError', message: /snapshot\.query\(\) option "maxBytes" is not supported/ },
+    );
+    for (const options of [4, 'limit', [10]]) {
+      await assert.rejects(
+        snapshot.query([1, 0], options),
+        { name: 'TypeError', message: /snapshot\.query\(\) options must be an object such as \{ limit: 10 \}/ },
+        `expected an options-shape refusal for ${JSON.stringify(options)}`,
+      );
+    }
+
+    // Accept path: the default limit and an explicit one both rank exactly as before.
+    const all = await snapshot.query([1, 0]);
+    assert.deepEqual(Array.from(all.results), [{ key: 1, similarity: 1 }, { key: 2, similarity: 0 }]);
+    const one = await snapshot.query([1, 0], { limit: 1 });
+    assert.deepEqual(Array.from(one.results), [{ key: 1, similarity: 1 }]);
+  } finally {
+    snapshot.close();
+  }
+});

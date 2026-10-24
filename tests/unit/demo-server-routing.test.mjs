@@ -34,13 +34,19 @@ test('the harness serves directory URLs as GitHub Pages does, and nothing outsid
   assert.equal(sideStore.type, 'text/javascript');
   assert.match(sideStore.body, /export function buildCodeRecord/);
   const pages = await readFile(new URL('../../.github/workflows/pages.yml', import.meta.url), 'utf8');
-  assert.match(pages, /cp [^\n]*utils\/side-store\.js site\/utils\//);
   const realAssets = realVectorAssets('/example/repo');
-  // Both browser servers must serve every eagerly imported local module of index.js.
+  // Every allow-list that can serve too little must see each eagerly imported local module of
+  // index.js: the two in-repo browser servers, and the Pages staging step (which is what actually
+  // serves the published demo, so a module missing there 404s the live site, not a test).
   const entry = await readFile(new URL('../../index.js', import.meta.url), 'utf8');
   for (const [, module] of entry.matchAll(/(?:from\s+|import\s*)["'](\.\/utils\/[^"']+)["']/g)) {
     assert.ok(realAssets.has(module.slice(1)), `real-vectors server must serve ${module}`);
     assert.equal((await served(module.slice(1))).status, 200, `wiki demo must serve ${module}`);
+    // The published demo is served from GitHub Pages, not from any of these servers, so the staging
+    // step is a third allow-list that a new eager module can silently miss (idb-vector-cej:
+    // utils/options.js was added to index.js's import list and would have 404'd the live site).
+    const escaped = module.slice(2).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(pages, new RegExp(`cp [^\\n]*${escaped}[^\\n]* site/utils/`), `Pages must stage ${module}`);
   }
   // Only the demo, the library entry point and the utils the Pages workflow stages are
   // reachable: a path outside that set must stay 404 rather than hide a missing staging step.
