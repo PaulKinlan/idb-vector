@@ -79,6 +79,7 @@ try {
     '/demo/integrity.js',
     '/index.js',
     '/utils/side-store.js',
+    '/utils/options.js',
   ]) {
     const response = await fetch(localUrl + path);
     assert.equal(response.status, 200, `allowed acceptance asset: ${path}`);

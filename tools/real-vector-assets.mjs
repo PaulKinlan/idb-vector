@@ -9,6 +9,7 @@ export function realVectorAssets(root) {
     'utils/packed-snapshot.js',
     'utils/geometry.js',
     'utils/side-store.js',
+    'utils/options.js',
     'test-harness/real-vectors.js',
     'test-harness/real-vector-pins.js',
     'test-harness/real-vectors.html',

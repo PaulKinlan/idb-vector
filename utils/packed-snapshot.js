@@ -1,5 +1,13 @@
 import { SortedArray } from './sortedarray.js';
 import { moments } from './geometry.js';
+import {
+  DEFAULT_LIMIT,
+  SNAPSHOT_OPTION_KEYS,
+  SNAPSHOT_QUERY_OPTION_KEYS,
+  assertLimit,
+  assertOptionKeys,
+  describe,
+} from './options.js';
 
 const finiteVector = vector => Array.isArray(vector) && Array.from(vector).every(Number.isFinite);
 
@@ -15,8 +23,28 @@ const overflowingRecord = (vectorPath, key) => new TypeError(
 
 // Layout version 1 (in-memory only): Float64 [numeric key, length, ...coordinates].
 // Blocks never split a record. Used length is separate from allocated capacity.
-export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes }, cosine, validateQuery = null) {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new TypeError('maxBytes must be a nonnegative safe integer');
+/**
+ * The writer's option contract. Exported so VectorDB.createSnapshot() can refuse a bad options object
+ * BEFORE it opens a connection, and createPackedSnapshot() can refuse it for callers that use this
+ * module directly: one definition, two entry points (idb-vector-cej).
+ */
+export function assertSnapshotOptions(options) {
+  assertOptionKeys("createSnapshot", options, SNAPSHOT_OPTION_KEYS, {
+    example: "{ maxBytes: 64 * 1024 * 1024 }",
+    hint: "Query options (limit, threshold) belong on the returned snapshot's query(), not on createSnapshot().",
+  });
+  const { maxBytes } = options;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new TypeError(`createSnapshot() maxBytes must be a nonnegative safe integer byte budget for the packed cache; got ${describe(maxBytes)}`);
+  }
+  return options;
+}
+
+export async function createPackedSnapshot(db, storeName, vectorPath, options, cosine, validateQuery = null) {
+  // The writer honours one option. Anything else is refused before a single record is read, rather than
+  // destructured away: a caller who passed `limit` here believed the snapshot was bounded by it
+  // (idb-vector-cej).
+  const { maxBytes } = assertSnapshotOptions(options);
   let blocks = [], bytes = 0, mode = 'live', reason = null, diagnostic = null, refreshing, closed = false;
   const budget = Math.floor(maxBytes / 8) * 8;
   // 1 MiB allocations avoid copying/growing a contiguous 100 MB buffer; budget may be smaller.
@@ -76,7 +104,17 @@ export async function createPackedSnapshot(db, storeName, vectorPath, { maxBytes
       }).finally(() => { refreshing = null; });
       return refreshing;
     },
-    async query(query, { limit = 10 } = {}) {
+    async query(query, options) {
+      // The reader validates the same contract the writer does before it reads anything: the limit goes
+      // through the shared assertLimit (a NaN limit used to disable SortedArray's truncation test, so the
+      // ranking grew with the corpus; a negative one inverted slice()), and a key this method does not
+      // honour is refused rather than ignored (idb-vector-cej).
+      assertOptionKeys("snapshot.query", options, SNAPSHOT_QUERY_OPTION_KEYS, {
+        absent: "allow",
+        example: "{ limit: 10 }",
+        hint: "A snapshot ranks the top-k without a threshold or predicate; use db.query() or db.queryCandidates() when you need one.",
+      });
+      const limit = assertLimit(options?.limit === undefined ? DEFAULT_LIMIT : options.limit);
       if (refreshing) await refreshing;
       if (closed) throw new Error('Snapshot is closed');
       if (!query || !Array.from(query).every(Number.isFinite)) throw new TypeError('Snapshot query coordinates must be finite numbers');
