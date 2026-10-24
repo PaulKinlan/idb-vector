@@ -7,7 +7,18 @@ import { join, resolve } from 'node:path';
 
 const reporter = resolve('tools/report-fast-style-coverage.sh');
 const gate = readFileSync(resolve('tools/fast-gate.sh'), 'utf8');
+const pkg = JSON.parse(readFileSync(resolve('package.json'), 'utf8'));
 const run = (cwd, cmd, args) => execFileSync(cmd, args, { cwd, encoding: 'utf8' }).trim();
+
+test('the fast tier keeps full unit coverage behind a worker bound the 2-vCPU VM can host', () => {
+  // idb-vector-fmm / ADR idb-vector-518: unbounded node --test put ~24 child processes on 2 vCPUs
+  // and paid 118.8s wall under load (two 120s bound-kills). The contract is ALL unit files, with
+  // concurrency capped - never a smaller glob and never an unbounded runner.
+  const cmd = pkg.scripts['test:fast'];
+  assert.match(cmd, /--test-concurrency=2\b/, 'worker concurrency stays capped at VM capacity');
+  assert.match(cmd, /tests\/unit\/\*\.test\.mjs/, 'every unit file still runs (no pruning)');
+  assert.doesNotMatch(cmd, /--test-only\b/, 'an only-filter would silently drop tests');
+});
 
 test('the fast gate invokes the CSS/HTML reporter before unit suites', () => {
   // A comment mentioning the command is not wiring: require an executable line.

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "node tests/browser.mjs && node tests/validation.mjs && node tests/candidates.mjs && node tests/eligibility.mjs && node tests/snapshot-isolation.mjs && node tests/side-store.mjs && node tests/cdp-orphans.mjs && npm run test:demo-restore",
-    "test:fast": "node --test tests/unit/*.test.mjs",
+    "test:fast": "node --test --test-concurrency=2 tests/unit/*.test.mjs",
     "start": "node tools/wiki-demo-server.mjs",
     "demo": "node tools/demo-server.mjs",
     "measure": "node tests/browser.mjs --measure",
