@@ -37,10 +37,15 @@ function assertVectorPath(vectorPath) {
   }
 }
 
-function assertVector(value, label) {
+function assertVectorIsArray(value, label) {
   if (!Array.isArray(value)) {
     throw new TypeError(`${label} must be an Array of finite numbers; got ${describe(value)}`);
   }
+  return value;
+}
+
+function assertVector(value, label) {
+  assertVectorIsArray(value, label);
   if (value.length === 0) {
     throw new TypeError(`${label} must not be empty; a vector needs at least one coordinate`);
   }
@@ -266,6 +271,34 @@ function assertScoreableQuery(vector, label) {
   return vector;
 }
 
+// THE single read pass over the caller's vector (idb-vector-qnh): the vectorPath property is read
+// EXACTLY ONCE - an accessor-backed property can return a different array on every read, so reading
+// it again for validation, the snapshot, or the record copy would validate one array and persist
+// another - and the value is copied into a plain Array in that same pass. Everything downstream
+// (validation, the persisted record) sees only this plain copy; the caller's vector is never read
+// again by the write path.
+function snapshotVector(record, vectorPath, label) {
+  return Array.from(assertVectorIsArray(record[vectorPath], label));
+}
+
+// The write boundary (insert()/update()) enforces the same scoreability the query boundary does
+// (idb-vector-1d3): a vector that cannot be scored must never reach the store, because every query
+// that scans it rejects WHOLESALE through storedVectorError() - one write would make the whole
+// store unqueryable, and insert() used to accept the same vector again, so the store could not
+// even heal itself by re-inserting a repaired record. Overflow (any |coordinate| above ~1.34e154)
+// is refused by vectorMagnitude(); the underflow case (every coordinate below ~2.2e-162 squares to
+// 0, so the score would be dot / (norm * 0) = Infinity) needs its own refusal, exactly as
+// assertScoreableQuery does for the query side. Runs before the transaction opens, so a refused
+// write stores nothing.
+function assertScoreableStoredVector(vector, label) {
+  assertVector(vector, label);
+  const magnitude = vectorMagnitude(vector, label);
+  if (magnitude === 0) {
+    throw new TypeError(`${label} has an L2 magnitude that underflows Float64 (0): every coordinate is below ~2.2e-162, so its squares vanish and every cosine score against it would be Infinity. Normalize or scale the vector before storing it.`);
+  }
+  return vector;
+}
+
 // A successful request can still be rolled back by its transaction.
 function committed(transaction, request) {
   return new Promise((resolve, reject) => {
@@ -364,7 +397,22 @@ class VectorDB {
       throw new TypeError(`insert() record has no '${this.#vectorPath}' property (vectorPath); add the vector before inserting`);
     }
 
-    assertVector(object[this.#vectorPath], `insert() '${this.#vectorPath}' vector`);
+    // ONE read of the caller's vector (idb-vector-qnh), and everything downstream - validation and
+    // the persisted record - uses ONLY that snapshot, so the values checked are the values written
+    // even when the property is accessor-backed or the record is mutated during the connection
+    // await below (both reproduced by review on idb-vector-1d3).
+    const vector = snapshotVector(object, this.#vectorPath, `insert() '${this.#vectorPath}' vector`);
+    assertScoreableStoredVector(vector, `insert() '${this.#vectorPath}' vector`);
+
+    // Copy every property EXCEPT the vector, then set the snapshot. Object.keys does not invoke
+    // accessors and the vectorPath assignment writes without reading, so after the single read
+    // pass above the caller's vectorPath is never read again. Own enumerable string keys are also
+    // exactly what the store's structured clone would take.
+    const record = {};
+    for (const property of Object.keys(object)) {
+      if (property !== this.#vectorPath) record[property] = object[property];
+    }
+    record[this.#vectorPath] = vector;
 
     const db = await this.#connection();
     const storeName = this.#objectStore;
@@ -372,7 +420,7 @@ class VectorDB {
     const transaction = db.transaction([storeName], "readwrite");
     const store = transaction.objectStore(storeName);
 
-    const request = key !== undefined ? store.add(object, key) : store.add(object);
+    const request = key !== undefined ? store.add(record, key) : store.add(record);
     return committed(transaction, request);
   }
 
@@ -407,7 +455,16 @@ class VectorDB {
       throw new TypeError(`update() record has no '${this.#vectorPath}' property (vectorPath); add the vector before updating`);
     }
 
-    assertVector(object[this.#vectorPath], `update() '${this.#vectorPath}' vector`);
+    // ONE read of the caller's vector (idb-vector-qnh); validate and persist ONLY the snapshot,
+    // exactly as insert() above.
+    const vector = snapshotVector(object, this.#vectorPath, `update() '${this.#vectorPath}' vector`);
+    assertScoreableStoredVector(vector, `update() '${this.#vectorPath}' vector`);
+
+    const record = {};
+    for (const property of Object.keys(object)) {
+      if (property !== this.#vectorPath) record[property] = object[property];
+    }
+    record[this.#vectorPath] = vector;
 
     const db = await this.#connection();
     const storeName = this.#objectStore;
@@ -415,7 +472,7 @@ class VectorDB {
     const transaction = db.transaction([storeName], "readwrite");
     const store = transaction.objectStore(storeName);
 
-    const request = updateRequest(store, key, object);
+    const request = updateRequest(store, key, record);
 
     return committed(transaction, request);
   }

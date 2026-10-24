@@ -487,7 +487,18 @@ try {
 
         // Tripwire: an f64 non-finite norm (coordinates ~1e154+) is still
         // rejected with a clear error instead of publishing a corrupt record.
-        await db.insert({ id: 'absurd', embedding: [1e200] }, 'absurd');
+        // The absurd record is planted with a RAW write that bypasses the
+        // library: idb-vector-1d3 made insert() refuse this vector at the
+        // boundary, so only a second connection or an older version could
+        // still put one into an otherwise healthy store.
+        const bypass = await openRaw(dbName);
+        await new Promise((resolve, reject) => {
+          const tx = bypass.transaction('vectors', 'readwrite');
+          tx.objectStore('vectors').put({ id: 'absurd', embedding: [1e200] }, 'absurd');
+          tx.oncomplete = resolve;
+          tx.onabort = () => reject(tx.error ?? new Error('raw write aborted'));
+        });
+        bypass.close();
         let overflowError = null;
         try {
           await db.buildSideStore({ epoch: 2, getEpoch: async () => 2 });

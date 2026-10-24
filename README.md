@@ -111,7 +111,9 @@ The `limit` option allows you to specify the maximum number of results to return
 ### Contract and validation
 
 `insert()`, `update()` and `query()` refuse invalid input **before** opening a transaction, so a
-refused call writes nothing. Invalid arguments reject with a `TypeError` (a bad vector, path or
+refused call writes nothing. The write paths persist a snapshot of the vector they validated, taken
+in the same synchronous block, so a caller who mutates the record during the call cannot store
+values that were never checked. Invalid arguments reject with a `TypeError` (a bad vector, path or
 options shape) or a `RangeError` (a `limit` that is not a positive integer), and every message names
 the value at fault.
 
@@ -125,7 +127,11 @@ that computes it is not: scores square every coordinate, so any coordinate above
 collapsed to `0`, and an unscoreable query returned insertion order as if it were a ranking.
 `query()`, `queryCandidates()` and `querySideStore()` refuse such a query with a `TypeError` that
 names the magnitude, before opening a transaction; normalize the vector first if it is legitimately
-that large (`idb-vector-utq`).
+that large (`idb-vector-utq`). `insert()` and `update()` enforce the same bound on the vectors they
+store (`idb-vector-1d3`): a vector whose squared magnitude overflows — or whose coordinates are all
+below ~`2.2e-162`, so its squares underflow to `0` — is refused before the transaction opens.
+Storing one used to make the whole store unqueryable, because every query that scanned the record
+rejected, and re-inserting the same vector was accepted, so the store could not heal itself.
 - **`limit`** must be a positive integer. Omitting it — or passing `{}`, as in
 `query([1, 0], {})` — means `limit: 10`, never "no limit".
 - **Options are an allow-list.** `query()` accepts `limit` and `threshold` and **refuses any other

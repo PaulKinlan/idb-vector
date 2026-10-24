@@ -6,7 +6,9 @@
 //
 // The contract under test (README.md, "Contract and validation"):
 //   1. vectorPath names ONE top-level property; a dotted name is refused at construction.
-//   2. a vector is a non-empty Array of finite numbers with at least one nonzero coordinate.
+//   2. a vector is a non-empty Array of finite numbers with at least one nonzero coordinate, and
+//      its L2 magnitude must be scoreable in Float64 (neither squared-magnitude overflow nor
+//      underflow) — insert() and update() enforce that at the write boundary (idb-vector-1d3).
 //   3. limit is a positive integer and missing options mean limit 10.
 //   4. every vector in a store shares one dimension; a record that is present but invalid makes
 //      query() reject and NAME the offending key, instead of silently skipping it and letting a
@@ -133,6 +135,15 @@ try {
     await refusal('non-record insert',
       () => db.insert([1, 0]),
       { type: TypeError, includes: ['record object'] });
+    // The magnitude contract (idb-vector-1d3): a vector whose squared magnitude overflows Float64,
+    // or whose squares all underflow to 0, can never be scored — every query that scanned the
+    // stored record would reject wholesale — so the write boundary refuses it before any write.
+    await refusal('overflowing vector insert',
+      () => db.insert({ embedding: [0, 1e160] }),
+      { type: TypeError, includes: ["insert() 'embedding' vector", 'non-finite L2 magnitude (Infinity)'] });
+    await refusal('underflowing vector insert',
+      () => db.insert({ embedding: [1e-200, 0] }),
+      { type: TypeError, includes: ["insert() 'embedding' vector", 'underflows Float64'] });
     check((await count(name)) === 0, 'no refused insert wrote a record');
 
     const keys = [];
@@ -142,9 +153,13 @@ try {
     await refusal('zero vector update',
       () => db.update(keys[0], { embedding: [0, 0] }),
       { type: TypeError, includes: ['all zeros'] });
+    await refusal('overflowing vector update',
+      () => db.update(keys[0], { embedding: [0, 1e160] }),
+      { type: TypeError, includes: ["update() 'embedding' vector", 'non-finite L2 magnitude (Infinity)'] });
     const afterRefusedUpdate = await db.query([1, 0], { limit: 12 });
     check(afterRefusedUpdate.length === 12, 'a refused update left twelve records queryable');
     check((await count(name)) === 12, 'a refused update wrote nothing');
+
 
     // --- 3. query options: default 10, and only a positive integer is a limit -----------------
     await refusal('limit 0', () => db.query([1, 0], { limit: 0 }), { type: RangeError, includes: ['positive integer', '0'] });
@@ -159,6 +174,65 @@ try {
     check((await db.query([1, 0], {})).length === 10, 'query(vector, {}) defaults to ten results');
     check((await db.query([1, 0], { limit: 3 })).length === 3, 'explicit limit is honoured');
     check((await db.query([1, 0], { limit: 20 })).length === 12, 'a limit above the corpus returns the whole corpus');
+
+    // --- TOCTOU regression (review of idb-vector-1d3): the values checked are the values written.
+    // insert()/update() await the connection between validation and the write, so a caller who
+    // mutates the vector array during that gap used to persist values that were never validated -
+    // one overflowing write would make the store unqueryable. The writes below snapshot the
+    // validated vector, so the mutation must not reach the store: the query afterwards would
+    // REJECT WHOLESALE if either [1e200, 0] or [2, 1e200] had been persisted.
+    const toctouInsert = { embedding: [1, 0], id: 'toctou-insert' };
+    const pendingInsert = db.insert(toctouInsert, 'toctou-insert');
+    toctouInsert.embedding[0] = 1e200; // runs inside insert()'s connection await
+    const toctouKey = await pendingInsert;
+    const toctouUpdate = { embedding: [2, 0], id: 'toctou-update' };
+    const pendingUpdate = db.update(keys[1], toctouUpdate);
+    toctouUpdate.embedding[1] = 1e200; // runs inside update()'s connection await
+    await pendingUpdate;
+    const afterToctou = await db.query([1, 0], { limit: 20 });
+    check(afterToctou.length === 13, `both mutated-during-await writes persisted exactly one record (thirteen queryable), got ${afterToctou.length}`);
+    check(afterToctou.some(r => r.key === toctouKey), 'the snapshot insert persists the validated vector: the store is still queryable');
+    check(afterToctou.some(r => r.object.id === toctouUpdate.id), 'the snapshot update persists the validated vector: the store is still queryable');
+    // A refusal is decided on the values as validated: mutating a refused vector to a valid one
+    // during the await must not resurrect the write, and must store nothing either way.
+    const refusedToctou = { embedding: [0, 1e160], id: 'refused-toctou' };
+    const pendingRefused = db.insert(refusedToctou, 'refused-toctou');
+    refusedToctou.embedding[0] = 1;
+    refusedToctou.embedding[1] = 0;
+    await refusal('a vector refused for overflow stays refused after a during-await mutation to a valid one',
+      () => pendingRefused,
+      { type: TypeError, includes: ["insert() 'embedding' vector", 'non-finite L2 magnitude (Infinity)'] });
+    check((await count(name)) === 13, 'the refused-then-mutated insert wrote nothing');
+
+    // --- accessor bypass regression (idb-vector-qnh): ONE read pass over the caller's vector, and
+    // the snapshot is both validated and persisted. The getter returns a VALID vector on the first
+    // read and an overflowing one on every later read; a second read (for the snapshot or the
+    // record copy) would persist [1e200, 0] and the query below would reject wholesale.
+    let insertReads = 0;
+    const accessorRecord = {};
+    Object.defineProperty(accessorRecord, 'embedding', {
+      enumerable: true,
+      get() {
+        insertReads += 1;
+        return insertReads === 1 ? [0, 1] : [1e200, 0];
+      },
+    });
+    const accessorKey = await db.insert(accessorRecord, 'accessor-insert');
+    check(insertReads === 1, `insert() must read an accessor-backed embedding exactly once, got ${insertReads}`);
+    let updateReads = 0;
+    const accessorUpdate = {};
+    Object.defineProperty(accessorUpdate, 'embedding', {
+      enumerable: true,
+      get() {
+        updateReads += 1;
+        return updateReads === 1 ? [3, 0] : [1e200, 0];
+      },
+    });
+    await db.update(keys[2], accessorUpdate);
+    check(updateReads === 1, `update() must read an accessor-backed embedding exactly once, got ${updateReads}`);
+    const afterAccessor = await db.query([0, 1], { limit: 20 });
+    check(afterAccessor.length === 14, `the accessor-backed writes persisted exactly the validated vectors: the store is still queryable (got ${afterAccessor.length})`);
+    check(afterAccessor.some(r => r.key === accessorKey), 'the accessor insert persisted the vector read on the single pass');
 
     // --- 2. query vector validation -----------------------------------------------------------
     await refusal('zero query vector', () => db.query([0, 0]), { type: TypeError, includes: ['query() vector', 'all zeros'] });
