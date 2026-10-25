@@ -32,7 +32,7 @@ jobs:
           cp -r demo site/demo
           cp -r research site/research
           cp index.js site/index.js
-          cp utils/sortedarray.js utils/geometry.js utils/packed-snapshot.js utils/side-store.js utils/options.js site/utils/
+          cp utils/sortedarray.js utils/geometry.js utils/packed-snapshot.js utils/side-store.js utils/options.js utils/record-copy.js site/utils/
           printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=./demo/"><a href="./demo/">Open the Wikipedia search demo</a>' > site/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
