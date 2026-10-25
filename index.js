@@ -12,6 +12,7 @@ import {
   describe,
   isRecord,
 } from "./utils/options.js";
+import { copyRecordForStore } from "./utils/record-copy.js";
 export { diagnose, fitWhitening } from "./utils/geometry.js";
 export { buildCodeRecord, scanSideStore, rerankCandidates } from "./utils/side-store.js";
 
@@ -33,6 +34,12 @@ function assertVectorPath(vectorPath) {
   }
   if (vectorPath.includes(".")) {
     throw new TypeError(`vectorPath must name one top-level property; ${describe(vectorPath)} contains '.', which this library does not treat as a key path. Store the vector under a top-level property (for example vectorPath: "vector") or use the objectStore escape hatch directly.`);
+  }
+  // '__proto__' cannot be read or written as an own property through normal record construction
+  // (object literals treat it as the prototype), so reads would see the prototype chain instead
+  // of the stored value (idb-vector-56b). Refuse it, like dotted paths above.
+  if (vectorPath === "__proto__") {
+    throw new TypeError(`vectorPath must not be '__proto__': property access on a plain record hits the prototype accessor instead of an own value. Store the vector under a normal property name (for example vectorPath: "vector").`);
   }
 }
 
@@ -382,12 +389,9 @@ class VectorDB {
     // Copy every property EXCEPT the vector, then set the snapshot. Object.keys does not invoke
     // accessors and the vectorPath assignment writes without reading, so after the single read
     // pass above the caller's vectorPath is never read again. Own enumerable string keys are also
-    // exactly what the store's structured clone would take.
-    const record = {};
-    for (const property of Object.keys(object)) {
-      if (property !== this.#vectorPath) record[property] = object[property];
-    }
-    record[this.#vectorPath] = vector;
+    // exactly what the store's structured clone would take. The copy is null-prototype so an own
+    // '__proto__' field is kept as data, not routed through the inherited setter (idb-vector-56b).
+    const record = copyRecordForStore(object, this.#vectorPath, vector);
 
     const db = await this.#connection();
     const storeName = this.#objectStore;
@@ -435,11 +439,7 @@ class VectorDB {
     const vector = snapshotVector(object, this.#vectorPath, `update() '${this.#vectorPath}' vector`);
     assertScoreableStoredVector(vector, `update() '${this.#vectorPath}' vector`);
 
-    const record = {};
-    for (const property of Object.keys(object)) {
-      if (property !== this.#vectorPath) record[property] = object[property];
-    }
-    record[this.#vectorPath] = vector;
+    const record = copyRecordForStore(object, this.#vectorPath, vector);
 
     const db = await this.#connection();
     const storeName = this.#objectStore;
