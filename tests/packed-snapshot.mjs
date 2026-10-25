@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { serve } from '../tools/demo-server.mjs';
 import { launch } from './lib/cdp.mjs';
-import { reportTarget, runDir } from '../tools/report-target.mjs';
+import { evidenceDir, reportTarget } from '../tools/report-target.mjs';
 const { server, url } = await serve();
 let page;
 try {
@@ -196,21 +196,14 @@ try {
   // as a mid-run tree mutation (STALE).
   // Regenerate the tracked report deliberately with PACKED_SNAPSHOT_REPORT=reports/packed-snapshot.json.
   const target = reportTarget(process.env.PACKED_SNAPSHOT_REPORT, 'idb-packed-snapshot-', 'packed-snapshot.json');
-  // The screenshot is evidence and must SURVIVE the run (idb-vector-09x): the run dir is kept,
-  // not removed - the old finally deleted the screenshot and the report in the same block, so
-  // the default run's evidence never existed after exit. A PINNED report path is TRACKED
-  // (reports/packed-snapshot.json); writing an untracked png beside it would make fleet-check's
-  // worktree digest read the repo as mutated mid-run (STALE, the reason the report left the repo
-  // in idb-vector-006), so a pinned run's screenshot gets its own unique kept directory.
-  const evidence = target.dir ?? runDir(undefined, 'idb-packed-screenshot-').dir;
-  try {
-    await writeFile(target.path, JSON.stringify(report,null,2)+'\n');
-    await page.screenshot(join(evidence, 'packed-snapshot.png'));
-    console.log(JSON.stringify(report,null,2));
-    // Both paths are printed so the evidence is findable after the run (idb-vector-09x).
-    console.log(`Report: ${target.path}`);
-    console.log(`Screenshot: ${join(evidence, 'packed-snapshot.png')}`);
-  } finally {
-    // Evidence is deliberately kept here - no rm (idb-vector-09x).
-  }
+  // Evidence must SURVIVE the run, and must not land beside a PINNED (tracked) report path:
+  // tools/report-target.mjs owns that choice and tests/unit/report-target.test.mjs pins it
+  // (idb-vector-09x, idb-vector-tqo). Nothing is removed afterwards.
+  const evidence = evidenceDir(target);
+  await writeFile(target.path, JSON.stringify(report,null,2)+'\n');
+  await page.screenshot(join(evidence, 'packed-snapshot.png'));
+  console.log(JSON.stringify(report,null,2));
+  // Both paths are printed so the evidence is findable after the run (idb-vector-09x).
+  console.log(`Report: ${target.path}`);
+  console.log(`Screenshot: ${join(evidence, 'packed-snapshot.png')}`);
 } finally { await page?.close(); await new Promise(resolve=>server.close(resolve)); }
