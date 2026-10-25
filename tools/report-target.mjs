@@ -24,3 +24,14 @@ export function runDir(pinned, prefix) {
   }
   return { dir: mkdtempSync(join(os.tmpdir(), prefix)), owned: true };
 }
+
+// Where a measurement driver's screenshot/evidence files go for a given report target. An unpinned
+// target owns its unique run directory, so the evidence belongs there beside the report. A PINNED
+// path normally points at a TRACKED report (reports/packed-snapshot.json): writing an untracked png
+// beside it advances the worktree digest and fleet-check reads the tree as mutated mid-run (STALE,
+// the reason the report left the repo in idb-vector-006), so a pinned target gets its own unique
+// KEPT directory instead (idb-vector-09x). Exported rather than inlined in the driver so the rule is
+// pinned by a test instead of by a comment that says the evidence survives (idb-vector-tqo).
+export function evidenceDir(target, prefix = 'idb-packed-screenshot-') {
+  return target.dir ?? runDir(undefined, prefix).dir;
+}
