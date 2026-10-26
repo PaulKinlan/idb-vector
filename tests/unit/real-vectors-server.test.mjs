@@ -4,7 +4,7 @@
 // driven live against both demo servers in tests/unit/demo-server.test.mjs through the same helper.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const source = readFileSync('tests/real-vectors.mjs', 'utf8');
 
@@ -15,4 +15,22 @@ test('tests/real-vectors.mjs parses the request target through tools/request-pat
   assert.ok(handler, 'the request handler is found');
   assert.match(handler[1], /requestPathname\(req\)/, 'the handler parses through the helper');
   assert.match(handler[1], /=== null\) \{\s*res\.writeHead\(400\)/, 'a malformed target answers 400');
+});
+
+test('every in-repo loopback server routes the request target through the shared helper (i9w/tb6/wqv/yom)', () => {
+  // The defect class: an unguarded new URL(req.url) crashes or mis-answers on a malformed target.
+  // Any new createServer() caller must route through tools/request-pathname.mjs instead.
+  const servers = [];
+  for (const dir of ['tools', 'tests']) {
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.mjs')) continue;
+      const body = readFileSync(`${dir}/${name}`, 'utf8');
+      if (/createServer\(/.test(body)) servers.push([`${dir}/${name}`, body]);
+    }
+  }
+  assert.ok(servers.length >= 4, 'the known loopback servers are all seen');
+  for (const [file, body] of servers) {
+    assert.match(body, /requestPathname/, `${file} imports the shared helper`);
+    assert.doesNotMatch(body, /new URL\(req\.url/, `${file} has no unguarded request-target parse`);
+  }
 });
