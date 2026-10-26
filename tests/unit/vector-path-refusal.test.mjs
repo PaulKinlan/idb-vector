@@ -1,65 +1,59 @@
-// tests/unit/vector-path-refusal.test.mjs — a record missing its configured vectorPath is
-// REFUSED on both read/write paths, never silently re-read from a different field.
+// tests/unit/vector-path-refusal.test.mjs — vectorPath resolution in the side-store build.
 //
-// idb-vector-5mt: the side-store build (utils/side-store.js) fell back to '?? rec.vector' when
-// the configured vectorPath was absent, so it scored whatever happened to live in .vector — a
-// field the caller never configured — while the main path (index.js insert()) refuses that
-// record. Both paths must refuse the same way, and a legitimate record must still work on both.
+// idb-vector-5mt (restated after the FAIL on 1a1a5df): the rule has two branches.
+//  * vectorPath OMITTED: the legacy public shape — read the default property, else the legacy
+//    'vector' column. Unchanged behaviour; buildCodeRecord([{vector:[...]}], ...) must keep working.
+//  * vectorPath SUPPLIED: strict — the record must have that own property, refused with the
+//    missing property and key named; a stray 'vector' column is ignored, never silently scored.
+// The main write path (index.js insert()) always has a configured vectorPath and refuses the
+// same record; a legitimate record still works on both paths.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildCodeRecord } from '../../utils/side-store.js';
 import { VectorDB } from '../../index.js';
 
-const missing = { embedding2: [1, 0] }; // no 'embedding' property; a stray .vector must not rescue it
-const stray = { vector: [9, 9] };
+test('legacy branch: vectorPath omitted accepts the vector column and the default property', () => {
+  const legacy = buildCodeRecord([{ vector: [3, 4] }], { keys: ['k'], epoch: 1 });
+  assert.equal(legacy.dims, 2);
+  assert.ok(Math.abs(legacy.norms[0] - 5) < 1e-12, 'the legacy .vector column is what gets scored');
 
-test('buildCodeRecord refuses a record that lacks the configured vectorPath, even with a .vector field', () => {
-  for (const record of [missing, stray]) {
+  const def = buildCodeRecord([{ embedding: [1, 0] }], { keys: ['k'], epoch: 1 });
+  assert.equal(def.dims, 2);
+  // Default property wins over a stray vector column, as before:
+  const both = buildCodeRecord([{ embedding: [1, 0], vector: [9, 9] }], { keys: ['k'], epoch: 1 });
+  assert.ok(Math.abs(both.norms[0] - 1) < 1e-12);
+});
+
+test('strict branch: vectorPath supplied refuses a record that lacks it, even with a stray vector column', () => {
+  for (const record of [{ embedding2: [1, 0] }, { vector: [9, 9] }]) {
     assert.throws(
-      () => buildCodeRecord([record], { keys: ['k'], epoch: 1 }),
+      () => buildCodeRecord([record], { keys: ['k'], epoch: 1, vectorPath: 'embedding' }),
       (error) => {
         assert.ok(error instanceof TypeError);
-        assert.match(error.message, /no 'embedding' property/);
-        assert.match(error.message, /vectorPath/, 'the message names the fix');
+        assert.match(error.message, /no own 'embedding' property/, 'names the missing property');
+        assert.match(error.message, /"k"/, 'names the record key');
+        assert.match(error.message, /stray 'vector' column is not read/, 'says the fallback is gone');
         return true;
       },
     );
   }
-  // A custom vectorPath is honoured by name, not by fallback:
-  assert.throws(
-    () => buildCodeRecord([{ embedding: [1, 0] }], { keys: ['k'], epoch: 1, vectorPath: 'vec' }),
-    /no 'vec' property/,
-  );
+  // Supplied and present: accepted, and the stray column is still ignored.
+  const strict = buildCodeRecord([{ embedding: [1, 0], vector: [9, 9] }], { keys: ['k'], epoch: 1, vectorPath: 'embedding' });
+  assert.ok(Math.abs(strict.norms[0] - 1) < 1e-12);
 });
 
-test('insert() refuses the same record the same way (main path parity)', async () => {
+test('insert() refuses the missing-vectorPath record like the strict branch (main path parity)', async () => {
   const db = new VectorDB({ dbName: 'unit-vpath', objectStore: 'vectors', vectorPath: 'embedding' });
   const closed = db.close().catch(() => {});
   try {
-    for (const record of [missing, stray]) {
-      await assert.rejects(db.insert(record), (error) => {
-        assert.ok(error instanceof TypeError);
-        assert.match(error.message, /no 'embedding' property/);
-        return true;
-      });
-    }
-  } finally {
-    await closed;
-  }
-});
-
-test('a legitimate record is accepted on both paths, unchanged in shape', async () => {
-  const good = [{ embedding: [1, 0] }, { embedding: [0, 1] }];
-  const record = buildCodeRecord(good, { keys: ['a', 'b'], epoch: 1 });
-  assert.equal(record.count, 2);
-  assert.equal(record.dims, 2);
-  assert.ok(record.codes instanceof Int8Array && record.norms instanceof Float64Array);
-
-  const db = new VectorDB({ dbName: 'unit-vpath-ok', objectStore: 'vectors', vectorPath: 'embedding' });
-  const closed = db.close().catch(() => {});
-  try {
-    // Validation must PASS; with the database closed the write can only fail at the transaction.
-    await assert.rejects(db.insert(good[0]), (error) => {
+    await assert.rejects(db.insert({ vector: [9, 9] }), (error) => {
+      assert.ok(error instanceof TypeError);
+      assert.match(error.message, /no 'embedding' property/);
+      return true;
+    });
+    // A legitimate record passes validation; with the database closed the write fails only at
+    // the transaction.
+    await assert.rejects(db.insert({ embedding: [1, 0] }), (error) => {
       assert.doesNotMatch(String(error), /vectorPath|no 'embedding'/);
       return true;
     });
