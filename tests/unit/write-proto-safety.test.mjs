@@ -10,6 +10,7 @@
 // read it as an own value.
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { copyRecordForStore } from '../../utils/record-copy.js';
 import { VectorDB } from '../../index.js';
 
@@ -53,6 +54,14 @@ test("vectorPath '__proto__' is refused with an actionable error", () => {
       return true;
     },
   );
+});
+
+test("the published vectorPath contract documents both construction refusals", () => {
+  // index.js's validation comment says the contract is 'documented in README.md'; a refusal the
+  // README does not name is a surprise at construction (review finding idb-vector-6lz).
+  const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /dotted name[^\n]*refused/i, 'the dotted-name refusal is documented');
+  assert.match(readme, /"__proto__"[^\n]*refused/i, 'the __proto__ refusal is documented');
 });
 
 test("insert() accepts a record whose own '__proto__' field is data, and still fails only at the store", async () => {

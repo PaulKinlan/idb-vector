@@ -54,7 +54,7 @@ const db = new VectorDB({
 });
 ```
 
-The `vectorPath` parameter names **one top-level property** of the stored records, and the value at that property must be an array. A dotted name such as `"nested.vector"` is refused at construction with a `TypeError`, because this library reads `record[vectorPath]` literally: it does not resolve an IndexedDB key path. Flatten the field before inserting (`{ vector: [...] }`), or write through the `objectStore` escape hatch yourself.
+The `vectorPath` parameter names **one top-level property** of the stored records, and the value at that property must be an array. A dotted name such as `"nested.vector"` is refused at construction with a `TypeError`, because this library reads `record[vectorPath]` literally: it does not resolve an IndexedDB key path. Flatten the field before inserting (`{ vector: [...] }`), or write through the `objectStore` escape hatch yourself. The name `"__proto__"` is refused the same way: property access on a plain record hits the prototype accessor instead of an own value, so a stored vector could never be read back reliably.
 
 ### Inserting Data
 
