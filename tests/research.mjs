@@ -6,6 +6,7 @@ import { resolve, extname, sep } from 'node:path';
 import { Marked } from 'marked';
 import { launch } from './lib/cdp.mjs';
 import { permittedCitation } from './lib/research-link-policy.mjs';
+import { requestPathname } from '../tools/request-pathname.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const source = await readFile(resolve(root, 'research/architecture.md'), 'utf8');
@@ -35,7 +36,10 @@ const assetDirs = ['/demo/', '/utils/'];
 const insideAssetDir = (file) => assetDirs.some((prefix) => file.startsWith(resolve(root, prefix.slice(1)) + sep));
 const server = createServer(async (req, res) => {
   try {
-    const requested = new URL(req.url, 'http://localhost').pathname;
+    // Shared safe parse (idb-vector-i9w/tb6/wqv): a malformed request target is a client error
+    // and answers 400, never the 500 this try/catch would otherwise produce (idb-vector-yom).
+    const requested = requestPathname(req);
+    if (requested === null) { res.writeHead(400).end('Bad request target'); return; }
     const path = requested.endsWith('/') ? requested + 'index.html' : requested;
     let file = assetFiles.get(path);
     if (!file) {

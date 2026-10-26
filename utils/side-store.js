@@ -34,7 +34,23 @@ export function canonicalKey(key) {
 
 // Builds an INT8 affine code record with per-dimension min/scale tables and precomputed L2 norms.
 // Exact primary keys must be provided via options.keys (matching cursor.primaryKey, ADR 0001).
+
+// One read of the vector per record, in exactly one place (idb-vector-5mt, restated after review):
+//  * vectorPath NOT supplied: the legacy public shape — read the default property, else the
+//    legacy 'vector' column, with unchanged behaviour;
+//  * vectorPath supplied: strict — the record must have that own property, refused with the
+//    missing property and key named (storedVectorError's style), and a stray 'vector' column is
+//    IGNORED rather than silently scored (the old '?? rec.vector' fallback).
+function recordVector(record, vectorPath, supplied, label) {
+  if (!supplied) return record[vectorPath] ?? record.vector;
+  if (Object.hasOwn(record, vectorPath) === false) {
+    throw new TypeError(`${label} has no own '${vectorPath}' property (vectorPath), so there is no vector to score; a stray 'vector' column is not read. Store the vector under the configured vectorPath, or omit the option to use the legacy column.`);
+  }
+  return record[vectorPath];
+}
+
 export function buildCodeRecord(records, options = {}) {
+  const supplied = Object.hasOwn(options, 'vectorPath');
   const {
     epoch = options.revision ?? null,
     vectorPath = 'embedding',
@@ -64,7 +80,7 @@ export function buildCodeRecord(records, options = {}) {
     };
   }
 
-  const sampleVec = records[0][vectorPath] ?? records[0].vector;
+  const sampleVec = recordVector(records[0], vectorPath, supplied, `Record ${JSON.stringify(explicitKeys[0])} (index 0)`);
   if (!sampleVec || typeof sampleVec.length !== 'number' || sampleVec.length === 0) {
     throw new Error(`Record at index 0 has invalid or empty vectorPath "${vectorPath}"`);
   }
@@ -95,7 +111,7 @@ export function buildCodeRecord(records, options = {}) {
     }
     keys[i] = key;
 
-    const vec = rec[vectorPath] ?? rec.vector;
+    const vec = recordVector(rec, vectorPath, supplied, `Record ${JSON.stringify(key)}`);
     if (!vec || vec.length !== dims) {
       throw new Error(`Record ${JSON.stringify(key)} has vector length ${vec?.length}, expected ${dims}`);
     }
@@ -157,7 +173,7 @@ export function buildCodeRecord(records, options = {}) {
   // Second pass: quantize each vector to int8 (-127..127)
   const codes = new Int8Array(count * dims);
   for (let i = 0; i < count; i++) {
-    const vec = records[i][vectorPath] ?? records[i].vector;
+    const vec = recordVector(records[i], vectorPath, supplied, `Record ${JSON.stringify(keys[i])}`);
     const offset = i * dims;
     for (let d = 0; d < dims; d++) {
       const scaled = (vec[d] - mins[d]) / scales[d] - 127;

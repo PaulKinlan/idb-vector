@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { launch } from './lib/cdp.mjs';
 import { realVectorAssets } from '../tools/real-vector-assets.mjs';
 import { reportTarget } from '../tools/report-target.mjs';
+import { requestPathname } from '../tools/request-pathname.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const corpora = (process.env.IDB_REAL_CORPORA || 'glove25-10000,glove25-100000,glove25-1183514,wiki-api-10000').split(',');
@@ -24,7 +25,11 @@ for (const corpus of corpora) {
   for (const file of ['manifest.json', 'vectors.f32', 'cells.u32']) allowed.set(`/data/${corpus}/${file}`, path.join(directory, file));
 }
 const server = createServer(async (req, res) => {
-  const file = allowed.get(new URL(req.url, 'http://localhost').pathname);
+  // Shared safe parse (idb-vector-i9w/tb6): a malformed absolute-form request target must answer
+  // 400, never throw out of the handler and kill the measurement run (idb-vector-wqv).
+  const pathname = requestPathname(req);
+  if (pathname === null) { res.writeHead(400).end('Bad request target'); return; }
+  const file = allowed.get(pathname);
   if (!file) { res.writeHead(404).end(); return; }
   try {
     const data = await readFile(file);
