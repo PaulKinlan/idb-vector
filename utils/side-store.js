@@ -34,6 +34,18 @@ export function canonicalKey(key) {
 
 // Builds an INT8 affine code record with per-dimension min/scale tables and precomputed L2 norms.
 // Exact primary keys must be provided via options.keys (matching cursor.primaryKey, ADR 0001).
+
+// One strict read of the configured vectorPath, matching the main write path (index.js insert()):
+// a record that lacks the property is REFUSED with the path named, never silently re-read from a
+// different field - the old '?? record.vector' fallback scored whatever happened to sit in
+// .vector, i.e. a field the caller did not configure (idb-vector-5mt).
+function recordVector(record, vectorPath, label) {
+  if (Object.hasOwn(record, vectorPath) === false) {
+    throw new TypeError(`${label} has no '${vectorPath}' property (vectorPath); store the vector under the configured vectorPath, or pass the vectorPath option that names where it lives`);
+  }
+  return record[vectorPath];
+}
+
 export function buildCodeRecord(records, options = {}) {
   const {
     epoch = options.revision ?? null,
@@ -64,7 +76,7 @@ export function buildCodeRecord(records, options = {}) {
     };
   }
 
-  const sampleVec = records[0][vectorPath] ?? records[0].vector;
+  const sampleVec = recordVector(records[0], vectorPath, 'Record at index 0');
   if (!sampleVec || typeof sampleVec.length !== 'number' || sampleVec.length === 0) {
     throw new Error(`Record at index 0 has invalid or empty vectorPath "${vectorPath}"`);
   }
@@ -95,7 +107,7 @@ export function buildCodeRecord(records, options = {}) {
     }
     keys[i] = key;
 
-    const vec = rec[vectorPath] ?? rec.vector;
+    const vec = recordVector(rec, vectorPath, `Record ${JSON.stringify(key)}`);
     if (!vec || vec.length !== dims) {
       throw new Error(`Record ${JSON.stringify(key)} has vector length ${vec?.length}, expected ${dims}`);
     }
@@ -157,7 +169,7 @@ export function buildCodeRecord(records, options = {}) {
   // Second pass: quantize each vector to int8 (-127..127)
   const codes = new Int8Array(count * dims);
   for (let i = 0; i < count; i++) {
-    const vec = records[i][vectorPath] ?? records[i].vector;
+    const vec = recordVector(records[i], vectorPath, `Record ${JSON.stringify(keys[i])}`);
     const offset = i * dims;
     for (let d = 0; d < dims; d++) {
       const scaled = (vec[d] - mins[d]) / scales[d] - 127;
