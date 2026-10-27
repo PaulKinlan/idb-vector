@@ -2,11 +2,17 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
 import { launch } from '../tests/lib/cdp.mjs';
 import { serve } from './wiki-demo-server.mjs';
 import { reportTarget } from './report-target.mjs';
 import { fitWhitening } from '../utils/geometry.js';
 
+export async function encodeQueries(encode, queries, options = {}) {
+  return await encode(queries, { padding: true, truncation: true, ...options });
+}
+
+export async function evaluatePreprocessing() {
 // Exploratory page-level labels: never infer relevance from a ranking under test.
 const root = new URL('../', import.meta.url);
 const sourceBytes = await readFile(new URL('demo/data/source.json', root));
@@ -40,12 +46,7 @@ try {
   queryVectors = await page.evaluate(async queries => {
     const { createEncoder } = await import('./encoder.js');
     const encode = await createEncoder();
-    const result = [];
-    for (const query of queries) {
-      const [vector] = await encode([query]);
-      result.push(vector);
-    }
-    return result;
+    return await encode(queries, { padding: true, truncation: true });
   }, labels.queries.map(row => row.query));
 } finally {
   await page?.close();
@@ -133,4 +134,9 @@ try {
   if (!target.dir) console.log(`Report: ${target.path}`);
 } finally {
   if (target.dir) await rm(target.dir, { recursive: true, force: true });
+}
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  await evaluatePreprocessing();
 }
