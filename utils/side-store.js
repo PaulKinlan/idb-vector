@@ -512,10 +512,10 @@ export function rerankCandidates(
 
     const vector = record[vectorPath];
     if (!Array.isArray(vector)) {
-      throw new TypeError(`Record has invalid vectorPath "${vectorPath}"`);
+      throw new TypeError(`Record ${JSON.stringify(key)} has invalid vectorPath "${vectorPath}"`);
     }
     if (vector.length !== queryDims) {
-      throw new TypeError(`Record has vector length ${vector.length}, expected ${queryDims}`);
+      throw new TypeError(`Record ${JSON.stringify(key)} has vector length ${vector.length}, expected ${queryDims}`);
     }
 
     let dot = 0;
