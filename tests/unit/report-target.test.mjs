@@ -3,7 +3,7 @@
 // run gets a unique mkdtemp directory it removes when done — unless the caller pinned a path.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
@@ -99,4 +99,24 @@ test('evidenceDir: two unpinned runs never share a screenshot directory', async 
     await rm(second.dir, { recursive: true, force: true });
   });
   assert.notEqual(firstDir, secondDir);
+});
+
+test('tests/real-vectors.mjs routes screenshots through evidenceDir() rather than beside a tracked report', () => {
+  const source = readFileSync('tests/real-vectors.mjs', 'utf8');
+  assert.match(source, /import\s*\{[^}]*\bevidenceDir\b[^}]*\}\s*from\s*['"]\.\.\/tools\/report-target\.mjs['"]/, 'must import evidenceDir');
+  assert.match(source, /evidenceDir\(out,\s*['"]idb-vector-real-['"]\)/, 'must route evidence through evidenceDir');
+  assert.doesNotMatch(source, /out\.dir\s*\?\?\s*path\.dirname\(output\)/, 'must not write screenshots beside tracked report');
+  assert.match(source, /console\.log\(`Evidence: \$\{evidence\}`\)/, 'must disclose evidence directory upfront');
+  assert.match(source, /const report = \{[^}]*?\bevidence,/, 'must record evidence in report object');
+  assert.match(source, /raw measurements: \$\{output\}; screenshots: \$\{evidence\}/, 'must truthfully report both paths in summary');
+});
+
+test('evidenceDir: real-vectors target with pinned report routes screenshots outside reports/', async (t) => {
+  const out = reportTarget('reports/real-glove-2026-10-15.json', 'idb-vector-real-', 'real-measurements.json');
+  const evidence = evidenceDir(out, 'idb-vector-real-');
+  t.after(() => rm(evidence, { recursive: true, force: true }));
+  assert.notEqual(evidence, 'reports', 'must not write into reports/');
+  assert.notEqual(evidence, dirname(out.path));
+  assert.ok(existsSync(evidence), 'evidence directory must exist');
+  assert.ok(evidence.includes('idb-vector-real-'), 'evidence directory must carry prefix');
 });
