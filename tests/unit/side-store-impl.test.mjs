@@ -504,6 +504,28 @@ test('rerankCandidates refuses a record whose squared magnitude overflows Float6
   assert.ok(Math.abs(ranked[1].similarity - Math.SQRT1_2) < 1e-12, `the diagonal record must score exactly 1/sqrt(2), got ${ranked[1].similarity}`);
 });
 
+test('rerankCandidates identifies candidate primary key in invalid vectorPath and dimension mismatch errors (idb-vector-kqn)', () => {
+  // Invalid vectorPath identifies the offending candidate key:
+  assert.throws(
+    () => rerankCandidates([{ title: 'no vector' }], 'embedding', [1, 0], 10, null, ['target-key-123']),
+    (error) => {
+      assert.ok(error instanceof TypeError, `must be a TypeError, got ${error?.constructor?.name}`);
+      assert.match(error.message, /^Record "target-key-123" has invalid vectorPath "embedding"$/);
+      return true;
+    },
+  );
+
+  // Dimension mismatch identifies the offending candidate key:
+  assert.throws(
+    () => rerankCandidates([{ embedding: [1, 0, 0] }], 'embedding', [1, 0], 10, null, ['target-key-456']),
+    (error) => {
+      assert.ok(error instanceof TypeError, `must be a TypeError, got ${error?.constructor?.name}`);
+      assert.match(error.message, /^Record "target-key-456" has vector length 3, expected 2$/);
+      return true;
+    },
+  );
+});
+
 test('scanSideStore refuses a truncated or legacy code record before it can mis-rank (idb-vector-bmq)', () => {
   // A persisted record is untrusted: IndexedDB can hand back one written by an
   // older layout or cut short. Every indexed read assumes count keys, count
