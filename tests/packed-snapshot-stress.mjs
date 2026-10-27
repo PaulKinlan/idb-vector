@@ -16,6 +16,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path, { join } from 'node:path';
@@ -28,19 +29,26 @@ export function resolveEvidenceDir(configured = process.env.PACKED_SNAPSHOT_STRE
   return runDir(configured, 'idb-packed-stress-');
 }
 
+export function targetFiles(evidenceDir) {
+  return {
+    reportPath: join(evidenceDir, 'packed-snapshot-stress.json'),
+    screenshotPath: join(evidenceDir, 'packed-snapshot-stress.png'),
+  };
+}
+
 export async function runStress(count = Number(process.env.PACKED_SNAPSHOT_STRESS_COUNT ?? 100000)) {
   assert.ok(Number.isSafeInteger(count) && count >= 1000, `PACKED_SNAPSHOT_STRESS_COUNT must be a safe integer >= 1000; got ${process.env.PACKED_SNAPSHOT_STRESS_COUNT}`);
 
   const { dir: evidenceDir } = resolveEvidenceDir();
   const startedAt = new Date();
 
-const { server, url } = await serve();
-let page;
-try {
-  page = await launch();
-  await page.goto(url);
-  const pageStart = Date.now();
-  const result = await page.evaluate(async (vectorCount) => {
+  const { server, url } = await serve();
+  let page;
+  try {
+    page = await launch();
+    await page.goto(url);
+    const pageStart = Date.now();
+    const result = await page.evaluate(async (vectorCount) => {
     const { VectorDB } = await import('/index.js');
     const { vector } = await import('/test-harness/experiment.js');
     const complete = tx => new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error); });
@@ -107,17 +115,31 @@ try {
     measured: [result],
     qualityClaim: 'None: the snapshot is a cache over the same records, so identical bytes is the correctness claim; the timings are a reproduction aid, not a benchmark against other libraries.',
   };
-  const reportPath = join(evidenceDir, 'packed-snapshot-stress.json');
+  const { reportPath, screenshotPath } = targetFiles(evidenceDir);
   await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
-  await page.screenshot(join(evidenceDir, 'packed-snapshot-stress.png'));
+  await page.screenshot(screenshotPath);
   console.log(JSON.stringify({ evidenceDir, reportPath, corpus: result.name, writeMs: Math.round(result.writeMs), buildMs: Math.round(result.buildMs), runs: result.runs.map(r => ({ queryId: r.queryId, baselineMs: Math.round(r.baselineMs), cachedMs: Math.round(r.cachedMs), byteIdentical: r.byteIdentical })), wallMs: pageMs, load: os.loadavg() }, null, 2));
   console.log(`Evidence kept: ${evidenceDir}`);
+  return { evidenceDir, reportPath, screenshotPath, report };
 } finally {
   if (page) await page.close();
   await new Promise(resolve => server.close(resolve));
 }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+export function isDirectExecution() {
+  if (import.meta.main) return true;
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync.native(process.argv[1]) === realpathSync.native(fileURLToPath(import.meta.url));
+  } catch {
+    return path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  }
+}
+
+if (isDirectExecution()) {
   await runStress();
+} else if (process.argv[1] && path.basename(process.argv[1]).includes('packed-snapshot-stress')) {
+  console.error(`Refusing silent skip: target ${process.argv[1]} does not resolve to ${fileURLToPath(import.meta.url)}`);
+  process.exit(1);
 }
