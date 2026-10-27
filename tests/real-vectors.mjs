@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launch } from './lib/cdp.mjs';
 import { realVectorAssets } from '../tools/real-vector-assets.mjs';
-import { reportTarget } from '../tools/report-target.mjs';
+import { evidenceDir, reportTarget } from '../tools/report-target.mjs';
 import { requestPathname } from '../tools/request-pathname.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -41,11 +41,13 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
 const url = `http://127.0.0.1:${server.address().port}`;
 // Unique per-run report path (a fixed /tmp name let two runs clobber one report - idb-vector-8oy);
-// screenshots live beside it and are kept as evidence.
+// screenshots go to a per-run evidence dir - beside the report when unpinned, a unique kept /tmp dir
+// when pinned to avoid tracked worktree mutation.
 const out = reportTarget(process.env.IDB_REAL_REPORT, 'idb-vector-real-', 'real-measurements.json');
 const output = out.path;
-const evidence = out.dir ?? path.dirname(output);
+const evidence = evidenceDir(out, 'idb-vector-real-');
 await mkdir(evidence, { recursive: true });
+console.log(`Evidence: ${evidence}`);
 async function disk(directory) {
   let logicalBytes = 0, allocatedBytes = 0, files = 0;
   async function walk(dir) {
@@ -59,6 +61,7 @@ async function disk(directory) {
   return { logicalBytes, allocatedBytes, files };
 }
 const report = {
+  evidence,
   startedAt: new Date().toISOString(), harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root }).toString().trim(),
   trackedDiff: execFileSync('git', ['diff', '--stat'], { cwd: root }).toString().trim(),
   hardware: { cpu: os.cpus()[0].model, logicalCpus: os.cpus().length, ramBytes: os.totalmem(), platform: os.platform(), release: os.release() },
@@ -106,5 +109,5 @@ try {
   }
   report.finishedAt = new Date().toISOString(); report.loadEnd = os.loadavg();
   await writeFile(output, JSON.stringify(report, null, 2) + '\n');
-  console.log(`PASS: ${report.runs.length} browser runs; raw measurements and screenshots: ${output}`);
+  console.log(`PASS: ${report.runs.length} browser runs; raw measurements: ${output}; screenshots: ${evidence}`);
 } finally { await new Promise(resolve => server.close(resolve)); }
