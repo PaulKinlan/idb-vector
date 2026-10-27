@@ -45,10 +45,18 @@ export async function createPackedSnapshot(db, storeName, vectorPath, options, c
   // destructured away: a caller who passed `limit` here believed the snapshot was bounded by it
   // (idb-vector-cej).
   const { maxBytes } = assertSnapshotOptions(options);
-  let blocks = [], bytes = 0, mode = 'live', reason = null, diagnostic = null, refreshing, closed = false;
+  let blocks = [], bytes = 0, mode = 'live', reason = null, diagnostic = null, refreshing, closed = false, generation = 0;
+  let currentTx = null, rejectInFlight = null;
   const budget = Math.floor(maxBytes / 8) * 8;
   // 1 MiB allocations avoid copying/growing a contiguous 100 MB buffer; budget may be smaller.
   const blockBytes = Math.min(1024 * 1024, budget);
+  const freeBlocks = list => {
+    for (const block of list) {
+      if (block?.data?.buffer && typeof block.data.buffer.transfer === 'function') {
+        try { block.data.buffer.transfer(0); } catch {}
+      }
+    }
+  };
   const snapshot = {
     get mode() { return closed ? 'closed' : mode; },
     get reason() { return reason; },
@@ -58,50 +66,98 @@ export async function createPackedSnapshot(db, storeName, vectorPath, options, c
     refresh() {
       if (closed) return Promise.reject(new Error('Snapshot is closed'));
       if (refreshing) return refreshing;
-      // Evict first: a refresh must not transiently retain two whole caches.
+      const currentGen = ++generation;
+      // Evict first: a refresh must not transiently retain two whole caches (reports/packed-snapshot.md:35).
+      freeBlocks(blocks);
       blocks = []; bytes = 0; reason = null; mode = 'loading';
+      let stats = moments(), diagnosticError = null;
+      const evict = why => { freeBlocks(blocks); blocks = []; bytes = 0; reason = why; };
       refreshing = new Promise((resolve, reject) => {
-        let stats = moments(), diagnosticError = null;
-        const tx = db.transaction(storeName), request = tx.objectStore(storeName).openCursor();
-        const evict = why => { blocks = []; bytes = 0; reason = why; };
+        let settled = false;
+        const settleReject = (err) => {
+          if (settled) return;
+          settled = true;
+          rejectInFlight = null;
+          evict('refresh-failed');
+          mode = closed ? 'closed' : 'live';
+          reject(err);
+        };
+        const settleResolve = (val) => {
+          if (settled) return;
+          settled = true;
+          rejectInFlight = null;
+          resolve(val);
+        };
+        rejectInFlight = (err) => {
+          settleReject(err);
+        };
+        const tx = db.transaction(storeName);
+        currentTx = tx;
+        const request = tx.objectStore(storeName).openCursor();
         request.onsuccess = () => {
-          const cursor = request.result;
-          if (!cursor) return;
-          const vector = cursor.value[vectorPath];
-          if (stats) {
-            try { stats.add(vector); } catch (error) { diagnosticError = error.message; stats = null; }
+          if (settled) return;
+          if (closed || currentGen !== generation) {
+            settleReject(new Error('Snapshot is closed'));
+            return;
           }
-          if (!reason && !closed) {
-            if (typeof cursor.key !== 'number' || !Number.isFinite(cursor.key) || !finiteVector(vector)) evict('unsupported-key-or-vector');
-            else {
-              const length = vector.length + 2;
-              let block = blocks.at(-1);
-              if (!block || block.used + length > block.data.length) {
-                const size = Math.min(Math.max(blockBytes, length * 8), budget - bytes);
-                if (size < length * 8) evict('memory-budget');
-                else {
-                  try { block = { data: new Float64Array(size / 8), used: 0 }; }
-                  catch { evict('allocation-failed'); }
-                  if (!reason) { blocks.push(block); bytes += size; }
+          try {
+            const cursor = request.result;
+            if (!cursor) return;
+            const vector = cursor.value?.[vectorPath];
+            if (stats) {
+              try { stats.add(vector); } catch (error) { diagnosticError = error.message; stats = null; }
+            }
+            if (!reason && !closed) {
+              if (typeof cursor.key !== 'number' || !Number.isFinite(cursor.key) || !finiteVector(vector)) evict('unsupported-key-or-vector');
+              else {
+                const length = vector.length + 2;
+                let block = blocks.at(-1);
+                if (!block || block.used + length > block.data.length) {
+                  const size = Math.min(Math.max(blockBytes, length * 8), budget - bytes);
+                  if (size < length * 8) evict('memory-budget');
+                  else {
+                    try { block = { data: new Float64Array(size / 8), used: 0 }; }
+                    catch { evict('allocation-failed'); }
+                    if (!reason) { blocks.push(block); bytes += size; }
+                  }
+                }
+                if (!reason) {
+                  block.data[block.used++] = cursor.key;
+                  block.data[block.used++] = vector.length;
+                  block.data.set(vector, block.used); block.used += vector.length;
                 }
               }
-              if (!reason) {
-                block.data[block.used++] = cursor.key;
-                block.data[block.used++] = vector.length;
-                block.data.set(vector, block.used); block.used += vector.length;
-              }
             }
+            cursor.continue();
+          } catch (error) {
+            settleReject(error);
           }
-          cursor.continue();
         };
         tx.oncomplete = () => {
+          if (settled) return;
+          if (closed || currentGen !== generation) {
+            settleReject(new Error('Snapshot is closed'));
+            return;
+          }
           diagnostic = stats ? stats.result() : { warning: null, limitation: diagnosticError };
-          if (closed) { blocks = []; bytes = 0; }
-          else mode = reason ? 'live' : 'snapshot';
-          resolve(snapshot);
+          mode = reason ? 'live' : 'snapshot';
+          settleResolve(snapshot);
         };
-        tx.onabort = () => { evict('refresh-failed'); mode = 'live'; reject(tx.error ?? new Error('Snapshot refresh aborted')); };
-      }).finally(() => { refreshing = null; });
+        tx.onabort = () => {
+          if (settled) return;
+          if (closed || currentGen !== generation) {
+            settleReject(new Error('Snapshot is closed'));
+          } else {
+            settleReject(tx.error ?? new Error('Snapshot refresh aborted'));
+          }
+        };
+      }).finally(() => {
+        if (currentGen === generation) {
+          refreshing = null;
+          rejectInFlight = null;
+          currentTx = null;
+        }
+      });
       return refreshing;
     },
     async query(query, options) {
@@ -185,7 +241,22 @@ export async function createPackedSnapshot(db, storeName, vectorPath, options, c
         tx.onabort = () => reject(tx.error ?? new Error('Live snapshot query aborted'));
       });
     },
-    close() { closed = true; blocks = []; bytes = 0; }
+    close() {
+      closed = true;
+      generation++;
+      freeBlocks(blocks);
+      blocks = [];
+      bytes = 0;
+      mode = 'closed';
+      if (rejectInFlight) {
+        const reject = rejectInFlight;
+        rejectInFlight = null;
+        reject(new Error('Snapshot is closed'));
+      }
+      refreshing = null;
+      try { currentTx?.abort(); } catch {}
+      currentTx = null;
+    }
   };
   await snapshot.refresh();
   return snapshot;

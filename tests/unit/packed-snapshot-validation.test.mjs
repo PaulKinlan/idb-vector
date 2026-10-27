@@ -275,3 +275,211 @@ test('snapshot.query applies the query limit contract and refuses keys it cannot
     snapshot.close();
   }
 });
+
+test('createPackedSnapshot.refresh() evicts cleanly on null or non-object stored record without hanging (idb-vector-ya7)', async () => {
+  const rows = [
+    { key: 1, value: null },
+    { key: 2, value: 'primitive-record' },
+    { key: 3, value: undefined },
+    { key: 4, value: { embedding: [1, 0] } },
+  ];
+  const snapshot = await createPackedSnapshot(database(rows), 'vectors', 'embedding', { maxBytes: 1024 }, cosine);
+  assert.equal(snapshot.mode, 'live');
+  assert.equal(snapshot.reason, 'unsupported-key-or-vector');
+  const result = await snapshot.query([1, 0]);
+  assert.deepEqual(Array.from(result.results), [{ key: 4, similarity: 1 }]);
+  snapshot.close();
+});
+
+test('createPackedSnapshot.refresh() rejects when an error throws inside request.onsuccess', async () => {
+  const fakeDB = {
+    transaction() {
+      return {
+        objectStore() {
+          return {
+            openCursor() {
+              const req = {};
+              queueMicrotask(() => {
+                Object.defineProperty(req, 'result', {
+                  get() { throw new Error('forced cursor error'); },
+                });
+                req.onsuccess?.();
+              });
+              return req;
+            },
+          };
+        },
+      };
+    },
+  };
+  await assert.rejects(
+    createPackedSnapshot(fakeDB, 'vectors', 'embedding', { maxBytes: 1024 }, cosine),
+    /forced cursor error/,
+  );
+});
+
+test('rejected refresh does not corrupt existing snapshot or leave empty results (idb-vector-com)', async () => {
+  let throwOnNext = false;
+  const db = {
+    transaction() {
+      const tx = {
+        objectStore() {
+          return {
+            openCursor() {
+              const req = {};
+              queueMicrotask(() => {
+                if (throwOnNext) {
+                  throwOnNext = false;
+                  Object.defineProperty(req, 'result', {
+                    get() { throw new Error('boom'); },
+                  });
+                  req.onsuccess?.();
+                  queueMicrotask(() => tx.oncomplete?.());
+                } else {
+                  req.result = {
+                    key: 1,
+                    value: { embedding: [1, 0] },
+                    continue: () => {
+                      req.result = null;
+                      req.onsuccess?.();
+                      queueMicrotask(() => tx.oncomplete?.());
+                    },
+                  };
+                  req.onsuccess?.();
+                }
+              });
+              return req;
+            },
+          };
+        },
+      };
+      return tx;
+    },
+  };
+
+  const snapshot = await createPackedSnapshot(db, 'vectors', 'embedding', { maxBytes: 1024 }, cosine);
+  assert.equal(snapshot.mode, 'snapshot');
+  const initial = await snapshot.query([1, 0]);
+  assert.deepEqual(Array.from(initial.results), [{ key: 1, similarity: 1 }]);
+
+  // Trigger refresh where next-cursor getter throws 'boom'
+  throwOnNext = true;
+  await assert.rejects(snapshot.refresh(), /boom/);
+
+  // Assert snapshot was not left in corrupted snapshot mode with empty results:
+  // On failure, mode falls back to live with reason 'refresh-failed', and queries
+  // still return the stored row rather than empty results.
+  assert.equal(snapshot.mode, 'live');
+  assert.equal(snapshot.reason, 'refresh-failed');
+  const afterFailedRefresh = await snapshot.query([1, 0]);
+  assert.deepEqual(Array.from(afterFailedRefresh.results), [{ key: 1, similarity: 1 }]);
+  snapshot.close();
+});
+
+test('peak arrayBuffers during refresh does not exceed 1x snapshot size (idb-vector-43b)', async () => {
+  const dim = 131070;
+  const v1 = Array.from(new Float64Array(dim).fill(0.001));
+  const v2 = Array.from(new Float64Array(dim).fill(0.002));
+  const rows = [
+    { key: 1, value: { embedding: v1 } },
+    { key: 2, value: { embedding: v2 } },
+  ];
+
+  let peakBuffers = 0;
+  function databaseWithProbe(rows) {
+    return {
+      transaction() {
+        let position = 0;
+        const tx = {
+          objectStore() {
+            return {
+              openCursor() {
+                const request = {};
+                const next = () => {
+                  const row = rows[position++];
+                  request.result = row && {
+                    key: row.key,
+                    value: row.value,
+                    continue: () => queueMicrotask(next),
+                  };
+                  const current = process.memoryUsage().arrayBuffers;
+                  if (current > peakBuffers) peakBuffers = current;
+                  request.onsuccess?.();
+                  if (!row) tx.oncomplete?.();
+                };
+                queueMicrotask(next);
+                return request;
+              },
+            };
+          },
+        };
+        return tx;
+      },
+    };
+  }
+
+  const snapshot = await createPackedSnapshot(databaseWithProbe(rows), 'vectors', 'embedding', { maxBytes: 4 * 1024 * 1024 }, cosine);
+  assert.equal(snapshot.mode, 'snapshot');
+  assert.equal(snapshot.bytes, 2097152);
+  const initialBuffers = process.memoryUsage().arrayBuffers;
+
+  // Refresh and track peak arrayBuffers:
+  peakBuffers = 0;
+  await snapshot.refresh();
+
+  // Peak arrayBuffers growth during refresh must not exceed ~1x snapshot size (never reaches 2x / 8.5MiB)
+  const growth = peakBuffers - initialBuffers;
+  assert.ok(growth <= snapshot.bytes * 1.25, `peak arrayBuffers growth (${growth}) must not exceed ~1x snapshot size (${snapshot.bytes})`);
+  assert.ok(peakBuffers < 7.5 * 1024 * 1024, `peak arrayBuffers (${peakBuffers}) must not reach two packed generations (~8.5MiB)`);
+  snapshot.close();
+});
+
+test('close() during in-flight refresh settles refresh promise without hanging (idb-vector-zui)', async () => {
+  const queue = [];
+  const fakeDB = {
+    transaction() {
+      const tx = {
+        objectStore() {
+          return {
+            openCursor() {
+              const req = {};
+              queue.push(() => {
+                req.result = {
+                  key: 1,
+                  value: { embedding: [1, 0] },
+                  continue: () => {
+                    req.result = null;
+                    queue.push(() => req.onsuccess?.());
+                    queue.push(() => tx.oncomplete?.());
+                  },
+                };
+                req.onsuccess?.();
+              });
+              return req;
+            },
+          };
+        },
+      };
+      return tx;
+    },
+  };
+
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Initialize snapshot:
+  const initPromise = createPackedSnapshot(fakeDB, 'vectors', 'embedding', { maxBytes: 1024 }, cosine);
+  while (queue.length) queue.shift()();
+  const snapshot = await initPromise;
+
+  // Case 1: close() called before delivering cursor callback
+  const p1 = snapshot.refresh();
+  snapshot.close();
+  while (queue.length) queue.shift()();
+
+  const outcome1 = await Promise.race([
+    p1.then(() => 'resolved', (err) => `rejected:${err.message}`),
+    delay(50).then(() => 'PENDING'),
+  ]);
+  assert.equal(outcome1, 'rejected:Snapshot is closed', 'refresh promise must settle and reject on close()');
+  assert.equal(snapshot.mode, 'closed');
+});
