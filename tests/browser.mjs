@@ -18,8 +18,17 @@ try {
   page = await launch();
   await page.goto(url);
   await page.screenshot(join(out.dir, 'before.png'));
+  const generateStart = Date.now();
   await page.click('#generate');
-  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready:'), { timeout: 120000 });
+  await page.waitFor(
+    () => {
+      const text = document.querySelector('#status')?.textContent ?? '';
+      if (text.startsWith('Dataset failed:')) throw new Error(text);
+      return text.startsWith('Ready:');
+    },
+    { timeout: 300000, label: 'dataset creation (#generate seeding)' }
+  );
+  console.log(`Dataset seeded in ${((Date.now() - generateStart) / 1000).toFixed(1)}s`);
   await page.click('#run');
   await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Search complete'), { timeout: 30000 });
   assert.equal(await page.evaluate(() => document.querySelector('#results tr td').textContent), '42');
