@@ -26,8 +26,8 @@ export async function createEncoder(progress_callback) {
     // Fetches for config, tokenizer, quantized model and the ONNX runtime WASM
     // all resolve under ./models/ or ./vendor/ and pass through the guard.
     const model = await pipeline('feature-extraction', 'all-MiniLM-L6-v2', { quantized: true, progress_callback });
-    return async text => {
-      const result = await model(text, { pooling: 'mean', normalize: true });
+    return async (text, options = {}) => {
+      const result = await model(text, { pooling: 'mean', normalize: true, padding: true, truncation: true, ...options });
       return result.tolist();
     };
   });
