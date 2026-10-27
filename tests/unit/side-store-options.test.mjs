@@ -74,3 +74,123 @@ test('querySideStore() refuses the threshold values query() refuses, and does no
     }
   });
 });
+
+test('querySideStore rejects on transaction abort without hanging (idb-vector-04e)', async () => {
+  const orig = globalThis.indexedDB;
+  try {
+    let abortCodesTx = false;
+    let abortVectorsTx = false;
+
+    globalThis.indexedDB = {
+      open() {
+        const req = {};
+        queueMicrotask(() => {
+          req.result = {
+            objectStoreNames: { contains: () => true },
+            addEventListener() {},
+            close() {},
+            transaction(stores) {
+              const tx = {
+                error: null,
+                objectStore() {
+                  return { get() { return {}; } };
+                },
+              };
+              if (stores.includes('codes') && abortCodesTx) {
+                queueMicrotask(() => {
+                  tx.error = new DOMException('Quota exceeded', 'QuotaExceededError');
+                  tx.onabort?.();
+                });
+              }
+              if (stores.includes('vectors') && abortVectorsTx) {
+                queueMicrotask(() => {
+                  tx.error = new DOMException('Transaction aborted', 'AbortError');
+                  tx.onabort?.();
+                });
+              }
+              return tx;
+            },
+          };
+          req.onsuccess?.({ target: req });
+        });
+        return req;
+      },
+    };
+
+    const db = new VectorDB({ dbName: 'test-abort', objectStore: 'vectors', vectorPath: 'embedding' });
+
+    // 1. Abort during codeRecord fetch from side-store
+    abortCodesTx = true;
+    await assert.rejects(
+      db.querySideStore([1, 0], { epoch: 1, getEpoch: async () => 1 }),
+      (err) => err?.name === 'QuotaExceededError' || err?.message === 'Quota exceeded',
+      'querySideStore must reject when side-store get transaction aborts',
+    );
+    abortCodesTx = false;
+
+    // 2. Abort during candidate originals fetch from main store
+    abortVectorsTx = true;
+    const { buildCodeRecord } = await import('../../utils/side-store.js');
+    const mockCodeRecord = buildCodeRecord([{ vector: [1, 0] }], { keys: ['k1'], epoch: 1 });
+    await assert.rejects(
+      db.querySideStore([1, 0], { epoch: 1, getEpoch: async () => 1, codeRecord: mockCodeRecord }),
+      (err) => err?.name === 'AbortError' || /Transaction aborted/.test(err?.message),
+      'querySideStore must reject when candidate fetch transaction aborts',
+    );
+  } finally {
+    globalThis.indexedDB = orig;
+  }
+});
+
+test('query() and buildSideStore() reject on transaction abort without hanging (idb-vector-b4h)', async () => {
+  const orig = globalThis.indexedDB;
+  try {
+    globalThis.indexedDB = {
+      open() {
+        const req = {};
+        queueMicrotask(() => {
+          req.result = {
+            objectStoreNames: { contains: () => true },
+            addEventListener() {},
+            close() {},
+            transaction() {
+              const tx = {
+                error: null,
+                objectStore() {
+                  return {
+                    get() { return {}; },
+                    openCursor() { return {}; },
+                    index() { return { openCursor() { return {}; } }; },
+                  };
+                },
+              };
+              queueMicrotask(() => {
+                tx.error = new DOMException('Quota exceeded', 'QuotaExceededError');
+                tx.onabort?.();
+              });
+              return tx;
+            },
+          };
+          req.onsuccess?.({ target: req });
+        });
+        return req;
+      },
+    };
+
+    const dbQuery = new VectorDB({ dbName: 'test-abort-query', objectStore: 'vectors', vectorPath: 'embedding' });
+    await assert.rejects(
+      dbQuery.query([1, 0], { limit: 1 }),
+      (err) => err?.name === 'QuotaExceededError' || err?.message === 'Quota exceeded',
+      'query() must reject when #rank cursor transaction aborts',
+    );
+
+    const dbBuild = new VectorDB({ dbName: 'test-abort-build', objectStore: 'vectors', vectorPath: 'embedding' });
+    await assert.rejects(
+      dbBuild.buildSideStore({ epoch: 1, getEpoch: async () => 1 }),
+      (err) => err?.name === 'QuotaExceededError' || err?.message === 'Quota exceeded',
+      'buildSideStore() must reject when source cursor transaction aborts',
+    );
+  } finally {
+    globalThis.indexedDB = orig;
+  }
+});

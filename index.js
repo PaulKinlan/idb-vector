@@ -530,6 +530,7 @@ class VectorDB {
     };
 
     return new Promise((resolve, reject) => {
+      transaction.onabort = () => reject(transaction.error ?? new DOMException("Transaction aborted", "AbortError"));
       request.onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor === null) {
@@ -663,6 +664,7 @@ class VectorDB {
     await new Promise((resolve, reject) => {
       const tx = db.transaction([sourceStoreName], "readonly");
       const store = tx.objectStore(sourceStoreName);
+      tx.onabort = () => reject(tx.error ?? new DOMException("Transaction aborted", "AbortError"));
       const req = store.openCursor();
       req.onsuccess = (e) => {
         const cursor = e.target.result;
@@ -767,6 +769,7 @@ class VectorDB {
       codeRecord = await new Promise((resolve, reject) => {
         const tx = db.transaction([sideStore], "readonly");
         const store = tx.objectStore(sideStore);
+        tx.onabort = () => reject(tx.error ?? new DOMException("Transaction aborted", "AbortError"));
         const req = store.get(key);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -813,6 +816,7 @@ class VectorDB {
     const fetchedRecords = await new Promise((resolve, reject) => {
       const tx = db.transaction([sourceStoreName], "readonly");
       const store = tx.objectStore(sourceStoreName);
+      tx.onabort = () => reject(tx.error ?? new DOMException("Transaction aborted", "AbortError"));
       const count = candidateKeys.length;
       if (count === 0) {
         resolve([]);
