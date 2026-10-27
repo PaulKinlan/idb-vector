@@ -16,18 +16,23 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
-import { join } from 'node:path';
+import path, { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { serve } from '../tools/demo-server.mjs';
 import { launch } from './lib/cdp.mjs';
+import { runDir } from '../tools/report-target.mjs';
 
-const count = Number(process.env.PACKED_SNAPSHOT_STRESS_COUNT ?? 100000);
-assert.ok(Number.isSafeInteger(count) && count >= 1000, `PACKED_SNAPSHOT_STRESS_COUNT must be a safe integer >= 1000; got ${process.env.PACKED_SNAPSHOT_STRESS_COUNT}`);
+export function resolveEvidenceDir(configured = process.env.PACKED_SNAPSHOT_STRESS_DIR) {
+  return runDir(configured, 'idb-packed-stress-');
+}
 
-const configured = process.env.PACKED_SNAPSHOT_STRESS_DIR;
-const evidenceDir = configured ? (await mkdir(configured, { recursive: true }), configured) : await mkdtemp(join(os.tmpdir(), 'idb-packed-stress-'));
-const startedAt = new Date();
+export async function runStress(count = Number(process.env.PACKED_SNAPSHOT_STRESS_COUNT ?? 100000)) {
+  assert.ok(Number.isSafeInteger(count) && count >= 1000, `PACKED_SNAPSHOT_STRESS_COUNT must be a safe integer >= 1000; got ${process.env.PACKED_SNAPSHOT_STRESS_COUNT}`);
+
+  const { dir: evidenceDir } = resolveEvidenceDir();
+  const startedAt = new Date();
 
 const { server, url } = await serve();
 let page;
@@ -110,4 +115,9 @@ try {
 } finally {
   if (page) await page.close();
   await new Promise(resolve => server.close(resolve));
+}
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await runStress();
 }
