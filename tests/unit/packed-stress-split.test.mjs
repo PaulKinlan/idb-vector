@@ -6,7 +6,7 @@
 // and fails loudly if the corpus or the schedule wiring is quietly removed or moved back.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -139,7 +139,8 @@ test('driver writes output report strictly to configured evidence dir and leaves
 
   // Copy working tree to scratch checkout: hardlink source code, but copy reports/ independently
   // (cp -a, not -al) so any regression writing to reports/packed-snapshot.md does not mutate the real worktree file (idb-vector-cnc2):
-  execSync(`cp -al index.js utils tests tools package.json "${checkoutDir}/" && cp -a reports "${checkoutDir}/"`);
+  execFileSync('cp', ['-al', 'index.js', 'utils', 'tests', 'tools', 'package.json', `${checkoutDir}/`]);
+  execFileSync('cp', ['-a', 'reports', `${checkoutDir}/`]);
 
   // Replace cdp.mjs and demo-server.mjs with lightweight test doubles in checkout:
   unlinkSync(join(checkoutDir, 'tests', 'lib', 'cdp.mjs'));
