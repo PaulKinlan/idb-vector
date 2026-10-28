@@ -4,8 +4,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
+import { relative, resolve, sep } from 'node:path';
 import { serve } from '../../tools/wiki-demo-server.mjs';
 import { realVectorAssets } from '../../tools/real-vector-assets.mjs';
+import { moduleClosure } from '../../tools/stage-site.mjs';
 
 test('the harness serves directory URLs as GitHub Pages does, and nothing outside the staged set', async (t) => {
   const { server, url } = await serve();
@@ -39,14 +41,13 @@ test('the harness serves directory URLs as GitHub Pages does, and nothing outsid
   // index.js: the two in-repo browser servers, and the Pages staging step (which is what actually
   // serves the published demo, so a module missing there 404s the live site, not a test).
   const entry = await readFile(new URL('../../index.js', import.meta.url), 'utf8');
+  const repoRoot = resolve(new URL('../../', import.meta.url).pathname);
+  const stagedModules = new Set(moduleClosure('demo/app.js', repoRoot).map(f => relative(repoRoot, f).split(sep).join('/')));
+  assert.match(pages, /node tools\/stage-site\.mjs site/, 'Pages must stage with stage-site.mjs');
   for (const [, module] of entry.matchAll(/(?:from\s+|import\s*)["'](\.\/utils\/[^"']+)["']/g)) {
     assert.ok(realAssets.has(module.slice(1)), `real-vectors server must serve ${module}`);
     assert.equal((await served(module.slice(1))).status, 200, `wiki demo must serve ${module}`);
-    // The published demo is served from GitHub Pages, not from any of these servers, so the staging
-    // step is a third allow-list that a new eager module can silently miss (idb-vector-cej:
-    // utils/options.js was added to index.js's import list and would have 404'd the live site).
-    const escaped = module.slice(2).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    assert.match(pages, new RegExp(`cp [^\\n]*${escaped}[^\\n]* site/utils/`), `Pages must stage ${module}`);
+    assert.ok(stagedModules.has(module.slice(2)), `Pages must stage ${module}`);
   }
   // Only the demo, the library entry point and the utils the Pages workflow stages are
   // reachable: a path outside that set must stay 404 rather than hide a missing staging step.
