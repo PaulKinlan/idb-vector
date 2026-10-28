@@ -113,6 +113,9 @@ test('the stored metadata the timing line draws from is checked before it is ren
   }
   assert.equal(validateStoredMeta({ ...meta, totalMs: undefined }), 'totalMs in the stored metadata is not a duration');
   assert.equal(validateStoredMeta({ ...meta, count: 1.5 }), 'count in the stored metadata is not a count');
+  assert.equal(validateStoredMeta({ ...meta, count: ['unsafe', 'array'] }), 'count in the stored metadata is not a count');
+  assert.equal(validateStoredMeta({ ...meta, count: { unsafe: 'object' } }), 'count in the stored metadata is not a count');
+  assert.equal(validateStoredMeta({ ...meta, count: 'x'.repeat(10 * 1024 * 1024) }), 'count in the stored metadata is not a count');
   assert.equal(validateStoredMeta({ ...meta, browser: 42 }), 'browser in the stored metadata is not a label');
   assert.equal(validateStoredMeta({ ...meta, browser: 'x'.repeat(2001) }), 'browser in the stored metadata is not a label');
   for (const value of [null, undefined, 'meta', 42, []]) assert.equal(validateStoredMeta(value), 'the stored metadata is not an object');

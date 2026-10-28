@@ -16,14 +16,46 @@ import { pathToFileURL } from 'node:url';
 export const DEMO_DIR = 'demo';
 export const DEMO_ENTRY = join(DEMO_DIR, 'app.js');
 
+export function stripComments(src) {
+  let result = '';
+  let i = 0;
+  while (i < src.length) {
+    if (src[i] === "'" || src[i] === '"' || src[i] === '`') {
+      const quote = src[i];
+      let j = i + 1;
+      while (j < src.length && src[j] !== quote) {
+        if (src[j] === '\\') j++;
+        j++;
+      }
+      result += src.slice(i, j + 1);
+      i = j + 1;
+    } else if (src[i] === '/' && src[i + 1] === '/') {
+      let j = i + 2;
+      while (j < src.length && src[j] !== '\n' && src[j] !== '\r') j++;
+      result += ' ';
+      i = j;
+    } else if (src[i] === '/' && src[i + 1] === '*') {
+      let j = i + 2;
+      while (j < src.length - 1 && !(src[j] === '*' && src[j + 1] === '/')) j++;
+      result += ' ';
+      i = j + 2;
+    } else {
+      result += src[i];
+      i++;
+    }
+  }
+  return result;
+}
+
 // `import … from 'x'`, `export … from 'x'`, `import 'x'` and `import('x')`. A dynamic import with a
-// computed argument (app.js passes a blob: URL) has no quoted specifier and is not followed. This
-// runs over source text, not a parse tree, so the result is kept to relative paths: prose inside a
-// comment or a message that talks about coming `from 'somewhere'` does not look like './file.js'.
-const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"]+)['"]/g;
+// computed argument (app.js passes a blob: URL) has no quoted specifier and is not followed.
+// Comments are stripped before matching so comment-separated imports are followed, while strings
+// are preserved so prose inside strings does not look like imports.
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)['"]([^'"]+)['"]/g;
 
 function specifiersIn(file) {
-  return [...readFileSync(file, 'utf8').matchAll(SPECIFIER)]
+  const content = stripComments(readFileSync(file, 'utf8'));
+  return [...content.matchAll(SPECIFIER)]
     .map(match => match[1])
     .filter(specifier => specifier.startsWith('./') || specifier.startsWith('../'));
 }

@@ -64,16 +64,22 @@ if (db) {
   try {
     const { meta, vectors, valid, problem } = await readStored();
     if (meta) {
-      $('size').value = String(meta.count);
       if (valid && vectors === meta.count) {
         count = meta.count;
+        $('size').value = String(meta.count);
         $('storage').textContent = `${count.toLocaleString()} passages already stored on this device. Press Load to restore the language model in this page.`;
         loadTiming(meta);
       } else {
-        $('storage').textContent = `Stored corpus is incomplete or invalid (${vectors.toLocaleString()} of ${meta.count.toLocaleString()} vectors).${problem ? ` First problem: ${problem}.` : ''} Press Load to download it again.`;
+        const countDisplay = Number.isSafeInteger(meta?.count) && meta.count >= 0 ? `${meta.count.toLocaleString()} vectors` : 'the expected count';
+        const problemSummary = problem ? ` First problem: ${problem}.` : '';
+        const msg = `Stored corpus is incomplete or invalid (${vectors.toLocaleString()} of ${countDisplay}).${problemSummary} Press Load to download it again.`;
+        $('storage').textContent = msg.length > 500 ? `${msg.slice(0, 497)}...` : msg;
       }
     }
-  } catch (error) { $('status').textContent = `Cannot read saved data: ${error.message}. Remove local data and retry.`; }
+  } catch (error) {
+    const msg = `Cannot read saved data: ${error.message}. Remove local data and retry.`;
+    $('status').textContent = msg.length > 500 ? `${msg.slice(0, 497)}...` : msg;
+  }
 }
 // The stored-corpus probe above is asynchronous, so #storage is empty until it finishes and its
 // text is the only trace of what it found. Publish completion as data-storage-probe so a driver can

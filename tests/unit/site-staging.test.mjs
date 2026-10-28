@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
-import { DEMO_ENTRY, moduleClosure, stageSite } from '../../tools/stage-site.mjs';
+import { DEMO_ENTRY, moduleClosure, stageSite, stripComments } from '../../tools/stage-site.mjs';
 
 const repoRoot = resolve('.');
 const tempDir = () => mkdtempSync(join(tmpdir(), 'site-stage-'));
@@ -64,6 +64,25 @@ test('a new module under utils/ reaches the site through the module that imports
     assert.deepEqual(stageSite(out, { root: fixture }), ['index.js', 'utils/bare.js', 'utils/nested.js', 'utils/used.js']);
     assert.ok(existsSync(join(out, 'demo/helper.js')), 'demo/ still ships whole');
     assert.equal(existsSync(join(out, 'utils/unused.js')), false, 'a module nothing imports is not published');
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('a missing relative import fails loudly, including comment-separated imports (idb-vector-crk1)', () => {
+  const fixture = tempDir(), out = tempDir();
+  try {
+    const write = (path, body) => {
+      mkdirSync(dirname(join(fixture, path)), { recursive: true });
+      writeFileSync(join(fixture, path), body);
+    };
+    write('demo/app.js', "import /* comment */ './missing-comment.js';\n");
+    assert.throws(
+      () => stageSite(out, { root: fixture }),
+      /demo\/app\.js imports '\.\/missing-comment\.js', which does not exist/,
+      'comment-separated missing import must fail loudly',
+    );
   } finally {
     rmSync(fixture, { recursive: true, force: true });
     rmSync(out, { recursive: true, force: true });
