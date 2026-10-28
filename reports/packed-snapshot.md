@@ -55,3 +55,8 @@ Coordinate variance misses correlated anisotropy. A high value invites a compari
 `fitWhitening` performs full-covariance Cholesky whitening with a positive ridge (default 1e-6 times mean variance). It does **not** merely standardize dimensions or remove top PCs. The fit exposes `transform` and `inverse`; neither mutates inputs. Fitting costs O(n d² + d³), with O(d²) extra memory, and should run in a worker for large corpora. Rank-deficient matrices are regularized; constant or numerically invalid inputs refuse. Keep the fit alive and reuse it; serialization of fitted transforms is not part of this change.
 
 Whitening is off by default. It is an experiment for crowded embeddings, not a general improvement. The referenced research reports a 0.014 cosine-correlation drop when projecting out top directions in well-spread encoders; **that intervention is not identical to this whitening transform**, and its pairwise-correlation evidence is not retrieval recall evidence. Developers must compare their own held-out retrieval results. Original vectors and original default behavior remain available at all times.
+
+## Evidence isolation and out-of-scope residual
+
+Stress measurements (`tests/packed-snapshot-stress.mjs`) route their artifacts (`packed-snapshot-stress.json` and screenshot) through `tools/report-target.mjs` (`runDir`), landing in an explicit or unique isolated directory and leaving repository tracked reports untouched. Confining arbitrary filesystem writes across the entire host (e.g. hard-coded `/tmp` paths written via unintercepted primitives) is out of scope for in-process unit harnesses without OS-level container isolation.
+
