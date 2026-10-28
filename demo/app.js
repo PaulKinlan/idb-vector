@@ -2,6 +2,7 @@ import { VectorDB } from '../index.js';
 import { browserLabel } from './ua.js';
 import { loadManifest, verifyBytes } from './integrity.js';
 import { validateStoredMeta, validateStoredRecord } from './record-validation.js';
+import { corpusFiles, nearestCorpusSize } from './corpus-size.js';
 import { resultsView } from './results.js';
 const $ = id => document.getElementById(id);
 const dbName = 'idb-vector-wikipedia-minilm-v1';
@@ -66,8 +67,15 @@ if (db) {
     if (meta) {
       if (valid && vectors === meta.count) {
         count = meta.count;
-        $('size').value = String(meta.count);
-        $('storage').textContent = `${count.toLocaleString()} passages already stored on this device. Press Load to restore the language model in this page.`;
+        // An earlier visit may have loaded a corpus size this page no longer offers. Writing that
+        // count into #size would match no option, leave the control unselected, and make Load read
+        // Number('') = 0 and request passages-0.json (idb-vector-z7q7), so the select always gets an
+        // option the markup offers and the message says which corpus Load will download.
+        const size = nearestCorpusSize(count, [...$('size').options].map(option => option.value));
+        $('size').value = String(size);
+        $('storage').textContent = size === count
+          ? `${count.toLocaleString()} passages already stored on this device. Press Load to restore the language model in this page.`
+          : `${count.toLocaleString()} passages are stored on this device, but not at a corpus size this page offers. Press Load to download ${size.toLocaleString()} passages and replace them.`;
         loadTiming(meta);
       } else {
         const countDisplay = Number.isSafeInteger(meta?.count) && meta.count >= 0 ? `${meta.count.toLocaleString()} vectors` : 'the expected count';
@@ -92,10 +100,13 @@ $('load').addEventListener('click', async () => {
   if (busy || !db) return;
   controls(true);
   $('results').replaceChildren();
-  const started = performance.now(), selected = Number($('size').value);
+  const started = performance.now();
   $('progress').removeAttribute('value');
   $('status').textContent = 'Downloading language runtime (about 11 MB on first load)…';
   try {
+    // Throws rather than build ./data/passages-0.json from an unselected #size; the catch below
+    // reports it as a failed load and the button comes back.
+    const { count: selected, passages: passageFile, vectors: vectorFile } = corpusFiles($('size').value);
     if (!encoder) {
       const { createEncoder } = await import('./encoder.js');
       encoder = await createEncoder(info => {
@@ -116,12 +127,12 @@ $('load').addEventListener('click', async () => {
       $('progress').removeAttribute('value');
       // Corpus bytes are checked against the pinned manifest before use.
       const manifest = await loadManifest();
-      const responses = await Promise.all([fetch(`./data/passages-${selected}.json`), fetch(`./data/vectors-${selected}.f32`)]);
+      const responses = await Promise.all([fetch(passageFile.url), fetch(vectorFile.url)]);
       if (responses.some(r => !r.ok)) throw new Error('Corpus download failed. Connect to the network and retry.');
       const passageBytes = new Uint8Array(await responses[0].arrayBuffer());
       const vectorBytes = new Uint8Array(await responses[1].arrayBuffer());
-      await verifyBytes(manifest, `data/passages-${selected}.json`, passageBytes, 'the passage corpus');
-      await verifyBytes(manifest, `data/vectors-${selected}.f32`, vectorBytes, 'the corpus vectors');
+      await verifyBytes(manifest, passageFile.path, passageBytes, 'the passage corpus');
+      await verifyBytes(manifest, vectorFile.path, vectorBytes, 'the corpus vectors');
       const passages = JSON.parse(new TextDecoder().decode(passageBytes));
       if (passages.length !== selected || vectorBytes.byteLength !== selected * 384 * 4) throw new Error('Corpus size mismatch');
       const vectors = new Float32Array(vectorBytes.buffer);
