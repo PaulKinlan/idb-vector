@@ -72,7 +72,7 @@ try {
     .catch(async error => {
       // waitFor reports the predicate's last value (false), not the page's: name the status that stalled.
       const status = await page.evaluate(() => document.querySelector('#status')?.textContent ?? '').catch(() => 'unavailable');
-      throw new Error(`${error.message} after ${((Date.now() - loadStart) / 1000).toFixed(1)}s; #status was ${JSON.stringify(status)}`);
+      throw new Error(`${error.message} after ${Date.now() - loadStart}ms; #status was ${JSON.stringify(status)}`);
     });
   console.log(`Restored 250 passages in ${((Date.now() - loadStart) / 1000).toFixed(1)}s`);
   const result = await page.evaluate(async () => {
