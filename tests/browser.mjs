@@ -49,8 +49,11 @@ async function lastStatusText(page) {
  * distinguishable from a hang (status unchanged since the action).
  */
 async function timedOutAfter(page, error, { phase, elapsedMs, budgetMs, stalledHint }) {
+  // page.waitFor's own message already names the label it was given, so a phase the message names
+  // must not be prefixed again: the message keeps the wording it was reviewed with.
+  const named = error.message.includes(phase) ? '' : `${phase} `;
   return new Error(
-    `${error.message}\n  ${phase} after ${elapsedMs} ms of a ${budgetMs} ms budget; page #status: ${JSON.stringify(await lastStatusText(page))}` +
+    `${error.message}\n  ${named}after ${elapsedMs} ms of a ${budgetMs} ms budget; page #status: ${JSON.stringify(await lastStatusText(page))}` +
       `\n  (${stalledHint})`,
     { cause: error },
   );
