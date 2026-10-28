@@ -80,6 +80,10 @@ async function endProcessGroup(child, { graceMs = 1500, killGraceMs = 2000 } = {
   }
 }
 
+// Cold start on a contended 2-vCPU VM measured 53.7s (2026-10-28); 20000ms was failing the full gate
+// before test logic even started (idb-vector-kxz2). 120000ms leaves headroom while bounding real hangs.
+export const DEVTOOLS_ENDPOINT_TIMEOUT_MS = 120000;
+
 export async function launch({ width = 1000, height = 800, profile = null, fakeMedia = false, browserArgs = ["--disable-gpu"] } = {}) {
   const binary = BROWSERS.find((b) => existsSync(b));
   if (!binary) throw new Error("no Chromium/Chrome binary found; set IDB_VECTOR_CHROME");
@@ -109,8 +113,12 @@ export async function launch({ width = 1000, height = 800, profile = null, fakeM
     { stdio: ["ignore", "pipe", "pipe"], detached: true },
   );
 
+  const launchStart = Date.now();
   const wsUrl = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("chromium did not print a DevTools endpoint")), 20000);
+    const timer = setTimeout(
+      () => reject(new Error(`chromium did not print a DevTools endpoint after ${Date.now() - launchStart}ms`)),
+      DEVTOOLS_ENDPOINT_TIMEOUT_MS,
+    );
     let buffer = "";
     const scan = (chunk) => {
       buffer += String(chunk);
@@ -122,7 +130,7 @@ export async function launch({ width = 1000, height = 800, profile = null, fakeM
     };
     child.stderr.on("data", scan);
     child.stdout.on("data", scan);
-    child.on("exit", (code) => reject(new Error(`chromium exited early (${code})`)));
+    child.on("exit", (code) => reject(new Error(`chromium exited early (${code}) after ${Date.now() - launchStart}ms`)));
   });
 
   const socket = new WebSocket(wsUrl);
