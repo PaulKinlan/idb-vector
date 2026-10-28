@@ -3,6 +3,10 @@ import { writeFile } from 'node:fs/promises';
 import { launch } from './lib/cdp.mjs';
 import { serve } from '../tools/wiki-demo-server.mjs';
 import { runDir } from '../tools/report-target.mjs';
+// Same class of wait as tests/browser.mjs and tests/demo-restore-trust.mjs: a load phase downloads the
+// model and commits a corpus, and a loaded host stretches that well past 180s (233s measured for the
+// 250-passage load, idb-vector-k6wh). One gate-derived budget, not a per-site guess.
+const READY_WAIT_MS = 600000;
 const external = process.argv[2];
 const local = external ? null : await serve();
 const url = external || local.url;
@@ -27,7 +31,7 @@ try {
   assert.equal(await page.evaluate(() => performance.getEntriesByType('resource').some(r => /vendor|models|vectors-/.test(r.name))), false, 'No model, runtime or vector download before click');
   await page.screenshot(`${evidence}/before.png`);
   await page.click('#load');
-  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready:'), { timeout: 180000, label: 'explicit load' });
+  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready:'), { timeout: READY_WAIT_MS, label: 'explicit load' });
   assert.match(await text('storage'), /250 passages and vectors/);
   const first = await query('How do plants turn sunlight into food?');
   assert.ok(first.results.slice(0, 3).some(r => /Photosynthesis/i.test(r.title)), 'Meaningful unseen free-text query finds photosynthesis');
@@ -72,7 +76,7 @@ try {
   assert.deepEqual((await query('How do plants turn sunlight into food?')).results, first.results, 'Synchronous write failure rolls back clear and partial writes');
   report.synchronousWriteFailureRolledBack = true;
   await page.click('#load');
-  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready: 2,000'), { timeout: 180000 });
+  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready: 2,000'), { timeout: READY_WAIT_MS, label: '2,000-passage load after synchronous write failure' });
   report.measurements.push({ count: 2000, load: await text('load-timing'), online: await query('How do plants turn sunlight into food?') });
   await page.screenshot(`${evidence}/large.png`, { fullPage: true });
   await page.goto(url);
@@ -83,7 +87,7 @@ try {
   assert.match(await text('storage'), /2,000 passages already stored/);
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true, 'Reload requires explicit model restoration');
   await page.click('#load');
-  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready: restored'), { timeout: 180000 });
+  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready: restored'), { timeout: READY_WAIT_MS, label: 'restore of stored 2,000-passage corpus' });
   report.restore = await text('load-timing');
   await query('What makes the ground shake during an earthquake?');
   for (const width of [390, 844]) {
