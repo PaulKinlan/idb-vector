@@ -1,23 +1,51 @@
-// tests/unit/browser.test.mjs — regression protection for idb-vector-6b1 and idb-vector-yhy.
+// tests/unit/browser.test.mjs — regression protection for idb-vector-6b1, idb-vector-yhy, idb-vector-q8s9 and idb-vector-t2vo.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-test('tests/browser.mjs dataset seeding wait budget is bounded near the full gate with clear attribution (idb-vector-6b1)', async () => {
-  const browserSrc = await readFile(new URL('../../tests/browser.mjs', import.meta.url), 'utf8');
+// The dataset wait has to survive a host shared with several agent turns and a browser: seeding
+// measured 17.9s at load 5.7 and 34.1s on the merge-base, and a real FULL gate blew through 300s at
+// load >16. Anything below this floor is a budget that assumes a fair CPU share.
+const MIN_DATASET_SEED_TIMEOUT_MS = 600000;
 
-  // Must not contain the old hard-coded 120s wait:
-  assert.doesNotMatch(
+// The search phase runs on that same host right after seeding: the FULL gate failed this wait at 30s
+// on a correct tree. One eighth of the 2400s full-gate allowance is the floor for a single phase.
+const MIN_SEARCH_COMPLETE_TIMEOUT_MS = 300000;
+
+function readBrowserSource() {
+  return readFile(new URL('../../tests/browser.mjs', import.meta.url), 'utf8');
+}
+
+/**
+ * The budget a wait passes as `timeout:`: a literal at the call site, or a named constant declared
+ * nearby as a numeric literal. Returns the number of milliseconds.
+ */
+function resolveBudget(browserSrc, token) {
+  const literal = Number(token.replaceAll('_', ''));
+  if (!Number.isNaN(literal)) return literal;
+  const declaration = new RegExp(`const\\s+${token}\\s*=\\s*(\\d[\\d_]*)`).exec(browserSrc);
+  assert.ok(declaration, `timeout budget constant ${token} must be declared as a numeric literal`);
+  return Number(declaration[1].replaceAll('_', ''));
+}
+
+test('tests/browser.mjs dataset seeding wait budget is bounded near the full gate with clear attribution (idb-vector-6b1)', async () => {
+  const browserSrc = await readBrowserSource();
+
+  // The dataset creation wait, with its label, and the budget expression it uses:
+  const call = /page\.waitFor\([\s\S]*?Dataset failed[\s\S]*?Ready:[\s\S]*?timeout:\s*([A-Za-z_$][\w$]*|\d[\d_]*)[\s\S]*?label:\s*['"]dataset creation \(#generate seeding\)['"]/.exec(
     browserSrc,
-    /timeout:\s*120000/,
-    'must not use the 120s dataset wait budget that flakes under high host load',
+  );
+  assert.ok(
+    call,
+    'must provide a wait with a budget and the label "dataset creation (#generate seeding)"',
   );
 
-  // Must have at least a 300s (300000ms) wait tied specifically to the dataset creation call site:
-  assert.match(
-    browserSrc,
-    /page\.waitFor\([\s\S]*?Dataset failed[\s\S]*?Ready:[\s\S]*?timeout:\s*(?:300000|[3-9]\d{5,})[\s\S]*?label:\s*['"]dataset creation \(#generate seeding\)['"]/,
-    'must provide at least 300s budget specifically for dataset creation (#generate seeding)',
+  // The budget may be a literal here or a named constant nearby; either way it must resolve to a
+  // number, and that number must not shrink back under the floor.
+  const budget = resolveBudget(browserSrc, call[1]);
+  assert.ok(
+    budget >= MIN_DATASET_SEED_TIMEOUT_MS,
+    `dataset creation (#generate seeding) budget must be at least ${MIN_DATASET_SEED_TIMEOUT_MS}ms, got ${budget}ms`,
   );
 
   // Must include descriptive label naming dataset creation:
@@ -25,6 +53,14 @@ test('tests/browser.mjs dataset seeding wait budget is bounded near the full gat
     browserSrc,
     /label:\s*['"][^'"]*dataset creation[^'"]*['"]/,
     'must include label identifying dataset creation on timeout',
+  );
+
+  // A timeout must say whether the host was contended or the page hung: elapsed vs budget plus the
+  // page's last #status line.
+  assert.match(
+    browserSrc,
+    /ms budget; page #status:/,
+    'timed-out dataset creation must report elapsed ms, the budget and the last #status text',
   );
 
   // Must measure and print elapsed seeding time:
@@ -39,5 +75,102 @@ test('tests/browser.mjs dataset seeding wait budget is bounded near the full gat
     browserSrc,
     /Dataset failed:/,
     'must fail fast if page reports dataset generation failure',
+  );
+});
+
+test('tests/browser.mjs search-complete wait budget is derived from the full gate and each search phase is labelled (idb-vector-t2vo)', async () => {
+  const browserSrc = await readBrowserSource();
+
+  // The search wait resolves its budget at the call site, like the dataset wait does.
+  const predicate = browserSrc.indexOf("'Search complete'");
+  assert.ok(predicate !== -1, "must wait for the page's 'Search complete' status");
+  const budgetToken = /timeout:\s*([A-Za-z_$][\w$]*|\d[\d_]*)/.exec(browserSrc.slice(predicate));
+  assert.ok(budgetToken, 'the search-complete wait must pass an explicit budget, not the 15s default');
+  const budget = resolveBudget(browserSrc, budgetToken[1]);
+  assert.ok(
+    budget >= MIN_SEARCH_COMPLETE_TIMEOUT_MS,
+    `search-complete budget must be at least ${MIN_SEARCH_COMPLETE_TIMEOUT_MS}ms, got ${budget}ms`,
+  );
+
+  // Every search wait names its phase at the call site, so a timeout says which click stalled.
+  const phases = [...browserSrc.matchAll(/waitForSearchComplete\(\s*page\s*,\s*(['"])([^'"\n]+)\1\s*\)/g)]
+    .map(match => match[2]);
+  assert.ok(phases.length >= 3, `expected a labelled wait for each search phase, found ${phases.length}`);
+  assert.ok(
+    phases.some(phase => phase.startsWith('search complete after #search')),
+    `a search phase label must read "search complete after #search", got ${JSON.stringify(phases)}`,
+  );
+
+  // The search wait must carry that label itself: resolve the label in the options object at THIS
+  // call site. A `label:` anywhere later in the file must not satisfy it, because the phase each
+  // caller passes only reaches the timeout when this wait forwards it.
+  const optionsStart = browserSrc.indexOf('{', predicate);
+  const optionsEnd = browserSrc.indexOf('}', optionsStart);
+  assert.ok(
+    optionsStart !== -1 && optionsEnd > optionsStart,
+    'the search-complete wait must pass a timeout and label options object',
+  );
+  const searchWaitOptions = browserSrc.slice(optionsStart, optionsEnd + 1);
+  const labelEntry = /(?:^|[,{]\s*)label\s*(?::\s*(?<value>['"][^'"]*['"]|[A-Za-z_$][\w$]*))?\s*(?=[,}])/.exec(searchWaitOptions);
+  assert.ok(labelEntry, 'the search-complete wait must pass a label naming the phase it guards');
+  // `label: 'literal'` names the phase here; a forwarded label (`label` or `label: x`) only names it
+  // if the helper takes that as a parameter and its callers pass a search phase.
+  const labelValue = labelEntry.groups.value;
+  const literalLabel = labelValue?.startsWith("'") || labelValue?.startsWith('"') ? labelValue.slice(1, -1) : undefined;
+  if (literalLabel === undefined) {
+    const labelRef = labelValue ?? 'label';
+    const param = new RegExp(`function\\s+waitForSearchComplete\\s*\\([^)]*\\b${labelRef}\\b[^)]*\\)`);
+    assert.match(browserSrc, param, `the search wait's label ${labelRef} must be a waitForSearchComplete parameter`);
+  }
+  const searchLabels = literalLabel === undefined ? phases : [literalLabel];
+  assert.ok(
+    searchLabels.every(label => /search/i.test(label)),
+    `the search-complete wait's label must name the search phase, got ${JSON.stringify(searchLabels)}`,
+  );
+
+  // A timed-out search must report elapsed ms, the budget and the page's last #status text, reusing
+  // the same attribution as the dataset wait rather than a second variant of it.
+  assert.match(
+    browserSrc,
+    /ms budget; page #status:/,
+    'timed-out search must report elapsed ms, the budget and the last #status text',
+  );
+
+  // The driver reports the measured search duration so contention is visible in the log.
+  assert.match(browserSrc, /Search complete in \$\{/, 'must log the measured search duration');
+});
+
+/**
+ * The timeout-attribution helpers from tests/browser.mjs. The harness runs the page when imported,
+ * so the helpers are lifted out of the source instead; they are plain functions with no module-level
+ * state.
+ */
+function timeoutHelpers(browserSrc) {
+  const start = browserSrc.indexOf('async function lastStatusText(');
+  const end = browserSrc.indexOf('\n}\n', browserSrc.indexOf('async function timedOutAfter('));
+  assert.ok(start !== -1 && end > start, 'must keep the lastStatusText and timedOutAfter helpers');
+  return new Function(`${browserSrc.slice(start, end + 2)}\nreturn { timedOutAfter };`)();
+}
+
+// The dataset timeout message was reviewed and cleared on idb-vector-q8s9: the phase is named once,
+// by the wait's own message, and `after` follows on its own line.
+test('tests/browser.mjs dataset timeout message keeps the cleared q8s9 wording (idb-vector-t2vo)', async () => {
+  const browserSrc = await readBrowserSource();
+  const { timedOutAfter } = timeoutHelpers(browserSrc);
+  const timedOut = await timedOutAfter(
+    { evaluate: async () => 'creating dataset: 42%' },
+    new Error('timed out waiting for dataset creation (#generate seeding); last value false'),
+    {
+      phase: 'dataset creation (#generate seeding)',
+      elapsedMs: 600000,
+      budgetMs: 600000,
+      stalledHint: 'still creating => host contention; unchanged since the click => page hang',
+    },
+  );
+  assert.equal(
+    timedOut.message,
+    'timed out waiting for dataset creation (#generate seeding); last value false\n' +
+      '  after 600000 ms of a 600000 ms budget; page #status: "creating dataset: 42%"\n' +
+      '  (still creating => host contention; unchanged since the click => page hang)',
   );
 });
