@@ -8,6 +8,13 @@ import { runDir } from '../tools/report-target.mjs';
 // concurrent runs - idb-vector-8oy).
 const out = runDir(undefined, 'idb-demo-restore-');
 
+// Bound this wait from the gate's allowance, not from an idle-host measurement. #load downloads the
+// model and commits 250 passages; a standalone run under host load measured 233s, so the 180s bound
+// this file carried failed the full gate on a correct tree (idb-vector-k6wh). tests/browser.mjs uses
+// 300s for the same class of wait, but its corpus is smaller; 600s leaves headroom and is still a
+// quarter of the full gate's 2400s CHECK_TIMEOUT.
+const READY_WAIT_MS = 600000;
+
 const { server, url } = await serve();
 let page;
 try {
@@ -52,8 +59,22 @@ try {
   assert.match(storage, /incomplete or invalid \(0 of 250 vectors\)/);
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true);
   await page.screenshot(join(out.dir, 'incomplete-before.png'));
+  const loadStart = Date.now();
   await page.click('#load');
-  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Ready:') || document.querySelector('#status').textContent.startsWith('Load failed:'), { timeout: 180000 });
+  await page
+    .waitFor(
+      () => {
+        const text = document.querySelector('#status').textContent;
+        return text.startsWith('Ready:') || text.startsWith('Load failed:');
+      },
+      { timeout: READY_WAIT_MS, label: 'demo restore: waiting for Ready' },
+    )
+    .catch(async error => {
+      // waitFor reports the predicate's last value (false), not the page's: name the status that stalled.
+      const status = await page.evaluate(() => document.querySelector('#status')?.textContent ?? '').catch(() => 'unavailable');
+      throw new Error(`${error.message} after ${((Date.now() - loadStart) / 1000).toFixed(1)}s; #status was ${JSON.stringify(status)}`);
+    });
+  console.log(`Restored 250 passages in ${((Date.now() - loadStart) / 1000).toFixed(1)}s`);
   const result = await page.evaluate(async () => {
     const request = indexedDB.open('idb-vector-wikipedia-minilm-v1');
     const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
