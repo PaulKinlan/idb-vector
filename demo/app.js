@@ -1,6 +1,7 @@
 import { VectorDB } from '../index.js';
 import { browserLabel } from './ua.js';
 import { loadManifest, verifyBytes } from './integrity.js';
+import { validateStoredMeta, validateStoredRecord } from './record-validation.js';
 import { resultsView } from './results.js';
 const $ = id => document.getElementById(id);
 const dbName = 'idb-vector-wikipedia-minilm-v1';
@@ -33,23 +34,26 @@ function transactionDone(tx) {
   });
 }
 async function readStored() {
-  // Metadata and every vector are observed in one read transaction. Count alone
-  // cannot detect a same-size store containing a malformed record.
+  // Metadata and every record are observed in one read transaction. Count alone
+  // cannot detect a same-size store containing a malformed record, and a malformed
+  // record is not only a bad vector: every field the panel renders is checked by
+  // validateStoredRecord(), and the timings it draws by validateStoredMeta()
+  // (demo/record-validation.js, idb-vector-4skw).
   const tx = db.transaction(['meta', 'vectors']);
   const done = transactionDone(tx);
   const meta = tx.objectStore('meta').get('loaded');
   const cursor = tx.objectStore('vectors').openCursor();
-  let vectors = 0, valid = true;
+  let vectors = 0, problem = null;
   cursor.onsuccess = () => {
     const row = cursor.result;
     if (!row) return;
     vectors++;
-    const embedding = row.value?.embedding;
-    if (!Array.isArray(embedding) || embedding.length !== 384 || !Array.from(embedding).every(Number.isFinite)) valid = false;
+    problem ??= validateStoredRecord(row.value);
     row.continue();
   };
   await done;
-  return { meta: meta.result, vectors, valid };
+  if (problem === null && meta.result !== undefined) problem = validateStoredMeta(meta.result);
+  return { meta: meta.result, vectors, valid: problem === null, problem };
 }
 function condition() { return `${count.toLocaleString()} passages × 384 dimensions · quantized MiniLM · ${browserLabel()}`; }
 function loadTiming(meta) {
@@ -58,7 +62,7 @@ function loadTiming(meta) {
 if (db) {
   vectorDB = new VectorDB({ dbName, vectorPath: 'embedding' });
   try {
-    const { meta, vectors, valid } = await readStored();
+    const { meta, vectors, valid, problem } = await readStored();
     if (meta) {
       $('size').value = String(meta.count);
       if (valid && vectors === meta.count) {
@@ -66,7 +70,7 @@ if (db) {
         $('storage').textContent = `${count.toLocaleString()} passages already stored on this device. Press Load to restore the language model in this page.`;
         loadTiming(meta);
       } else {
-        $('storage').textContent = `Stored corpus is incomplete or invalid (${vectors.toLocaleString()} of ${meta.count.toLocaleString()} vectors). Press Load to download it again.`;
+        $('storage').textContent = `Stored corpus is incomplete or invalid (${vectors.toLocaleString()} of ${meta.count.toLocaleString()} vectors).${problem ? ` First problem: ${problem}.` : ''} Press Load to download it again.`;
       }
     }
   } catch (error) { $('status').textContent = `Cannot read saved data: ${error.message}. Remove local data and retry.`; }
