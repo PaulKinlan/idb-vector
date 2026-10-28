@@ -12,6 +12,30 @@ import { runDir } from '../tools/report-target.mjs';
 const out = runDir(undefined, 'idb-vector-browser-');
 console.log(`Evidence: ${out.dir}`);
 
+// Seeding gets no fair CPU share: several agent turns and a browser compete for the same cores, so
+// the wait has to cover contention, not just the work. Measured 17.9s at load 5.7 and 25-34s at
+// load 17; a FULL gate run at load >16 blew through 300s. 600s clears that noise and still bounds a
+// real hang.
+const DATASET_SEED_TIMEOUT_MS = 600000;
+
+/** The page's last #status line, bounded: a hung renderer must not turn a failure into a stall. */
+async function lastStatusText(page) {
+  let timer;
+  const unreadable = new Promise(resolve => {
+    timer = setTimeout(() => resolve('<unreadable: page unresponsive>'), 5000);
+  });
+  try {
+    return await Promise.race([
+      page.evaluate(() => document.querySelector('#status')?.textContent ?? ''),
+      unreadable,
+    ]);
+  } catch (error) {
+    return `<unreadable: ${error.message}>`;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const { server, url } = await serve();
 let page;
 try {
@@ -20,14 +44,24 @@ try {
   await page.screenshot(join(out.dir, 'before.png'));
   const generateStart = Date.now();
   await page.click('#generate');
-  await page.waitFor(
-    () => {
-      const text = document.querySelector('#status')?.textContent ?? '';
-      if (text.startsWith('Dataset failed:')) throw new Error(text);
-      return text.startsWith('Ready:');
-    },
-    { timeout: 300000, label: 'dataset creation (#generate seeding)' }
-  );
+  try {
+    await page.waitFor(
+      () => {
+        const text = document.querySelector('#status')?.textContent ?? '';
+        if (text.startsWith('Dataset failed:')) throw new Error(text);
+        return text.startsWith('Ready:');
+      },
+      { timeout: DATASET_SEED_TIMEOUT_MS, label: 'dataset creation (#generate seeding)' }
+    );
+  } catch (error) {
+    // A bare "timed out" hides which failure this was: status still creating means the host was
+    // contended, status stalled or empty means the page hung.
+    throw new Error(
+      `${error.message}\n  after ${Date.now() - generateStart} ms of a ${DATASET_SEED_TIMEOUT_MS} ms budget; page #status: ${JSON.stringify(await lastStatusText(page))}` +
+        '\n  (still creating => host contention; unchanged since the click => page hang)',
+      { cause: error },
+    );
+  }
   console.log(`Dataset seeded in ${((Date.now() - generateStart) / 1000).toFixed(1)}s`);
   await page.click('#run');
   await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Search complete'), { timeout: 30000 });
