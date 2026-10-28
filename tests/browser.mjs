@@ -18,6 +18,13 @@ console.log(`Evidence: ${out.dir}`);
 // real hang.
 const DATASET_SEED_TIMEOUT_MS = 600000;
 
+// The search phase runs on the same contended host as seeding, immediately after it: the FULL gate
+// failed this wait at 30s on a correct tree at load >16, and the driver run that measured 108.1s of
+// seeding at load 14.79 spent 206s end to end, so 30s was measuring the CPU share, not the work.
+// The full gate allows 2400s (tests/packed-snapshot.mjs); 300s is one eighth of that for a single
+// phase - well above the observed worst case, and still tight enough to bound a real hang.
+const SEARCH_COMPLETE_TIMEOUT_MS = 300000;
+
 /** The page's last #status line, bounded: a hung renderer must not turn a failure into a stall. */
 async function lastStatusText(page) {
   let timer;
@@ -34,6 +41,41 @@ async function lastStatusText(page) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Turn a wait that ran out of budget into a report of which phase stalled and why: elapsed ms
+ * against the budget plus the page's last #status line, so contention (status still mid-work) is
+ * distinguishable from a hang (status unchanged since the action).
+ */
+async function timedOutAfter(page, error, { phase, elapsedMs, budgetMs, stalledHint }) {
+  return new Error(
+    `${error.message}\n  ${phase} after ${elapsedMs} ms of a ${budgetMs} ms budget; page #status: ${JSON.stringify(await lastStatusText(page))}` +
+      `\n  (${stalledHint})`,
+    { cause: error },
+  );
+}
+
+/**
+ * Wait for a search triggered from #search to report completion. The label names the phase, so a
+ * timeout says which click stalled; the elapsed time is returned for the driver's log.
+ */
+async function waitForSearchComplete(page, label) {
+  const start = Date.now();
+  try {
+    await page.waitFor(
+      () => (document.querySelector('#status')?.textContent ?? '').startsWith('Search complete'),
+      { timeout: SEARCH_COMPLETE_TIMEOUT_MS, label },
+    );
+  } catch (error) {
+    throw await timedOutAfter(page, error, {
+      phase: label,
+      elapsedMs: Date.now() - start,
+      budgetMs: SEARCH_COMPLETE_TIMEOUT_MS,
+      stalledHint: 'still searching => host contention; #status unchanged since the click => page hang',
+    });
+  }
+  return Date.now() - start;
 }
 
 const { server, url } = await serve();
@@ -56,20 +98,22 @@ try {
   } catch (error) {
     // A bare "timed out" hides which failure this was: status still creating means the host was
     // contended, status stalled or empty means the page hung.
-    throw new Error(
-      `${error.message}\n  after ${Date.now() - generateStart} ms of a ${DATASET_SEED_TIMEOUT_MS} ms budget; page #status: ${JSON.stringify(await lastStatusText(page))}` +
-        '\n  (still creating => host contention; unchanged since the click => page hang)',
-      { cause: error },
-    );
+    throw await timedOutAfter(page, error, {
+      phase: 'dataset creation (#generate seeding)',
+      elapsedMs: Date.now() - generateStart,
+      budgetMs: DATASET_SEED_TIMEOUT_MS,
+      stalledHint: 'still creating => host contention; unchanged since the click => page hang',
+    });
   }
   console.log(`Dataset seeded in ${((Date.now() - generateStart) / 1000).toFixed(1)}s`);
   await page.click('#run');
-  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Search complete'), { timeout: 30000 });
+  const firstSearchMs = await waitForSearchComplete(page, 'search complete after #search (ID42 query)');
+  console.log(`Search complete in ${firstSearchMs} ms (ID42 query)`);
   assert.equal(await page.evaluate(() => document.querySelector('#results tr td').textContent), '42');
   assert.equal(await page.evaluate(() => document.querySelectorAll('#results tr').length), 10);
   await page.type('#query', '7');
   await page.click('#run');
-  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Search complete'));
+  await waitForSearchComplete(page, 'search complete after #search (changed query 7)');
   assert.equal(await page.evaluate(() => document.querySelector('#results tr td').textContent), '7');
   await page.click('#category');
   await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
@@ -78,7 +122,7 @@ try {
   await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   assert.equal(await page.evaluate(() => document.querySelector('#category').value), '7');
   await page.click('#run');
-  await page.waitFor(() => document.querySelector('#status').textContent.startsWith('Search complete'));
+  await waitForSearchComplete(page, 'search complete after #search (category 7)');
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('#results tr')].every(row => row.children[1].textContent === '7')), true);
   await page.screenshot(join(out.dir, 'after.png'), { fullPage: true });
   for (const width of [360, 390, 430]) {
