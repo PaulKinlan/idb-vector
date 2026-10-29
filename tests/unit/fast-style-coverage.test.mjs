@@ -11,35 +11,92 @@ const pkg = JSON.parse(readFileSync(resolve('package.json'), 'utf8'));
 const run = (cwd, cmd, args) => execFileSync(cmd, args, { cwd, encoding: 'utf8' }).trim();
 const tier = (name) => run(process.cwd(), 'bash', ['tools/unit-tier-suites.sh', name]).split('\n');
 
-// The shape rule fails here or it is only prose: one fast suite that spawns a child process, binds a
-// socket or clones/stages the repo is enough to make the tier's wall time track host load (55 s to
-// 273 s on one commit, idb-vector-t7u). Each entry is [label, pattern, the cost it buys], and every
-// pattern is a specific identifier or call shape so prose about servers or clones cannot trip it.
-const SHAPE_BREACHES = [
-  ['child_process', /\bnode:child_process\b/, 'spawns a child process'],
-  ['execSync', /\bexecSync\b/, 'spawns a child process'],
-  ['execFileSync', /\bexecFileSync\b/, 'spawns a child process'],
-  ['spawn(', /\bspawn(Sync)?\s*\(/, 'spawns a child process'],
-  ['.listen(', /\.listen\s*\(/, 'binds a socket'],
-  ['createServer', /\bcreateServer\s*\(/, 'binds a socket'],
-  ['git clone', /\bgit clone\b|['"]git['"]\s*,\s*\[\s*['"]clone['"]/, 'clones the repo'],
-  ['mkdtemp', /\bmkdtemp(Sync)?\s*\(/, 'stages a scratch tree'],
+// A fast suite's cost is decided by what it can REACH, so the rule is an allowlist of module
+// specifiers, not a scan for prohibited calls. Rounds 1-2 of idb-vector-t7u tried the scan and a
+// hand-rolled comment/string lexer lost both times: round 1 blanked everything after `//` inside a
+// string (`const s = "comment//here"`), round 2 kept the string but still blanks a regex literal
+// that holds a slash pair, so `assert.match(x, /[//]/); execSync('true')` loses the call entirely.
+// Any mis-parse of a scanned file can HIDE a call. Read the other way round, a mis-parse of an
+// allowlisted import can only invent a specifier that looks like one - a visible false positive,
+// fixed in one line.
+const ALLOWED_SPECIFIERS = [
+  // Node internals whose cost does not track host load: assertions, the runner, paths/URLs, and
+  // file reads. `node:fs` belongs here because the tier already reads its fixtures synchronously;
+  // a scratch tree is still caught by COSTLY_CALL_SHAPES below.
+  'node:assert',
+  'node:assert/strict',
+  'node:test',
+  'node:path',
+  'node:url',
+  'node:os',
+  'node:crypto',
+  'node:fs',
+  'node:fs/promises',
 ];
+
+// Named, not merely absent from the allowlist, so the failure says what cost the module buys.
+const FORBIDDEN_SPECIFIERS = {
+  'node:child_process': 'spawns a child process',
+  'node:net': 'binds a socket',
+  'node:http': 'binds a socket',
+  'node:https': 'binds a socket',
+  'node:worker_threads': "runs work outside the tier's own budget",
+};
 
 // The sweep cannot read itself: it names every construct below by design. It is the tier's
 // documented known exception (docs/speed.md) - it spawns `git` in a throwaway repo, measured ~2.5 s.
 const SELF = 'tests/unit/fast-style-coverage.test.mjs';
 
-// The one other fast suite that carries a construct, listed per (suite, construct) so the rest of
-// that suite stays enforced: adding a socket bind or a child process to it still fails. A new entry
-// here is a reviewed diff rather than a quiet widening of the tier.
+// Deliberately narrow parsing: top-level `import`/`export ... from`, side-effect `import 'x'`, and
+// dynamic `import('x')`. Nothing is comment- or string-stripped here on purpose (see above); the two
+// static shapes are anchored at line start, so a `from '...'` inside a longer statement (an assert
+// message quoting an import) is not a specifier.
+const SPECIFIER_PATTERNS = [
+  /^[ \t]*(?:import|export)\b[^;]*?\bfrom[ \t]*['"]([^'"\n]+)['"]/gm,
+  /^[ \t]*import[ \t]*['"]([^'"\n]+)['"]/gm,
+  /\bimport[ \t]*\([ \t]*['"]([^'"\n]+)['"]/g,
+];
+
+// `import(expr)` names no specifier, so it cannot be allow-listed: it fails rather than passing
+// unexamined. That is the one place this parser refuses to guess.
+const OPAQUE_IMPORT = /\bimport[ \t]*\((?![ \t]*['"])/g;
+
+function moduleSpecifiers(source) {
+  const found = [];
+  for (const pattern of SPECIFIER_PATTERNS) {
+    for (const match of source.matchAll(pattern)) found.push(match[1]);
+  }
+  return found;
+}
+
+// Blunt and impossible to fool by lexing: these substrings may appear NOWHERE in a fast suite,
+// comments included. That trades a rare false positive - prose naming one of these builtins has to
+// be written differently, or the suite moved to `middle` - for a guarantee: no string or regex can
+// hide a child-process or socket module the way a slash pair inside a regex hid a call.
+const FORBIDDEN_TEXT = ['node:child_process', 'node:net', 'node:http'];
+
+// BEST-EFFORT, and only for what the allowlist cannot decide: a socket bind is reachable through an
+// allowed repo module, and a scratch tree through the allowlisted `node:fs`. These run on
+// comment-stripped code so prose cannot trip them - which also means a lexer bug can hide a call.
+// The ALLOWLIST above is the guarantee; this list is not, and must not be read as if it were.
+const COSTLY_CALL_SHAPES = [
+  ['.listen(', /\.listen\s*\(/, 'binds a socket'],
+  ['createServer', /\bcreateServer\s*\(/, 'binds a socket'],
+  ['mkdtemp', /\bmkdtemp(Sync)?\s*\(/, 'stages a scratch tree'],
+];
+
+// The one other fast suite that carries a call shape, listed per (suite, construct) so the rest of
+// that suite stays enforced: adding a socket bind to it still fails. A new entry here is a reviewed
+// diff rather than a quiet widening of the tier. This suite's own imports (node:assert/strict,
+// node:test, node:fs/promises, node:os, node:path, ../../tools/wiki-demo-server.mjs) are all
+// allow-listed - `mkdtemp` is legal to IMPORT; the exemption is for calling it.
 const SHAPE_EXEMPTIONS = [
   ['tests/unit/wiki-demo-server-confinement.test.mjs', 'mkdtemp', 'a scratch root for the symlink fixture; it spawns nothing and binds nothing'],
 ];
 
-// Comment text is not executable, so a comment naming a construct ("refused, no .listen() here")
-// must not fail the sweep; string literals stay in, because a construct quoted in a string is still
-// a construct waiting to be used. Tracking string state also keeps a URL out of the comment path.
+// Comment text is not executable, so a comment naming a call shape ("refused, no .listen() here")
+// must not trip the best-effort check; string literals stay in. This is the lexer that failed in
+// round 2, kept only where its cost is bounded and stated.
 function codeOnly(source) {
   const out = [];
   let quote = null;
@@ -95,23 +152,55 @@ test('the two unit tiers partition every unit suite, with a worker bound the 2-V
   }
 });
 
-test('every fast-tier suite obeys the shape rule: no child process, no socket bind, no repo clone', () => {
+test('every fast-tier suite imports only allow-listed modules', () => {
   const fast = tier('fast');
   assert.ok(fast.includes(SELF), 'the sweep excludes itself, so it must still be a fast suite');
+  const breaches = [];
+  for (const suite of fast) {
+    if (suite === SELF) continue;
+    const source = readFileSync(suite, 'utf8');
+    for (const specifier of moduleSpecifiers(source)) {
+      const cost = FORBIDDEN_SPECIFIERS[specifier];
+      if (cost) breaches.push(`${suite}: ${specifier} (${cost})`);
+      else if (ALLOWED_SPECIFIERS.includes(specifier) || /^\.\.?\//.test(specifier)) continue;
+      else breaches.push(`${suite}: ${specifier} (not on the fast tier's module allowlist)`);
+    }
+    if ([...source.matchAll(OPAQUE_IMPORT)].length) breaches.push(`${suite}: import(...) with a non-literal specifier (it can name any module, so it cannot be allow-listed)`);
+  }
+  assert.deepEqual(breaches, [], "the fast tier imports only node internals whose cost does not track host load, plus repo-relative modules; allow a new module in ALLOWED_SPECIFIERS in a reviewed diff, or move the suite to `middle` in tools/unit-tier-suites.sh");
+});
+
+test('no fast-tier suite names a child-process or socket builtin anywhere, comments included', () => {
+  const fast = tier('fast');
+  const hits = [];
+  for (const suite of fast) {
+    if (suite === SELF) continue;
+    const source = readFileSync(suite, 'utf8');
+    for (const text of FORBIDDEN_TEXT) {
+      if (source.includes(text)) hits.push(`${suite}: mentions ${text}`);
+    }
+  }
+  // Prose counts: a note saying "use node:child_process here" is a reviewed diff to write another
+  // way, not a comment the sweep is allowed to reason about and dismiss.
+  assert.deepEqual(hits, [], 'a fast suite may not mention node:child_process, node:net or node:http, even in a comment: rephrase it, or move the suite to `middle` in tools/unit-tier-suites.sh');
+});
+
+test('every fast-tier suite stays clear of socket binds and scratch trees (best effort)', () => {
+  const fast = tier('fast');
   const exempt = new Set(SHAPE_EXEMPTIONS.map(([suite, construct]) => `${suite} ${construct}`));
   const breaches = [];
   for (const suite of fast) {
     if (suite === SELF) continue;
     const code = codeOnly(readFileSync(suite, 'utf8'));
-    for (const [construct, pattern, cost] of SHAPE_BREACHES) {
+    for (const [construct, pattern, cost] of COSTLY_CALL_SHAPES) {
       if (pattern.test(code) && !exempt.has(`${suite} ${construct}`)) breaches.push(`${suite}: ${construct} (${cost})`);
     }
   }
-  assert.deepEqual(breaches, [], 'the fast tier holds no spawn, socket bind or repo clone/staging; move the suite to `middle` in tools/unit-tier-suites.sh');
+  assert.deepEqual(breaches, [], 'the fast tier holds no socket bind or scratch-tree staging; move the suite to `middle` in tools/unit-tier-suites.sh');
   // A stale exemption would quietly widen the tier, so each one must still be paying for itself.
   for (const [suite, construct, why] of SHAPE_EXEMPTIONS) {
-    assert.ok(fast.includes(suite), `${suite} is exempt from the shape rule but is not in the fast tier`);
-    const [, pattern] = SHAPE_BREACHES.find(([name]) => name === construct);
+    assert.ok(fast.includes(suite), `${suite} is exempt from the call-shape check but is not in the fast tier`);
+    const [, pattern] = COSTLY_CALL_SHAPES.find(([name]) => name === construct);
     assert.match(codeOnly(readFileSync(suite, 'utf8')), pattern, `stale exemption: ${suite} no longer references ${construct} (${why})`);
   }
 });
