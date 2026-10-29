@@ -37,10 +37,14 @@ test('the two unit tiers partition every unit suite, with a worker bound the 2-V
 });
 
 test('the merger full gate runs the middle tier, because `npm test` does not glob tests/unit', () => {
-  // CHECK_CMD is `npm test && npm run test:packed && npm run test:wikipedia`, and `npm test` runs
-  // tests/*.mjs only. Naming the middle tier there is the whole reason coverage is unchanged.
+  // CHECK_CMD, which lives outside this repo (~/.fleet/idb-vector-check.conf), is
+  // `npm test && npm run test:packed && npm run test:wikipedia && npm run gate:research`, and
+  // `npm test` runs tests/*.mjs only. Naming the middle tier there is the whole reason coverage is
+  // unchanged; the research leg is the one the merger names from the conf, so the repo's half of it
+  // has to keep existing as a bounded script (pinned by value in research-driver-contract.test.mjs).
   assert.match(pkg.scripts.test, /npm run test:middle$/, 'npm test must end with the middle tier');
   assert.doesNotMatch(pkg.scripts.test, /test:fast/, 'the merged gate must not re-pay the per-lane tier');
+  assert.ok(pkg.scripts['gate:research'], 'the merged gate appends `npm run gate:research`, so the script must stay named');
 });
 
 test('the fast gate names the middle suites it did not run', () => {
