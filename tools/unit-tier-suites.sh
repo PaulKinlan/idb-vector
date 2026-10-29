@@ -20,6 +20,7 @@ middle=(
   tests/unit/site-staging.test.mjs             # execFileSync: tools/stage-site.mjs
   tests/unit/demo-server-routing.test.mjs      # binds loopback and fetches from it
   tests/unit/demo-server.test.mjs              # binds loopback, raw sockets
+  tests/unit/start-command.test.mjs            # http.createServer + loopback fetch: binds a socket
   tests/unit/real-vector-pins.test.mjs         # reads pinned corpora and reports from disk
   tests/unit/integrity.test.mjs                # reads the shipped demo manifest and assets
   tests/unit/packed-snapshot-validation.test.mjs  # full snapshot build per case

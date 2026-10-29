@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "node tests/browser.mjs && node tests/validation.mjs && node tests/candidates.mjs && node tests/eligibility.mjs && node tests/snapshot-isolation.mjs && node tests/side-store.mjs && node tests/cdp-orphans.mjs && npm run test:demo-restore && npm run test:middle",
-    "test:fast": "node --test --test-concurrency=2 $(bash tools/unit-tier-suites.sh fast)",
+    "test:fast": "NODE_OPTIONS=\"$NODE_OPTIONS --import=./tests/support/fast-tier-guard.mjs\" node --test --test-concurrency=2 $(bash tools/unit-tier-suites.sh fast)",
     "test:middle": "node --test --test-concurrency=2 $(bash tools/unit-tier-suites.sh middle)",
     "start": "node tools/wiki-demo-server.mjs",
     "demo": "node tools/demo-server.mjs",

@@ -5,13 +5,14 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-// This file pins the unit tier PARTITION and the gate wiring around it - both exact and cheap. It
-// does NOT enforce the fast tier's shape rule (no spawn, no socket, no clone/stage): that rule is
-// documented policy in docs/speed.md, and runtime enforcement lives in bead idb-vector-kljx. Four
-// rounds of static source analysis on idb-vector-t7u were each evaded by valid JavaScript (a string
-// holding "comment//here" hid a call from a lexer; a same-line `import` and a computed `import(expr)`
-// slipped past a module allowlist), and there is no parser to depend on here, so no static shape
-// check lives in this file.
+// This file pins the unit tier PARTITION and the gate wiring around it - both exact and cheap. The fast
+// tier's shape rule (no spawn, no socket, no clone/stage) is enforced at runtime by
+// tests/support/fast-tier-guard.mjs (bead idb-vector-kljx), which `npm run test:fast` preloads; this
+// file is its one documented opt-out, because the coverage-reporter check below runs `git` in a
+// throwaway repo. Four rounds of static source analysis on idb-vector-t7u were each evaded by valid
+// JavaScript (a string holding "comment//here" hid a call from a lexer; a same-line `import` and a
+// computed `import(expr)` slipped past a module allowlist), and there is no parser to depend on here,
+// so no static shape check lives in this file.
 const reporter = resolve('tools/report-fast-style-coverage.sh');
 const gate = readFileSync(resolve('tools/fast-gate.sh'), 'utf8');
 const pkg = JSON.parse(readFileSync(resolve('package.json'), 'utf8'));

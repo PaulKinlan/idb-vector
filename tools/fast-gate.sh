@@ -13,6 +13,9 @@ mapfile -t middle_suites < <(bash tools/unit-tier-suites.sh middle)
 printf 'fast-gate: running:'
 printf ' %s' "${fast_suites[@]}"
 printf '\n'
+# `npm run test:fast` is the only runner for this tier and it preloads tests/support/fast-tier-guard.mjs
+# (NODE_OPTIONS=--import), which makes a suite that spawns a process or binds a socket fail in its own
+# test instead of quietly stretching the budget. Do not dispatch these suites another way here.
 # Never let the excluded suites look covered: the lane runs them before hand-off and the
 # merger's full gate runs them on the merged tree.
 printf 'fast-gate: not run here (npm run test:middle before hand-off):'
