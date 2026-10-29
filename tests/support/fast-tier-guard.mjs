@@ -9,6 +9,20 @@
 // Loaded only by the fast tier - `npm run test:fast` (dispatched by tools/fast-gate.sh) sets
 // `NODE_OPTIONS=--import ./tests/support/fast-tier-guard.mjs`. The middle tier and the merged gate
 // must NOT load it: their suites spawn processes and bind loopback sockets on purpose.
+//
+// WHAT IT COVERS: exactly the entry points in fastTierBlockedConstructs below -
+// child_process.{execSync,execFileSync,spawn,spawnSync,exec,execFile,fork}, net.createServer,
+// net.Server.prototype.listen, http.createServer, https.createServer - reached by property access, by
+// named or default ESM import, or through a dynamic `await import()`, since all three read the same
+// patched module objects after syncBuiltinESMExports(); plus the three raw binding names in
+// fastTierBlockedBindings below.
+//
+// WHAT IS OUT OF SCOPE BY DESIGN: process.binding of any other native binding, process.mainModule,
+// native addons, and a second Node process. This is a guardrail against accidental shape drift - the
+// next author who reaches for execSync is told their suite belongs in the middle tier - not a sandbox.
+// Defeating it deliberately through Node's native internals would need OS-level confinement
+// (namespaces, no-net), which this fleet does not have; the same boundary is recorded for
+// idb-vector-bmq.
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +41,13 @@ export const fastTierBlockedConstructs = [
   'http.createServer',
   'https.createServer',
 ];
+
+// The raw handles behind the blocked constructors: process.binding('spawn_sync').spawn() executes and
+// process.binding('tcp_wrap').TCP.bind() binds without touching a patched entry point, so the three
+// bindings a fast suite would reach for are refused as well. Node's own internals use internalBinding,
+// not process.binding, so this removes only the user-level shortcut. Every other binding, and every
+// other route to these internals, is out of scope - see the boundary in the header comment.
+export const fastTierBlockedBindings = ['spawn_sync', 'tcp_wrap', 'pipe_wrap'];
 
 // Suites that may use a blocked construct, keyed by path relative to the repo root. Every entry is a
 // hole in the shape rule, so the list is deliberately tiny and each one carries its reason.
@@ -54,18 +75,29 @@ if (!isTestRunnerParent) {
 
   // The refusal a fast suite sees: the construct, the suite, and the two ways out - move it to the
   // middle tier, or record an opt-out - so the next reader does not rediscover the rule.
+  const refusal = (construct) =>
+    new Error(
+      `fast-tier-guard: ${construct} is not allowed in the fast tier (suite: ${suite || 'unknown'}).\n` +
+        'The fast tier contains only suites that never spawn a child process and never bind a socket: ' +
+        'those costs track host load and blow the 120 s per-lane budget (docs/speed.md).\n' +
+        'This suite belongs in the MIDDLE tier: add it to the `middle` list in ' +
+        'tools/unit-tier-suites.sh (idb-vector-t7u) and run `npm run test:middle` before hand-off.\n' +
+        'If it genuinely needs the construct, add an explicit opt-out with a reason in ' +
+        'tests/support/fast-tier-guard.mjs.',
+    );
+
   const stub = (construct) =>
     function fastTierGuardBlocked() {
-      throw new Error(
-        `fast-tier-guard: ${construct}() is not allowed in the fast tier (suite: ${suite || 'unknown'}).\n` +
-          'The fast tier contains only suites that never spawn a child process and never bind a socket: ' +
-          'those costs track host load and blow the 120 s per-lane budget (docs/speed.md).\n' +
-          'This suite belongs in the MIDDLE tier: add it to the `middle` list in ' +
-          'tools/unit-tier-suites.sh (idb-vector-t7u) and run `npm run test:middle` before hand-off.\n' +
-          'If it genuinely needs the construct, add an explicit opt-out with a reason in ' +
-          'tests/support/fast-tier-guard.mjs.',
-      );
+      throw refusal(`${construct}()`);
     };
+
+  // process.binding is the one raw path cheap enough to close safely; a saved reference, a native addon
+  // or a second Node process are not, and stay out of scope (header comment).
+  const originalBinding = process.binding;
+  process.binding = function fastTierGuardBlockedBinding(name) {
+    if (fastTierBlockedBindings.includes(name)) throw refusal(`process.binding('${name}')`);
+    return originalBinding.call(process, name);
+  };
 
   const childProcess = require('node:child_process');
   for (const construct of fastTierBlockedConstructs.filter((name) => name.startsWith('child_process.'))) {
