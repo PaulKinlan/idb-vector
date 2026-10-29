@@ -1,4 +1,6 @@
 {
+  "tests/demo-restore-trust.mjs": ["tests/unit/demo-ready-wait-budget.test.mjs"],
+  "tests/wikipedia-demo.mjs": ["tests/unit/demo-ready-wait-budget.test.mjs"],
   "tools/embed-wikipedia.mjs": ["tests/unit/embedding-rows.test.mjs"],
   "tools/fast-gate.sh": ["tests/unit/fast-style-coverage.test.mjs"],
   "tools/report-fast-style-coverage.sh": ["tests/unit/fast-style-coverage.test.mjs"],
