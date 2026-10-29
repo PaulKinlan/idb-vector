@@ -1,6 +1,7 @@
 // Opt-in paid preparation. Keys stay in environment and Authorization headers only.
 import { mkdir, readFile, writeFile, rename, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { orderedEmbeddingVectors } from './embedding-rows.mjs';
 const dir = new URL('../.cache/real-vectors/wiki-api/', import.meta.url);
 await mkdir(dir, { recursive: true });
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -83,18 +84,22 @@ for (let start = 0; start < passages.length; start += 64) {
     // Ambiguous failures must not silently repeat a potentially billed request.
     if (await exists(pending)) throw new Error(`Unresolved paid request ${pending}; inspect provider usage before explicitly clearing the marker`);
     await writeFile(new URL(pending, dir), JSON.stringify({ start, at: new Date().toISOString() }), { flag: 'wx' });
+    const requested = passages.slice(start, start + 64);
     let response;
     try {
       response = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, dimensions, encoding_format: 'float', input: passages.slice(start, start + 64).map(p => p.text) }),
+        body: JSON.stringify({ model, dimensions, encoding_format: 'float', input: requested.map(p => p.text) }),
         signal: AbortSignal.timeout(90000),
       });
     } catch { throw new Error(`Embedding transport failure at batch ${start}; request NOT retried, pending marker retained`); }
     if (!response.ok) throw new Error(`Embedding HTTP ${response.status} at batch ${start}; body intentionally not logged; request NOT retried`);
     const body = await response.json();
-    const embeddings = body.data?.sort((a, b) => a.index - b.index).map(row => row.embedding);
-    if (!embeddings || embeddings.length !== passages.slice(start, start + 64).length || embeddings.some(v => v.length !== dimensions || v.some(x => !Number.isFinite(x)) || !v.some(x => x !== 0))) throw new Error('Invalid embedding response; pending marker retained');
+    // Vectors are placed by the provider's own row index, never by array position (idb-vector-oaeb);
+    // a short, repeated or skipped index set throws here rather than misaligning the cache.
+    let embeddings;
+    try { embeddings = orderedEmbeddingVectors(body, requested.length, dimensions); }
+    catch (error) { throw new Error(`${error.message}; pending marker retained`); }
     cached = Buffer.from(JSON.stringify({ model: body.model, embeddings, usage: body.usage }));
     const handle = await open(new URL(`${file}.tmp`, dir), 'w');
     try { await handle.writeFile(cached); await handle.sync(); } finally { await handle.close(); }
@@ -103,6 +108,9 @@ for (let start = 0; start < passages.length; start += 64) {
   }
   const batch = JSON.parse(cached);
   if (batch.model !== model || !Number.isSafeInteger(batch.usage?.total_tokens)) throw new Error('Unexpected model/usage in cache');
+  // A cache written by the pre-idb-vector-oaeb tool can only be sized, not re-indexed; refuse a
+  // batch whose row count disagrees with the passages it will be written against.
+  if (batch.embeddings.length !== passages.slice(start, start + 64).length) throw new Error(`Cached batch ${file} holds ${batch.embeddings.length} rows; expected ${passages.slice(start, start + 64).length}`);
   vectors.push(...batch.embeddings);
   usages.push(batch.usage.total_tokens);
 }
@@ -111,6 +119,7 @@ await writeFile(new URL('embeddings.f32', dir), bytes);
 const articles = [...new Map(passages.map(({ title, pageid, revision, url }) => [pageid, { title, pageid, revision, url }])).values()];
 await writeFile(new URL('source.json', dir), JSON.stringify({
   realVectors: true, shipsGroundTruth: false, model, dimensions, rows: vectors.length,
+  rowOrder: 'Placed by the provider response data[].index, asserted exactly 0..n-1 per cached batch',
   source: 'Wikipedia public article extracts, nonoverlapping 200–600 character spans, round-robin across articles',
   sourceHash, vectorSha256: hash(bytes), retrievedAt, articles,
   license: 'Wikipedia text CC BY-SA 4.0; attribution and revision IDs above; no text committed in report',
