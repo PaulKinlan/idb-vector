@@ -1,14 +1,15 @@
 // tests/research.mjs is the research publication acceptance driver. It binds a loopback
 // allowlist server and drives real Chromium over CDP at module top level, so NO unit suite can
-// import it: importing it launches a browser and a socket. `npm run test:research` is the only
-// thing that runs it, and no gate runs that command - not `test:fast`, not `test:middle`, not
-// `npm test` - so its browser behaviour is covered only by that manual run, and this file does
-// not claim otherwise.
+// import it: importing it launches a browser and a socket. Since idb-vector-lk98 the merged gate
+// runs it as its own timed leg - `npm run gate:research`, appended to the merger's CHECK_CMD - and
+// `npm run test:research` remains the unbounded manual form. (idb-vector-isyy wrote this file before
+// any gate ran the driver; what is still true is that no unit suite here exercises the browser
+// behaviour, only the static contract below.)
 //
 // What is pinned here is the part of the driver that can be checked without a browser, and only
 // where a wrong answer is silent today: the driver's own run is the only place that notices its
 // 200-allowlist no longer matches the worktree, or that its receipt moved away from the path the
-// README documents. Each test below turns one of those manual-only failures into a fast-tier one.
+// README documents. Each test below turns one of those driver-run-only failures into a fast-tier one.
 //
 // Bead idb-vector-isyy: this file is the declared cover for tests/research.mjs in
 // tests/coverage-contract.json. Before that entry, the shared coverage extractor placed the driver
@@ -49,18 +50,25 @@ const fileFor = (urlPath) => (urlPath.endsWith('/') ? `${urlPath.slice(1)}index.
 const isServed = (repoPath) => servedFiles.includes(`/${repoPath}`)
   || servedDirs.some((dir) => `/${repoPath}`.startsWith(dir));
 
-test('npm run test:research is the one command that runs this driver', () => {
+test('both research commands name the driver, and the gated one carries its own bound', () => {
   // The README tells a publisher to verify the report with this command and nothing else, so the
   // script has to keep naming the driver: renaming the file without it leaves the documented
   // acceptance run pointing at nothing.
   assert.equal(pkg.scripts['test:research'], 'node tests/research.mjs');
   assert.ok(existsSync(new URL('tests/research.mjs', repoRoot)));
+  // idb-vector-lk98: the merged gate reaches the driver through `gate:research`, and the merger's
+  // CHECK_CMD names that script from outside this repo (~/.fleet/idb-vector-check.conf). A leg that
+  // quietly stops naming the driver - renamed, pointed elsewhere, or folded into `test` - is the
+  // state that bead fixed, so both the command and the 300s bound are pinned by value: changing
+  // either is a reviewed edit with a fresh measurement (docs/speed.md), not a silent loosening.
+  assert.equal(pkg.scripts['gate:research'], 'timeout --kill-after=15s 300s node tests/research.mjs');
 });
 
 test('every path the driver requires to answer 200 exists in this checkout', () => {
   // A deny path that does not exist proves nothing, and the driver already asserts that at run
   // time; an ALLOWED path that does not exist makes the acceptance run fail at the browser stage,
-  // which only the manual command reaches. Catch it here instead.
+  // which only a browser run reaches - the gated leg at merge time or the manual command on the
+  // branch. Catch it in the fast tier instead.
   assert.ok(probedPaths.length > 0, 'the allowed-asset probe loop must name at least one path');
   for (const urlPath of probedPaths) {
     assert.ok(existsSync(new URL(fileFor(urlPath), repoRoot)), `allowed acceptance asset is missing from the worktree: ${urlPath}`);
@@ -106,7 +114,7 @@ test('the demo page the driver loads is served entirely by its own allowlist', (
 test('the receipt lands in the evidence directory the README documents, with the keys the report cites', () => {
   // README.md is where a publisher is told the screenshots and receipt go; reports/research-publication.md
   // cites the receipt's externalLinks and externalLinkFailures. Both are claims about a file the
-  // manual run writes, so neither breaks anything the unit tier would otherwise see.
+  // driver's run writes, so neither breaks anything the unit tier would otherwise see.
   assert.match(driver, /process\.env\.RESEARCH_EVIDENCE \|\| resolve\(root, '\.cache\/research-evidence'\)/);
   assert.match(driver, /writeFile\(resolve\(evidence, 'browser\.json'\)/);
   assert.match(read('README.md'), /\.cache\/research-evidence\//, 'the README must name the receipt directory');

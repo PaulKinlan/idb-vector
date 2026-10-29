@@ -1,4 +1,18 @@
 // Real Chromium/CDP acceptance. RESEARCH_URL can target the published /research/ after deployment.
+//
+// Two commands run this driver. `npm run gate:research` is the merged gate's own leg: the same run
+// under a 300s step bound, measured 78s wall on the 2-vCPU fleet VM at host load 2.6-5.0
+// (idb-vector-lk98). `npm run test:research` stays the unbounded manual form, and with `-- --links`
+// it also fetches external citations and visits three published sources - that needs the network
+// and is never gated. Nothing else runs this file: the fast-tier
+// tests/unit/research-driver-contract.test.mjs pins the static contract from source and must not
+// launch a browser.
+//
+// What only this run covers: the loopback allowlist answering real 200s for the report, its
+// Markdown source, the demo stylesheet and the demo's whole module closure; the rendered report's
+// citations, headings, tables, evidence labels and layout at 1280 and 390 in both colour schemes;
+// real pointer clicks on every TOC entry; and the demo booting its module after its top-level
+// `await` - the module-closure class of idb-vector-zyd, which no unit test catches.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile, mkdir, stat, writeFile } from 'node:fs/promises';
@@ -69,6 +83,20 @@ const evidence = process.env.RESEARCH_EVIDENCE || resolve(root, '.cache/research
 await mkdir(evidence, { recursive: true });
 const page = await launch();
 const receipt = { url, browser: (await page.send('Browser.getVersion')).product, checks: [] };
+// A bound must not leave a browser behind. `npm run gate:research` wraps this run in
+// `timeout --kill-after=15s 300s`, and timeout signals this process only, while the browser leads
+// its own process group (tests/lib/cdp.mjs) and survives an unhandled SIGTERM with its renderer,
+// GPU, zygote and crashpad helpers - 16 processes outlived a bare wrapper in a probe, which is the
+// orphan class of idb-vector-6i3. Close both before exiting, so the bound costs a failed run and
+// not a leak (a hand Ctrl-C gets the same shutdown).
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, async () => {
+    console.error(`tests/research.mjs: ${signal}; closing the browser before exiting (gate bound 300s, idb-vector-lk98)`);
+    await page.close().catch(() => {});
+    await new Promise((resolve) => server.close(resolve));
+    process.exit(1);
+  });
+}
 try {
   // Exercise the actual loopback server even when RESEARCH_URL points at a deployment. The allowed
   // set is asserted down to the demo's stylesheet and module entry point, so "the demo link works"

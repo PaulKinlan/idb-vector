@@ -6,7 +6,7 @@ There are three tiers. A suite belongs in the fastest tier whose costs it can ho
 | --- | --- | --- | --- |
 | fast | `tools/fast-gate.sh` via `fleet-check --fast` | `tests/unit/*.test.mjs` minus the middle list | **<= 120 s at load 5** |
 | middle | `npm run test:middle` | the suites enumerated in `tools/unit-tier-suites.sh` | **<= 180 s** |
-| full | `npm test && npm run test:packed && npm run test:wikipedia` (merger) | `npm test` - the `tests/*.mjs` drivers plus, because the `test` script ends with `npm run test:middle`, the middle unit tier - then the packed and wikipedia legs | 2400 s (`CHECK_TIMEOUT`) |
+| full | `npm test && npm run test:packed && npm run test:wikipedia && npm run gate:research` (merger) | `npm test` - the `tests/*.mjs` drivers plus, because the `test` script ends with `npm run test:middle`, the middle unit tier - then the packed and wikipedia legs, then the research publication leg under its own 300 s bound | 2400 s (`CHECK_TIMEOUT`) |
 
 **Shape rule for the fast tier (policy, enforced at runtime).** It contains only suites that never spawn a child process, never bind a socket, and never clone or stage the repo: those three costs track host load, so a tier holding them oscillates between 55 s and 273 s on the same commit, and each bound raise is absorbed within days (idb-vector-t7u). Everything else goes to the middle tier - it still runs, it just stops being the per-lane contract. A new unit file is fast by default; excluding one is a single line in `tools/unit-tier-suites.sh`, which is the only place the split is defined. A suite that breaks this rule fails in its own test at runtime (below); the one fast suite that does spawn is a written, documented exception, recorded as an opt-out in the guard.
 
@@ -18,7 +18,7 @@ Measured 2026-10-29 on this tree (load 1.1-1.9), before the guard moved `start-c
 
 **What is asserted here is the partition**, which is exact and cheap: `tests/unit/fast-style-coverage.test.mjs` takes both lists from `tools/unit-tier-suites.sh` (the single definition) and pins that fast + middle == `tests/unit/*.test.mjs` with no overlap and no omission, that the middle list is enumerated rather than a glob, that both runners keep `--test-concurrency=2`, and that `npm test` ends with `npm run test:middle`, so the merged gate cannot silently lose the middle suites. Known exception to the shape policy: `fast-style-coverage.test.mjs` itself spawns `git` in a throwaway repo (measured ~2.5 s), so the guard carries an explicit, reasoned opt-out for it.
 
-**What runs where.** The fast tier is the per-lane gate only: `tools/fast-gate.sh` (via `fleet-check --fast`) dispatches `npm run test:fast` from that same tier list. The middle tier runs twice. Once per branch before hand-off (`npm run test:middle`), so a branch-level failure - staging, server routing, pinned assets, a full snapshot build, a quantized sweep - is caught on the branch and not first at merge. And once inside `npm test` for the merged gate: the merger's `CHECK_CMD` is `npm test && npm run test:packed && npm run test:wikipedia`, `npm test` runs `tests/*.mjs` only, so the `test` script ends with `npm run test:middle` - appending it there, not a glob change, is what keeps the moved suites in the merged gate. The merged gate does not re-run the fast tier; the lane already paid it. `tools/fast-gate.sh` prints the middle suites it did not run rather than leaving them looking covered.
+**What runs where.** The fast tier is the per-lane gate only: `tools/fast-gate.sh` (via `fleet-check --fast`) dispatches `npm run test:fast` from that same tier list. The middle tier runs twice. Once per branch before hand-off (`npm run test:middle`), so a branch-level failure - staging, server routing, pinned assets, a full snapshot build, a quantized sweep - is caught on the branch and not first at merge. And once inside `npm test` for the merged gate: the merger's `CHECK_CMD` is `npm test && npm run test:packed && npm run test:wikipedia && npm run gate:research`, `npm test` runs `tests/*.mjs` only, so the `test` script ends with `npm run test:middle` - appending it there, not a glob change, is what keeps the moved suites in the merged gate. The merged gate does not re-run the fast tier; the lane already paid it. `tools/fast-gate.sh` prints the middle suites it did not run rather than leaving them looking covered.
 
 The fast gate runs without launching Chromium. Keep unit tests independent of test order, host state and other worktrees. A new unit file should not add a browser launch to this tier.
 
@@ -26,7 +26,7 @@ The fast gate runs without launching Chromium. Keep unit tests independent of te
 
 **CSS and HTML are not exercised by this fast unit tier.** `tools/report-fast-style-coverage.sh` compares the branch tip to its `origin/main` merge-base and emits `fast-gate: unmapped: <path>` for *each* changed `.css` or `.html` file before the suites run. Fleet-check surfaces those markers as a **COVERAGE WARNING**, even though its shared changed-file extractor does not classify these extensions. If the base cannot be determined, the gate explicitly reports `fast-gate: unknown:` rather than claiming coverage. A passing unit gate with these notices is not visual/browser verification.
 
-For demo style or markup changes, drive the affected demo in Chromium, assert the actual interaction or computed styles at relevant viewport sizes and colour schemes, and capture a screenshot. Use a focused browser check during implementation; do not add a full browser run to the fast unit tier. On landing, the merger runs the full gate (`npm test` including `npm run test:demo-restore` and the middle unit tier, `npm run test:packed`, `npm run test:wikipedia`) once on the merged result. The focused restore test drives Chromium and is deliberately excluded from `test:fast`; its changed file may appear as an unmapped fast-gate coverage warning, but it runs in the full gate. The compute lab is separate; when it changes, drive its controls and inspect the rendered report as well.
+For demo style or markup changes, drive the affected demo in Chromium, assert the actual interaction or computed styles at relevant viewport sizes and colour schemes, and capture a screenshot. Use a focused browser check during implementation; do not add a full browser run to the fast unit tier. On landing, the merger runs the full gate (`npm test` including `npm run test:demo-restore` and the middle unit tier, `npm run test:packed`, `npm run test:wikipedia`, `npm run gate:research` - the research publication leg, measured 78-89 s on the 2-vCPU fleet VM at host loads 2.6-6.9 and held to its own 300 s bound) once on the merged result. The focused restore test drives Chromium and is deliberately excluded from `test:fast`; its changed file may appear as an unmapped fast-gate coverage warning, but it runs in the full gate. The compute lab is separate; when it changes, drive its controls and inspect the rendered report as well.
 
 `npm run test:compute` is that lab's focused browser check (real click, 100k × 128
 synthetic corpus, storage roundtrips, four-path top-k, near-tie fixture, screenshots);
@@ -36,6 +36,59 @@ tier nor the merger's full gate. It is host-load sensitive — the same check ha
 so run it on a machine that is not saturated. Its pure numeric contract — corpus determinism, cosine
 definition, tie ordering, and the comparison instrument's mutant rejection — is covered
 by `tests/unit/compute-engines.test.mjs` in the fast tier, which launches no browser.
+
+## Research publication leg (`npm run gate:research`)
+
+`npm run test:research` drives `tests/research.mjs`, the publication acceptance run: Marked parses
+`research/architecture.md`, a loopback server serves the report and the demo with an allowlist, real
+Chromium opens the page over CDP, and a receipt is written. Until idb-vector-lk98 that command was
+named by no gate - not `test:fast`, not `test:middle`, not `npm test`, not the Pages workflow (which
+only runs `build:research`) - so the staged publication path was covered only when a human
+remembered it, and `tests/unit/research-driver-contract.test.mjs` (the fast-tier pin from
+idb-vector-isyy) deliberately covers the static contract and not the browser behaviour.
+
+**Measured, then gated** (idb-vector-lk98). One bounded run in a lane worktree on the 2-vCPU fleet
+VM, 2026-10-29: **78 s wall, exit 0**, host load 2.6 (1 min) rising to 5.0 during the run, and
+`pgrep -c chrome` = 0 afterwards - no browser left behind. That is bounded (well under 300 s) and it
+passed, so the remedy is a gate leg rather than a manual checklist: the run is host-load sensitive
+but not flaky, and 78 s is 3% of the full gate's allowance. Alone among the optional browser runs it
+needs no network, no credentials and no pinned model download (the `--links` mode is the part that
+fetches published sources, and that stays manual - see below).
+
+The repo's half is the script: `"gate:research": "timeout --kill-after=15s 300s node tests/research.mjs"`.
+The bound is explicit and ~4x the measurement, so a real regression fails as a named timeout instead
+of a stall; it is still under a quarter of `CHECK_TIMEOUT`. `npm run test:research` remains the
+unbounded manual form, and `tests/unit/research-driver-contract.test.mjs` pins both scripts so the
+gate leg cannot be silently renamed away. The leg is deliberately **not** in the fast or middle tier:
+it launches Chromium, which the fast-tier shape rule forbids and the fast-tier guard would reject.
+
+The wrapper needs the driver's own signal handling: `timeout` signals only the Node process, while
+the browser leads its own process group, so a bare wrapper leaves renderer, GPU, zygote and crashpad
+helpers running (16 processes survived a probe - the orphan class of idb-vector-6i3). The driver
+therefore handles SIGTERM/SIGINT by closing the page and the server before exiting non-zero. The
+receipt and screenshots go to `.cache/research-evidence/` (git-ignored); the committed
+`reports/research-publication.json` is not rewritten by a run, so the leg leaves the worktree clean.
+
+**What this leg covers that no other automated test does.** Real browser and CDP: the allowlist
+answering actual 200s for the report, its Markdown source, `demo/style.css` and the demo's whole
+module closure (`/demo/`, `/utils/`, `/index.js`); the rendered report's citation targets,
+headings, tables and evidence labels; layout and computed colours at 1280 and 390 px in light and
+dark; 29 real pointer clicks on the table-of-contents entries with the target scrolled into view;
+and the demo booting its module after a top-level `await` on `indexedDB.open` - the module-closure
+failure class of idb-vector-zyd, where `/demo/` answered 200 while the modules it imports 404'd and
+the receipt still said healthy. The fast-tier contract test proves the allowlist and the closure
+agree in source; only this run proves the browser actually renders and executes them.
+
+**`--links` stays manual.** `npm run test:research -- --links` additionally fetches every external
+citation, records failures instead of hiding them, and visits three published sources in the
+browser. That needs the network and reaches third-party publishers, so it is a publisher's check
+(README) and not a gate leg. Run it after deploying the report, together with
+`RESEARCH_URL=<published url> npm run test:research` - the gate only ever proves the worktree copy.
+
+**The conf lives outside the repo.** `~/.fleet/idb-vector-check.conf` holds `CHECK_CMD`; the merger
+must append `&& npm run gate:research` to it for the leg to run at merge time. The repo cannot
+enforce that (the file is not tracked here and has been clobbered before - see its own warning
+header), which is why the script, its bound and this section are pinned and reviewed on the branch.
 
 ## Packed-snapshot stress measurement (not in the full gate)
 
