@@ -32,6 +32,9 @@ Publication notes and styles live in `tools/build-research.mjs`.
 The Pages workflow rebuilds the report and publishes `/research/` alongside `/demo/`.
 `npm run test:research` drives Chromium via the existing raw-CDP helper; add
 `-- --links` to check external citations and visit representative sources.
+`npm run gate:research` is that same run under its own 300 s bound, and it is the leg the merger's
+full gate puts last (see [docs/speed.md](docs/speed.md)), so the worktree copy is verified even when
+nobody remembers: run `npm run test:research` by hand for the unbounded form and for `--links`.
 After deployment, `RESEARCH_URL=https://paulkinlan.github.io/idb-vector/research/ npm run test:research`
 checks the public page. Screenshots and a JSON receipt go to `.cache/research-evidence/`
 (or `RESEARCH_EVIDENCE`).

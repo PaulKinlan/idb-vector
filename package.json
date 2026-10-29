@@ -32,7 +32,8 @@
     "measure:packed": "node tests/packed-read.mjs",
     "measure:packed-snapshot": "node tests/packed-snapshot-stress.mjs",
     "build:research": "node tools/build-research.mjs",
-    "test:research": "node tests/research.mjs"
+    "test:research": "node tests/research.mjs",
+    "gate:research": "timeout --kill-after=15s 300s node tests/research.mjs"
   },
   "license": "Apache-2.0",
   "author": {
