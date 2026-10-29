@@ -11,6 +11,72 @@ const pkg = JSON.parse(readFileSync(resolve('package.json'), 'utf8'));
 const run = (cwd, cmd, args) => execFileSync(cmd, args, { cwd, encoding: 'utf8' }).trim();
 const tier = (name) => run(process.cwd(), 'bash', ['tools/unit-tier-suites.sh', name]).split('\n');
 
+// The shape rule fails here or it is only prose: one fast suite that spawns a child process, binds a
+// socket or clones/stages the repo is enough to make the tier's wall time track host load (55 s to
+// 273 s on one commit, idb-vector-t7u). Each entry is [label, pattern, the cost it buys], and every
+// pattern is a specific identifier or call shape so prose about servers or clones cannot trip it.
+const SHAPE_BREACHES = [
+  ['child_process', /\bnode:child_process\b/, 'spawns a child process'],
+  ['execSync', /\bexecSync\b/, 'spawns a child process'],
+  ['execFileSync', /\bexecFileSync\b/, 'spawns a child process'],
+  ['spawn(', /\bspawn(Sync)?\s*\(/, 'spawns a child process'],
+  ['.listen(', /\.listen\s*\(/, 'binds a socket'],
+  ['createServer', /\bcreateServer\s*\(/, 'binds a socket'],
+  ['git clone', /\bgit clone\b|['"]git['"]\s*,\s*\[\s*['"]clone['"]/, 'clones the repo'],
+  ['mkdtemp', /\bmkdtemp(Sync)?\s*\(/, 'stages a scratch tree'],
+];
+
+// The sweep cannot read itself: it names every construct below by design. It is the tier's
+// documented known exception (docs/speed.md) - it spawns `git` in a throwaway repo, measured ~2.5 s.
+const SELF = 'tests/unit/fast-style-coverage.test.mjs';
+
+// The one other fast suite that carries a construct, listed per (suite, construct) so the rest of
+// that suite stays enforced: adding a socket bind or a child process to it still fails. A new entry
+// here is a reviewed diff rather than a quiet widening of the tier.
+const SHAPE_EXEMPTIONS = [
+  ['tests/unit/wiki-demo-server-confinement.test.mjs', 'mkdtemp', 'a scratch root for the symlink fixture; it spawns nothing and binds nothing'],
+];
+
+// Comment text is not executable, so a comment naming a construct ("refused, no .listen() here")
+// must not fail the sweep; string literals stay in, because a construct quoted in a string is still
+// a construct waiting to be used. Tracking string state also keeps a URL out of the comment path.
+function codeOnly(source) {
+  const out = [];
+  let quote = null;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (quote) {
+      if (ch === '\\') {
+        out.push(ch, source[i + 1] ?? '');
+        i += 1;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      out.push(ch);
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      out.push(ch);
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '/') {
+      while (i < source.length && source[i] !== '\n') i += 1;
+      out.push('\n');
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      i += 2;
+      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i += 1;
+      i += 1;
+      out.push(' ');
+      continue;
+    }
+    out.push(ch);
+  }
+  return out.join('');
+}
+
 // The fast tier is a SHAPE contract, not a file list (docs/speed.md, idb-vector-t7u): it holds only
 // unit suites that never spawn a child process, bind a socket or clone/stage the repo, because those
 // costs track host load. The suites that do are enumerated once in tools/unit-tier-suites.sh and run
@@ -26,6 +92,27 @@ test('the two unit tiers partition every unit suite, with a worker bound the 2-V
   for (const name of ['test:fast', 'test:middle']) {
     assert.match(pkg.scripts[name], /--test-concurrency=2\b/, `${name} keeps concurrency at VM capacity`);
     assert.doesNotMatch(pkg.scripts[name], /--test-only\b/, `an only-filter would silently drop tests from ${name}`);
+  }
+});
+
+test('every fast-tier suite obeys the shape rule: no child process, no socket bind, no repo clone', () => {
+  const fast = tier('fast');
+  assert.ok(fast.includes(SELF), 'the sweep excludes itself, so it must still be a fast suite');
+  const exempt = new Set(SHAPE_EXEMPTIONS.map(([suite, construct]) => `${suite} ${construct}`));
+  const breaches = [];
+  for (const suite of fast) {
+    if (suite === SELF) continue;
+    const code = codeOnly(readFileSync(suite, 'utf8'));
+    for (const [construct, pattern, cost] of SHAPE_BREACHES) {
+      if (pattern.test(code) && !exempt.has(`${suite} ${construct}`)) breaches.push(`${suite}: ${construct} (${cost})`);
+    }
+  }
+  assert.deepEqual(breaches, [], 'the fast tier holds no spawn, socket bind or repo clone/staging; move the suite to `middle` in tools/unit-tier-suites.sh');
+  // A stale exemption would quietly widen the tier, so each one must still be paying for itself.
+  for (const [suite, construct, why] of SHAPE_EXEMPTIONS) {
+    assert.ok(fast.includes(suite), `${suite} is exempt from the shape rule but is not in the fast tier`);
+    const [, pattern] = SHAPE_BREACHES.find(([name]) => name === construct);
+    assert.match(codeOnly(readFileSync(suite, 'utf8')), pattern, `stale exemption: ${suite} no longer references ${construct} (${why})`);
   }
 });
 
