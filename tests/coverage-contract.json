@@ -1,4 +1,5 @@
 {
+  "tests/research.mjs": ["tests/unit/research-driver-contract.test.mjs"],
   "tools/embed-wikipedia.mjs": ["tests/unit/embedding-rows.test.mjs"],
   "tools/fast-gate.sh": ["tests/unit/fast-style-coverage.test.mjs"],
   "tools/report-fast-style-coverage.sh": ["tests/unit/fast-style-coverage.test.mjs"],
