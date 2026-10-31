@@ -2,11 +2,13 @@
 import { mkdir, readFile, writeFile, rename, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { orderedEmbeddingVectors } from './embedding-rows.mjs';
+import { readJsonEnvelope, wikipediaPagesEnvelope, embeddingEnvelope } from './response-envelope.mjs';
 const dir = new URL('../.cache/real-vectors/wiki-api/', import.meta.url);
 await mkdir(dir, { recursive: true });
 const hash = value => createHash('sha256').update(value).digest('hex');
 const exists = async file => { try { return await readFile(new URL(file, dir)); } catch (e) { if (e.code !== 'ENOENT') throw e; return null; } };
 const model = 'text-embedding-3-small', dimensions = 256;
+const embeddingUrl = 'https://api.openai.com/v1/embeddings';
 const pricePerMillionTokens = 0.02; // Published list-price estimate, not billing verification.
 const maxEstimatedUSD = 0.25;
 const titles = `Mathematics|Physics|Chemistry|Biology|Computer science|Astronomy|Geology|Ecology|Psychology|Sociology|Economics|History|Philosophy|Linguistics|Anthropology|Archaeology|Medicine|Engineering|Architecture|Agriculture|Art|Music|Literature|Poetry|Cinema|Theatre|Dance|Photography|Painting|Sculpture|Democracy|Law|Education|Religion|Ethics|Logic|Statistics|Probability|Calculus|Algebra|Geometry|Number theory|Artificial intelligence|Machine learning|Neural network|Database|Internet|World Wide Web|Cryptography|Operating system|Programming language|Algorithm|Data structure|Information theory|Quantum mechanics|Relativity|Thermodynamics|Electromagnetism|Optics|Particle physics|Nuclear physics|Earth|Moon|Sun|Mars|Solar System|Galaxy|Universe|Black hole|Star|Evolution|Genetics|DNA|Cell (biology)|Protein|Virus|Bacteria|Plant|Animal|Fungus|Photosynthesis|Ecosystem|Biodiversity|Climate change|Ocean|Atmosphere of Earth|Volcano|Earthquake|Plate tectonics|Water|Carbon|Oxygen|Hydrogen|Periodic table|Organic chemistry|Chemical reaction|Energy|Electricity|Battery (electricity)|Solar power|Wind power|Nuclear power|Human brain|Heart|Immune system|Cancer|Diabetes|Vaccine|Nutrition|Sleep|Exercise|Mental health|Language|English language|Spanish language|Chinese language|Arabic|Writing|Printing|Book|Library|United Kingdom|France|Germany|Italy|Spain|United States|Canada|Mexico|Brazil|India|China|Japan|South Korea|Australia|New Zealand|Egypt|Nigeria|South Africa|Kenya|Indonesia|Ancient Egypt|Ancient Greece|Roman Empire|Middle Ages|Renaissance|Industrial Revolution|World War I|World War II|Space exploration|Transport|Rail transport|Aviation|Ship|Bicycle|Automobile|Food|Cooking|Bread|Rice|Coffee|Tea|Chocolate|Sport|Association football|Basketball|Tennis|Swimming|Olympic Games`.split('|');
@@ -26,9 +28,9 @@ if (!corpus) {
     if (continuation) for (const [key, value] of Object.entries(continuation)) url.searchParams.set(key, value);
     const response = await fetch(url, { headers: { 'User-Agent': 'idb-vector-research/1.0 (https://github.com/PaulKinlan/idb-vector)' }, signal: AbortSignal.timeout(60000) });
     if (!response.ok) throw new Error(`Wikipedia HTTP ${response.status}; rerun preparation, no paid request sent`);
-    const body = await response.json();
-    if (body.error) throw new Error(`Wikipedia refused: ${body.error.code}; no paid request sent`);
-    for (const page of Object.values(body.query.pages)) {
+    const body = await readJsonEnvelope(response, { label: 'Wikipedia', requestUrl: url });
+    const { pages } = wikipediaPagesEnvelope(body, { requestUrl: url, status: response.status });
+    for (const page of pages) {
       if (page.lastrevid) revisions.set(page.pageid, page.lastrevid);
       if (!page.extract) continue;
       const revision = revisions.get(page.pageid);
@@ -87,14 +89,14 @@ for (let start = 0; start < passages.length; start += 64) {
     const requested = passages.slice(start, start + 64);
     let response;
     try {
-      response = await fetch('https://api.openai.com/v1/embeddings', {
+      response = await fetch(embeddingUrl, {
         method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, dimensions, encoding_format: 'float', input: requested.map(p => p.text) }),
         signal: AbortSignal.timeout(90000),
       });
     } catch { throw new Error(`Embedding transport failure at batch ${start}; request NOT retried, pending marker retained`); }
     if (!response.ok) throw new Error(`Embedding HTTP ${response.status} at batch ${start}; body intentionally not logged; request NOT retried`);
-    const body = await response.json();
+    const body = embeddingEnvelope(await readJsonEnvelope(response, { label: 'OpenAI embeddings', requestUrl: embeddingUrl }), { requestUrl: embeddingUrl, status: response.status });
     // Vectors are placed by the provider's own row index, never by array position (idb-vector-oaeb);
     // a short, repeated or skipped index set throws here rather than misaligning the cache.
     let embeddings;
