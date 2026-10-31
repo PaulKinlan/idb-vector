@@ -6,7 +6,7 @@ There are three tiers. A suite belongs in the fastest tier whose costs it can ho
 | --- | --- | --- | --- |
 | fast | `tools/fast-gate.sh` via `fleet-check --fast` | `tests/unit/*.test.mjs` minus the middle list | **<= 120 s at load 5** |
 | middle | `npm run test:middle` | the suites enumerated in `tools/unit-tier-suites.sh` | **<= 180 s** |
-| full | `npm test && npm run test:packed && npm run test:wikipedia && npm run gate:research` (merger) | `npm test` - the `tests/*.mjs` drivers plus, because the `test` script ends with `npm run test:middle`, the middle unit tier - then the packed and wikipedia legs, then the research publication leg under its own 300 s bound | 2400 s bound (`CHECK_TIMEOUT`) against **2236 s measured** on 2026-10-31 - see [Merged gate time](#merged-gate-time-four-legs-2236-s-measured-idb-vector-9dze) |
+| full | `npm test && npm run test:packed && npm run test:wikipedia && npm run gate:research` (merger) | `npm test` - the `tests/*.mjs` drivers plus, because the `test` script ends with `npm run test:middle`, the middle unit tier - then the packed and wikipedia legs, then the research publication leg under its own 300 s bound | **3600 s** bound (`CHECK_TIMEOUT`, raised from 2400 s after this measurement) against **2236 s measured** on 2026-10-31 - see [Merged gate time](#merged-gate-time-four-legs-2236-s-measured-idb-vector-9dze) |
 
 **Shape rule for the fast tier (policy, enforced at runtime).** It contains only suites that never spawn a child process, never bind a socket, and never clone or stage the repo: those three costs track host load, so a tier holding them oscillates between 55 s and 273 s on the same commit, and each bound raise is absorbed within days (idb-vector-t7u). Everything else goes to the middle tier - it still runs, it just stops being the per-lane contract. A new unit file is fast by default; excluding one is a single line in `tools/unit-tier-suites.sh`, which is the only place the split is defined. A suite that breaks this rule fails in its own test at runtime (below); the one fast suite that does spawn is a written, documented exception, recorded as an opt-out in the guard.
 
@@ -40,68 +40,83 @@ by `tests/unit/compute-engines.test.mjs` in the fast tier, which launches no bro
 ## Merged gate time: four legs, 2236 s measured (idb-vector-9dze)
 
 The four-leg gate passed on tree `4467a83` (merge `0878a4c`, 2026-10-31) in **2236 s** with exit 0 and
-2 s of heavy-slot wait, against `CHECK_TIMEOUT=2400`: **93% of the bound, 164 s of headroom**. Host load
-was 11.24 (1 min), as the packed leg recorded. That margin is not a margin - it is one load spike from
-failing a correct tree with exit 124.
+2 s of heavy-slot wait. The bound in force that day was `CHECK_TIMEOUT=2400`, so the run spent **93% of
+it and had 164 s left**: that margin is not a margin, it is one load spike from failing a correct tree
+with exit 124. Host load was 11.24 (1 min), as the packed leg recorded. The bound in force **now** is
+**3600 s** (`~/.fleet/idb-vector-check.conf`), i.e. 1364 s of headroom on this same measurement - every
+2026-10-31 number in this section was measured under the then-2400 s bound, not against the current
+one.
 
 The leg costs are mined from that run's log and from the mtimes of the evidence directories each leg
 prints (`/tmp/idb-vector-browser-*`, `/tmp/idb-demo-restore-*`, `/tmp/idb-packed-snapshot-*`,
 `/tmp/idb-wikipedia-demo-*`), whose screenshot and report writes bracket each leg to about ±20 s. No
 gate was re-run to produce them: they are one run's wall clock, with a second sample of the same
-command on a quieter host the week before.
+command on a quieter host two days earlier.
 
 | leg | 2026-10-31 wall (gate 2236 s, load 11.24) | share | 2026-10-29 sample (gate 1681 s, load 6.07) |
 | --- | --- | --- | --- |
-| `npm test` | 1163 s | 52% | 789 s |
-| `npm run test:packed` | 391 s | 17% | 301 s |
-| `npm run test:wikipedia` | 469 s | 21% | 420 s |
-| `npm run gate:research` | 213 s | 10% | 161 s |
+| `npm test` | 1163 s | 52% | 783 s |
+| `npm run test:packed` | 391 s | 17% | 299 s |
+| `npm run test:wikipedia` | 469 s | 21% | 449 s |
+| `npm run gate:research` | 213 s | 10% | 150 s |
+
+Both columns are four consecutive brackets that tile their gate's wall clock, so each column sums to
+the gate's own reported time: 1163 + 391 + 469 + 213 = 2236 s, and 783 + 299 + 449 + 150 = 1681 s. The
+2026-10-29 brackets run 10:58:15 -> 11:11:18 -> 11:16:17 -> 11:23:46 -> 11:26:16: the first is the
+gate's start line, the next three come from `/tmp/idb-demo-restore-ahjt3b` (last screenshot 11:10:27.98
+plus the middle tier's 45.4 s), `/tmp/idb-packed-snapshot-kgUs0o` (`packed-snapshot.png` 11:16:16.38)
+and `/tmp/idb-wikipedia-demo-sBQM3g` (`report.json` 11:23:42.48), and the last is the gate's own
+reported 1681 s after its 10:58:15 start.
 
 Inside `npm test`, all of which the merged gate pays again on top of the lane's fast and middle runs:
 `tests/browser.mjs` 160 s; the five further browser drivers (`validation`, `candidates`, `eligibility`,
 `snapshot-isolation`, `side-store`) plus `cdp-orphans` 628 s; `test:demo-restore` 278 s, of which the
-restore itself is 202.8 s; `test:middle` 95.9 s (its self-reported `duration_ms`).
+restore itself is 202.8 s; `test:middle` 95.9 s (its self-reported `duration_ms`). Those four brackets
+sum to 1161.9 s, so 1.1 s of the 1163 s is npm dispatch and process teardown between them.
 
 Inside `test:wikipedia`: 469 s wall, of which the phases it prints account for 260.0 s - corpus and
 model load phases 199.2 s (fresh 250-passage load 112.4 s, restore of the stored 2,000-passage corpus
 55.0 s, load after an injected write failure 23.8 s, injected-write-failure 5.5 s, offline load
-refused 2.5 s), probes and clears 34.8 s, queries 25.7 s - and the remaining ~209 s is browser start,
-five full-page screenshots and chromium teardown (the log records the teardown wait: `chromium process
-group ... did not exit; close() left it to the reaper`). On the quieter host the same leg took 420 s
-with 296 s of phases, so its non-phase overhead tracks load too.
+refused 2.5 s), probes and clears 34.8 s, queries 25.7 s, offline network emulation 0.3 s - and the
+remaining 209 s is browser start, five full-page screenshots and chromium teardown (the log records the
+teardown wait: `chromium process group ... did not exit; close() left it to the reaper`). On the
+quieter host the same leg took 449 s on 296 s of phases, so its non-phase overhead tracks load - 209 s
+here against 153 s there - while its phases ran 36 s *slower* on the quieter host.
 
 **What the table rules out.** No single leg dominates, so trimming one leg is not the fix, and moving
 one leg to a nightly would not make the remaining gate's bound trustworthy: the cost is spread
-52/17/21/10 and every leg grew 12-47% between the two samples. Inside the largest leg no single driver
+52/17/21/10, and the total grew 1.33x (1681 -> 2236 s) as load went 6.07 -> 11.24, with `npm test` +49%,
+`test:packed` +31%, `gate:research` +42% and `test:wikipedia` +4%. Inside the largest leg no single driver
 dominates either - the widest item is the 628 s of six browser drivers that each launch Chromium and
 seed their own dataset, and each one covers a different contract. The corpus loads in `test:wikipedia`
 are likewise distinct, not duplicates: a fresh load, a restore of the stored corpus, and a load after
 an injected write failure are three different paths, so there is no redundant second load to delete.
 
-**Why 2400 s cannot be repaired by trimming.** The gate's own sub-legs grant themselves more time than
-the gate's total bound: `test:wikipedia` gives each of its five load phases a 600 s budget and every
-other page phase 300 s, and `gate:research` carries its own 300 s bound. A load phase taking 277 s -
-well inside its 600 s budget, and unremarkable on a host at load 11 - puts the gate past 2400 s and
-kills a correct tree, because the outer bound fires before the inner ones that were designed to be
-generous. The total bound has to be consistent with what the legs are allowed to spend.
+**Why the bound is not repairable by trimming.** The gate's own sub-legs grant themselves more time
+than it: `test:wikipedia` gives each of its five load phases a 600 s budget and every other page phase
+300 s - 3000 s for the load phases alone - and `gate:research` carries its own 300 s bound, so the
+inner budgets are sized for a loaded host while the outer one was not. A load phase taking 277 s, well
+inside its 600 s budget and unremarkable on a host at load 11, would have taken the 2236 s run to
+2400.6 s - past the 2400 s bound then in force - and killed a correct tree with exit 124, because the
+outer bound fires before the inner ones that were designed to be generous. The total bound has to be
+consistent with what the legs are allowed to spend, and the answer is a total bound, not a smaller
+internal budget that fails slow-but-correct trees.
 
-**Recommendation: `CHECK_TIMEOUT=3300`, pending a conf edit by the merger.** The conf lives outside
-this repo (`~/.fleet/idb-vector-check.conf`), so this file records the number and the arithmetic
-rather than enforcing it:
+**The bound in force: `CHECK_TIMEOUT=3600`.** The coordinator raised it from 2400 s after this
+measurement. The conf lives outside this repo (`~/.fleet/idb-vector-check.conf`), so this file records
+the number and the arithmetic rather than enforcing it:
 
-- 2236 s measured + 1064 s of headroom = **3300 s**, i.e. 1.48x the measurement where today's bound is
-  1.07x.
-- 1064 s covers one wikipedia load phase running from 112.4 s to its declared 600 s budget (+488 s ->
-  2724 s, 576 s spare), or two such phases (+976 s -> 3212 s, still inside by 88 s).
-- It does not cover everything: the same three-leg command has measured 957 s to 1675 s on this fleet,
-  a 1.75x run-to-run spread, and a bound sized for that worst case would hold the single heavy slot for
-  over an hour. 3300 s is the largest bound that stays a short slot while covering the observed
-  four-leg worst case plus one blown internal budget; beyond it a red is still possible, but it takes a
-  real anomaly rather than an ordinary load spike.
+- 2236 s measured leaves **1364 s** of headroom, so the bound is 1.61x the measurement.
+- Worst case **3428 s**: any two of the five wikipedia load phases running to their full 600 s budget
+  costs at most an extra 1192 s, and the worst pair is the two smallest (5.5 s and 2.5 s):
+  (600 - 5.5) + (600 - 2.5) = 1192 s, giving 2236 + 1192 = 3428 s - still **172 s inside** 3600 s.
+  That is the honest ceiling: the pair that can blow together by the most still lands inside the bound.
+- It does not cover everything: three blown load-phase budgets reach 4004 s (the third smallest phase
+  is 23.8 s, +576 s), and a leg that regresses outright would red the gate whatever the bound. That
+  is a real anomaly rather than an ordinary load spike, which is the right place for the limit to sit.
 - No repo file changes with it: `tests/wikipedia-demo.mjs` pins its own 600 s and 300 s wait constants
-  and `gate:research` keeps its `300s` timeout. The merger's exact change, handed over with
-  idb-vector-9dze, is to set `CHECK_TIMEOUT=3300` in `~/.fleet/idb-vector-check.conf` and leave
-  `CHECK_CMD` and `CHECK_FAST_TIMEOUT` alone.
+  (`READY_WAIT_MS`, `PAGE_WORK_WAIT_MS`) and `gate:research` keeps its `300s` timeout. `CHECK_CMD` and
+  `CHECK_FAST_TIMEOUT` are unchanged.
 
 A re-measurement replaces these numbers here and in the tier table above; the bound moves with them,
 not ahead of them.
@@ -120,8 +135,8 @@ idb-vector-isyy) deliberately covers the static contract and not the browser beh
 VM, 2026-10-29: **78 s wall, exit 0**, host load 2.6 (1 min) rising to 5.0 during the run, and
 `pgrep -c chrome` = 0 afterwards - no browser left behind. That is bounded (well under 300 s) and it
 passed, so the remedy is a gate leg rather than a manual checklist: the run is host-load sensitive
-but not flaky, and 78 s is 3% of the full gate's allowance. Inside the merged gate the same leg measured
-161 s at host load 6.07 (2026-10-29) and 213 s at load 11.24 (2026-10-31, tree `4467a83`) - still well
+but not flaky, and 78 s is 3% of the gate's then-2400 s bound. Inside the merged gate the same leg measured
+150 s at host load 6.07 (2026-10-29) and 213 s at load 11.24 (2026-10-31, tree `4467a83`) - still well
 inside its 300 s bound, and 10% of the measured four-leg gate. Alone among the optional browser runs it
 needs no network, no credentials and no pinned model download (the `--links` mode is the part that
 fetches published sources, and that stays manual - see below).
@@ -169,7 +184,7 @@ the plain scan, rollback and optional whitening. It must stay inside the full ga
 
 The 100000x128 measurement used to live in that same file. It is a benchmark, not a gate: it wrote
 100,000 vectors in batches of 1000 and timed three comparisons, which pushed the full gate past **900 s at
-host load ~10** — 37% of its 2400 s allowance — while the small corpora already cover the exactness claim
+host load ~10** — 37% of its then-2400 s allowance — while the small corpora already cover the exactness claim
 (idb-vector-bqw, ADR idb-vector-80j). It now lives in `tests/packed-snapshot-stress.mjs`:
 
 - `npm run measure:packed-snapshot` — opt-in, writes its report and screenshot into a **unique directory
