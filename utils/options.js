@@ -58,6 +58,16 @@ export const SIDE_STORE_FACTORY_OPTION_KEYS = ["sideStore", "key", "epoch", "rev
  *
  * `lead` exists because these messages are part of this library's tested contract: it lets a call site
  * keep its established wording ("supported options are ...") while sharing the check.
+ *
+ * The keys checked are the whole prototype chain, not just the own ones (idb-vector-v743). Call sites
+ * read their options by property access (`options.limit`), which sees an inherited key, so a list that
+ * inspected own keys only disagreed with the code it guards: `query(vector, Object.create({ predicate }))`
+ * passed the check and returned the unfiltered ranking that looked filtered — the closed 5a8 regression,
+ * and the I4 invariant at the top of this file. An inherited key now reaches the same refusal (naming
+ * that it was inherited), and an inherited key that IS on the list stays accepted, because property
+ * access really does read it and the method really does honour it. Enumerability is the same boundary the
+ * allow-list always used (`Object.keys` is own + enumerable, now taken up the chain), so non-enumerable
+ * prototype members — class methods — are still not options: nobody supplies them as one.
  */
 export function assertOptionKeys(method, options, allowed, { hint = "", lead = null, absent = "reject", example = "" } = {}) {
   if (options === undefined || options === null) {
@@ -67,9 +77,17 @@ export function assertOptionKeys(method, options, allowed, { hint = "", lead = n
   if (!isRecord(options)) {
     throw new TypeError(`${method}() options must be an object${example ? ` such as ${example}` : ""}; got ${describe(options)}`);
   }
-  for (const key of Object.keys(options)) {
+  // An own '__proto__' key (JSON.parse produces one) names the prototype accessor, not an option, so it is
+  // refused before the list is consulted — the same refusal convention the write boundary and vectorPath
+  // already use. Nothing here writes onto `options`, so no allow-list entry can turn this key into a
+  // prototype mutation either way; the hasOwn form also catches a non-enumerable one that for...in skips.
+  if (Object.hasOwn(options, "__proto__")) {
+    throw new TypeError(`${method}() options must not carry a '__proto__' key: it names the prototype accessor rather than an option. Use a normal option name (${allowed.join(", ")}).`);
+  }
+  for (const key in options) {
     if (allowed.includes(key)) continue;
+    const origin = Object.hasOwn(options, key) ? "" : " (the key is inherited through the options object's prototype)";
     const extra = typeof hint === "function" ? hint(key) : hint;
-    throw new TypeError(`${method}() option ${describe(key)} is not supported; ${lead ?? `${method}() options are`} ${allowed.join(", ")}.${extra ? ` ${extra}` : ""}`);
+    throw new TypeError(`${method}() option ${describe(key)} is not supported${origin}; ${lead ?? `${method}() options are`} ${allowed.join(", ")}.${extra ? ` ${extra}` : ""}`);
   }
 }
