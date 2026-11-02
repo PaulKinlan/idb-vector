@@ -21,8 +21,11 @@ const DATASET_SEED_TIMEOUT_MS = 600000;
 // The search phase runs on the same contended host as seeding, immediately after it: the FULL gate
 // failed this wait at 30s on a correct tree at load >16, and the driver run that measured 108.1s of
 // seeding at load 14.79 spent 206s end to end, so 30s was measuring the CPU share, not the work.
-// The full gate allows 2400s (tests/packed-snapshot.mjs); 300s is one eighth of that for a single
-// phase - well above the observed worst case, and still tight enough to bound a real hang.
+// The full gate allows 3600s (~/.fleet/idb-vector-check.conf CHECK_TIMEOUT, raised from 2400s by
+// idb-vector-9dze); 300s is a twelfth of that for a single phase - well above the observed worst
+// case, and still tight enough to bound a real hang. The fraction is a reading aid, not the
+// derivation: the budget is set by the loaded-host measurements above, and the conf is the source
+// of the total it is compared against.
 const SEARCH_COMPLETE_TIMEOUT_MS = 300000;
 
 /** The page's last #status line, bounded: a hung renderer must not turn a failure into a stall. */

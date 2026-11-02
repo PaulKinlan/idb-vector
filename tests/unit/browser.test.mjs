@@ -9,7 +9,8 @@ import test from 'node:test';
 const MIN_DATASET_SEED_TIMEOUT_MS = 600000;
 
 // The search phase runs on that same host right after seeding: the FULL gate failed this wait at 30s
-// on a correct tree. One eighth of the 2400s full-gate allowance is the floor for a single phase.
+// on a correct tree. A twelfth of the full gate's 3600s CHECK_TIMEOUT (~/.fleet/idb-vector-check.conf)
+// is the floor for a single phase.
 const MIN_SEARCH_COMPLETE_TIMEOUT_MS = 300000;
 
 function readBrowserSource() {

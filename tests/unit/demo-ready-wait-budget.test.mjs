@@ -12,9 +12,10 @@ import test from 'node:test';
 const MIN_READY_WAIT_MS = 600000;
 
 // Everything in tests/wikipedia-demo.mjs that is not a corpus load (a query encodes through the model,
-// the storage probes read 2,000 IndexedDB records) gets one eighth of the full gate's 2400s allowance,
-// the derivation tests/browser.mjs uses for its search wait. A literal below either floor assumes a
-// fair CPU share, which is what let waitFor's 15s default fail a correct tree (idb-vector-g85a).
+// the storage probes read 2,000 IndexedDB records) gets a twelfth of the full gate's 3600s
+// CHECK_TIMEOUT (~/.fleet/idb-vector-check.conf), the derivation tests/browser.mjs uses for its search
+// wait. A literal below either floor assumes a fair CPU share, which is what let waitFor's 15s
+// default fail a correct tree (idb-vector-g85a).
 const MIN_PAGE_WORK_WAIT_MS = 300000;
 
 const readSource = file => readFile(new URL(`../../${file}`, import.meta.url), 'utf8');
@@ -122,7 +123,7 @@ test('tests/wikipedia-demo.mjs gives every page wait a gate-derived budget and n
   );
   assert.ok(
     declared('PAGE_WORK_WAIT_MS') >= MIN_PAGE_WORK_WAIT_MS,
-    `PAGE_WORK_WAIT_MS is ${declared('PAGE_WORK_WAIT_MS')}ms; a page phase gets an eighth of the full gate's 2400s allowance, so not below ${MIN_PAGE_WORK_WAIT_MS}ms`,
+    `PAGE_WORK_WAIT_MS is ${declared('PAGE_WORK_WAIT_MS')}ms; a page phase gets a twelfth of the full gate's 3600s CHECK_TIMEOUT, so not below ${MIN_PAGE_WORK_WAIT_MS}ms`,
   );
 
   // Every wait in the driver goes through the one budgeted helper: a bare page.waitFor (15s default)
