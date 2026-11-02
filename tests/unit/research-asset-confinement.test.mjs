@@ -14,7 +14,9 @@
 // allowlist is made of directory prefixes and nothing else in the worktree is named. And a candidate
 // that realpath() cannot resolve at all - a dangling symlink - is refused rather than returned
 // unresolved, because the caller reads whatever path this returns and the target can appear between
-// the check and the read (idb-vector-gb9n review).
+// the check and the read (idb-vector-gb9n review). There is no exact-file exemption from either half of
+// that rule: an allowlisted exact file is realpath()ed and root-checked like any other candidate
+// (idb-vector-jz65).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
@@ -35,7 +37,9 @@ const allowlist = { assetFiles, assetDirs };
 
 test('the assets the driver requires are served, and nothing else in this checkout is', async () => {
   for (const path of ['/research/index.html', '/research/architecture.md', '/index.js']) {
-    assert.equal(await acceptanceAsset(path, repoRoot, allowlist), resolve(repoRoot, path.slice(1)), `exact allowlisted file: ${path}`);
+    // An exact allowlist hit is answered with the realpath()ed file, exactly like a name under an
+    // allowed directory: the map value is only a candidate (idb-vector-jz65).
+    assert.equal(await acceptanceAsset(path, repoRoot, allowlist), await realpath(resolve(repoRoot, path.slice(1))), `exact allowlisted file: ${path}`);
   }
   for (const path of ['/demo/style.css', '/demo/app.js', '/demo/encoder.js', '/utils/options.js', '/utils/side-store.js']) {
     assert.equal(await acceptanceAsset(path, repoRoot, allowlist), await realpath(join(repoRoot, path)), `file under an allowed directory: ${path}`);
@@ -127,4 +131,52 @@ test('a symlink under an allowed directory that points outside the root is refus
   await symlink(join(scratch, 'absent-demo'), join(danglingDirRoot, 'demo'));
   assert.equal(await acceptanceAsset('/demo/app.js', danglingDirRoot, allowlist), null,
     'an allowed directory that is itself a dangling symlink is refused');
+});
+
+// The regression case for idb-vector-jz65. The exact-file branch returned the driver's pre-resolved
+// map value without asking realpath(), so an allowlisted EXACT file that is a symlink was served from
+// wherever it pointed while tools/wiki-demo-server.mjs refused the same shape (its confinedFile() has
+// no exact branch - every name goes through realpath()). Replacing one of the three allowlisted
+// tracked files with a link needs a modified tracked file, which is why this is defence in depth
+// rather than a live escape, but it is still the rule the module states for itself.
+test('an exact allowlisted file that is a symlink out of the root is refused', async (t) => {
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'research-exact-root-')));
+  t.after(() => rm(scratch, { recursive: true, force: true }));
+  const root = join(scratch, 'root');
+  await mkdir(root, { recursive: true });
+  const exactAllowlist = (name) => ({ assetFiles: new Map([['/index.js', join(root, name)]]), assetDirs: [] });
+  const secret = join(scratch, 'secret.txt');
+  await writeFile(secret, 'SECRET OUTSIDE THE WORKTREE');
+
+  // The reproduction: the allowlist entry itself is a symlink out of the root.
+  await symlink(secret, join(root, 'index.js'));
+  assert.equal(await acceptanceAsset('/index.js', root, exactAllowlist('index.js')), null,
+    'an exact allowlisted file that is a symlink out of the root must be refused (idb-vector-jz65)');
+
+  // A dangling link at the same entry is refused as well, so creating its target later cannot turn
+  // this into a served file outside the root.
+  const outside = join(scratch, 'outside.js');
+  await rm(join(root, 'index.js'), { force: true });
+  await symlink(outside, join(root, 'index.js'));
+  assert.equal(await acceptanceAsset('/index.js', root, exactAllowlist('index.js')), null,
+    'a dangling exact allowlisted entry is refused, not returned unresolved');
+  await writeFile(outside, 'outside');
+  assert.equal(await acceptanceAsset('/index.js', root, exactAllowlist('index.js')), null,
+    'the exact entry stays refused after its outside target appears');
+
+  // The same shape pointed at a file inside the root is admitted, and answered with the RESOLVED
+  // path: the exact branch keeps serving links that stay in, matching confinedFile.
+  await writeFile(join(root, 'index.real.js'), 'export {};');
+  await rm(join(root, 'index.js'), { force: true });
+  await symlink(join(root, 'index.real.js'), join(root, 'index.js'));
+  assert.equal(await acceptanceAsset('/index.js', root, exactAllowlist('index.js')),
+    await realpath(join(root, 'index.real.js')), 'an exact allowlisted entry that is an in-root link is served as its resolved target');
+
+  // A plain exact file is still served, and an entry that does not exist is refused rather than
+  // returned unresolved.
+  await rm(join(root, 'index.js'), { force: true });
+  await writeFile(join(root, 'index.js'), 'export {};');
+  assert.equal(await acceptanceAsset('/index.js', root, exactAllowlist('index.js')), await realpath(join(root, 'index.js')));
+  assert.equal(await acceptanceAsset('/index.js', root, exactAllowlist('absent.js')), null,
+    'an exact allowlisted entry that does not exist is refused');
 });

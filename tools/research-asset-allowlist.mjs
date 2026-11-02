@@ -10,6 +10,12 @@
 // The allowlist is a parameter rather than a literal here because the driver owns it and
 // tests/unit/research-driver-contract.test.mjs pins it from the driver's own source.
 //
+// The two branches below are one rule, not two: an exact allowlisted file is realpath()ed and
+// root-checked exactly like a name under an allowed directory. Returning the map value unresolved let
+// a symlinked index.js be read from outside the worktree while tools/wiki-demo-server.mjs refused the
+// same shape (idb-vector-jz65). tests/unit/asset-confinement-parity.test.mjs asserts that both
+// helpers answer alike for one table of shapes.
+//
 // Returns the RESOLVED absolute path to read, or null to refuse. realpath() is the only thing that can
 // tell a link from its target, so its answer is the answer: a candidate that cannot be resolved - a
 // dangling symlink under demo/ was served by returning the unresolved path here, and the read landed
@@ -28,13 +34,18 @@ import { realpath } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 
 export async function acceptanceAsset(path, root, { assetFiles, assetDirs }) {
-  const exact = assetFiles.get(path);
-  if (exact !== undefined) return exact;
   let base;
   try {
     base = await realpath(root);
   } catch {
     return null;
+  }
+  // The exact-file branch: an allowlist hit names a file, so it gets the same realpath() and the same
+  // inside-the-resolved-root requirement as everything below, and only the resolved path is returned.
+  const exact = assetFiles.get(path);
+  if (exact !== undefined) {
+    const exactTarget = await realpath(exact).catch(() => null);
+    return exactTarget !== null && exactTarget.startsWith(base + sep) ? exactTarget : null;
   }
   // Resolve against the realpath()ed root, so a worktree reached through a symlink compares equal to
   // itself in the prefix tests below.

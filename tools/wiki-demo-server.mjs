@@ -15,18 +15,25 @@ const rootPath = fileURLToPath(root);
 // the read back outside. null means "refuse": the caller answers 403, distinct from the 404 the
 // allow-list produces, because the two failures mean different things (idb-vector-r5wg).
 // Empty or whitespace-containing names are refused immediately.
-// A name inside the root that simply does not exist stays inside by construction and is returned as
-// is, so readFile still reports it as 404 rather than as a confinement failure.
+// realpath() is the only thing that can tell a link from its target, so its answer is the answer: a
+// candidate that cannot be resolved is refused, never returned unresolved for readFile to follow. The
+// unresolved fallback this had let a DANGLING link (demo/x.html -> /tmp/outside.html, target not
+// created yet) through: 404 while the target was absent, and a served file outside the root as soon as
+// anything created it, one await before the read (idb-vector-4c06). A name inside the root that simply
+// does not exist is unresolvable too, so it is refused here as 403 rather than reaching readFile's
+// 404; tools/research-asset-allowlist.mjs applies the same rule to the same shapes, and
+// tests/unit/asset-confinement-parity.test.mjs asserts that the two answer alike.
 export async function confinedFile(name, serverRoot = rootPath) {
   if (typeof name !== 'string') return null;
   const trimmed = name.trim();
   if (!trimmed || trimmed !== name || /\s/.test(name)) return null;
   try {
+    // A root that cannot be resolved is a configuration error: refuse rather than compare lexically.
     const base = await realpath(serverRoot);
     const candidate = resolve(base, name);
     if (!candidate.startsWith(base + sep)) return null;
-    const target = await realpath(candidate).catch(() => candidate);
-    return target.startsWith(base + sep) ? target : null;
+    const target = await realpath(candidate).catch(() => null);
+    return target !== null && target.startsWith(base + sep) ? target : null;
   } catch {
     return null;
   }
