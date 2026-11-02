@@ -11,7 +11,10 @@
 // then realpath() both the candidate and the allowed directory and require the RESOLVED target to stay
 // inside. Deliberate difference from that helper, inherited from this bead's prescribed fix: the target
 // must stay inside the RESOLVED ALLOWED DIRECTORY, not merely inside the worktree, because here the
-// allowlist is made of directory prefixes and nothing else in the worktree is named.
+// allowlist is made of directory prefixes and nothing else in the worktree is named. And a candidate
+// that realpath() cannot resolve at all - a dangling symlink - is refused rather than returned
+// unresolved, because the caller reads whatever path this returns and the target can appear between
+// the check and the read (idb-vector-gb9n review).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
@@ -60,6 +63,28 @@ test('a symlink under an allowed directory that points outside the root is refus
   assert.equal(await acceptanceAsset('/demo/escape.js', root, allowlist), null,
     'a symlink under an allowed directory that points outside the root must be refused (idb-vector-gb9n)');
 
+  // The regression case the first version of this helper missed (idb-vector-gb9n review): a DANGLING
+  // symlink out of the root. realpath() fails on it because the target does not exist yet, and the
+  // fallback that returned the unresolved path let the caller read it - which became a served file
+  // outside the worktree as soon as anything created the target. Unresolvable is refused.
+  const outside = join(scratch, 'outside.js');
+  await symlink(outside, join(root, 'demo', 'dangling-escape.js'));
+  assert.equal(await acceptanceAsset('/demo/dangling-escape.js', root, allowlist), null,
+    'a dangling symlink under an allowed directory that points outside the root must be refused, not returned unresolved (idb-vector-gb9n review)');
+  // The same link once its target exists: still refused, now by the root check, so creating the target
+  // between the check and the read cannot turn the dangling case above into an escape either.
+  await writeFile(outside, 'outside');
+  assert.equal(await acceptanceAsset('/demo/dangling-escape.js', root, allowlist), null,
+    'the link stays refused after its outside target appears');
+  await rm(outside, { force: true });
+
+  // A dangling link whose target would be inside the allowed directory is refused too: the rule is
+  // "unresolvable is refused", not "outside is refused", so a reader does not have to guess which
+  // failure mode a missing realpath() falls into.
+  await symlink(join(root, 'demo', 'later.js'), join(root, 'demo', 'dangling-in-root.js'));
+  assert.equal(await acceptanceAsset('/demo/dangling-in-root.js', root, allowlist), null,
+    'a dangling symlink whose target is inside the allowed directory is refused as well');
+
   // A link that climbs out and back in on the other side of the allowlist boundary is refused for the
   // same reason the intra-directory link below is allowed: the target is not in the named directory.
   await symlink(join(root, 'utils', 'options.js'), join(root, 'demo', 'cross.js'));
@@ -89,7 +114,17 @@ test('a symlink under an allowed directory that points outside the root is refus
   assert.equal(await acceptanceAsset('/demo/../secret.txt', root, allowlist), null, "traversal out of an allowed directory with '..' must be refused");
   assert.equal(await acceptanceAsset('/demo/../../secret.txt', root, allowlist), null, "nested '..' out of the root must be refused");
 
-  // A file inside an allowed directory that does not exist is still returned as a path, so the server
-  // reports it through readFile exactly as it did before this change instead of as a refusal.
-  assert.equal(await acceptanceAsset('/demo/missing.js', root, allowlist), join(root, 'demo', 'missing.js'));
+  // A file inside an allowed directory that does not exist, or a root or allowed directory that does
+  // not resolve, is refused as well: the caller's read only ever runs on a path realpath() confirmed,
+  // and the driver's own allowed-asset loop is what asserts every asset it needs exists (see the
+  // driver contract suite), so no legitimate request depends on a missing file reaching readFile.
+  assert.equal(await acceptanceAsset('/demo/missing.js', root, allowlist), null,
+    'a path under an allowed directory that does not exist at all is refused');
+  assert.equal(await acceptanceAsset('/demo/app.js', join(scratch, 'absent-root'), allowlist), null,
+    'a worktree root that does not resolve is refused rather than compared lexically');
+  const danglingDirRoot = join(scratch, 'dangling-dir-root');
+  await mkdir(danglingDirRoot, { recursive: true });
+  await symlink(join(scratch, 'absent-demo'), join(danglingDirRoot, 'demo'));
+  assert.equal(await acceptanceAsset('/demo/app.js', danglingDirRoot, allowlist), null,
+    'an allowed directory that is itself a dangling symlink is refused');
 });
