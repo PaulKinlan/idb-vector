@@ -16,11 +16,12 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile, mkdir, stat, writeFile } from 'node:fs/promises';
-import { resolve, extname, sep } from 'node:path';
+import { resolve, extname } from 'node:path';
 import { Marked } from 'marked';
 import { launch } from './lib/cdp.mjs';
 import { permittedCitation } from './lib/research-link-policy.mjs';
 import { requestPathname } from '../tools/request-pathname.mjs';
+import { acceptanceAsset } from '../tools/research-asset-allowlist.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const source = await readFile(resolve(root, 'research/architecture.md'), 'utf8');
@@ -38,16 +39,14 @@ markdown.parse(source);
 // rendering unstyled and with no script, and the receipt still advertised it as a healthy link
 // (idb-vector-zyd). Everything else in the worktree stays unreachable: exact files for the report,
 // directory prefixes for the demo's module closure, and nothing for the repo root, node_modules,
-// .git, .cache, tests or tools.
+// .git, .cache, tests or tools - and a symlink inside an allowed directory does not widen that, because
+// acceptanceAsset() realpaths the candidate against the realpath()ed directory (idb-vector-gb9n).
 const assetFiles = new Map([
   ['/research/index.html', resolve(root, 'research/index.html')],
   ['/research/architecture.md', resolve(root, 'research/architecture.md')],
   ['/index.js', resolve(root, 'index.js')],
 ]);
 const assetDirs = ['/demo/', '/utils/'];
-// Resolve first, then compare against the allowed directory: the handler decodes no escapes, but a
-// resolved path that climbed out of its allowed directory with `..` must still be refused here.
-const insideAssetDir = (file) => assetDirs.some((prefix) => file.startsWith(resolve(root, prefix.slice(1)) + sep));
 const server = createServer(async (req, res) => {
   try {
     // Shared safe parse (idb-vector-i9w/tb6/wqv): a malformed request target is a client error
@@ -55,11 +54,10 @@ const server = createServer(async (req, res) => {
     const requested = requestPathname(req);
     if (requested === null) { res.writeHead(400).end('Bad request target'); return; }
     const path = requested.endsWith('/') ? requested + 'index.html' : requested;
-    let file = assetFiles.get(path);
-    if (!file) {
-      const candidate = resolve(root, '.' + path);
-      if (insideAssetDir(candidate) && candidate.startsWith(root + sep)) file = candidate;
-    }
+    // Confinement lives in a unit-testable helper (idb-vector-gb9n): no unit suite can import this
+    // driver, so the allowlist decision has to be reachable without a browser. A refusal is the same
+    // "not an acceptance asset" 404 every other off-allowlist path gets, not a distinct status.
+    const file = await acceptanceAsset(path, root, { assetFiles, assetDirs });
     if (!file) throw new Error('not an acceptance asset');
     const content = await readFile(file);
     // .css matters: the demo page's stylesheet is a page-level asset, and a stylesheet served as
