@@ -51,7 +51,12 @@ test('the harness serves directory URLs as GitHub Pages does, and nothing outsid
   }
   // Only the demo, the library entry point and the utils the Pages workflow stages are
   // reachable: a path outside that set must stay 404 rather than hide a missing staging step.
-  for (const path of ['/README.md', '/package.json', '/index.html', '/demo/nope.html', '/utils/unlisted.js', '/demo/../package.json']) {
+  for (const path of ['/README.md', '/package.json', '/index.html', '/utils/unlisted.js', '/demo/../package.json']) {
     assert.equal((await served(path)).status, 404, path);
   }
+  // A name the allow-list admits but that does not exist under the root is refused by the confinement
+  // layer (403) instead of reaching readFile's 404: confinedFile() realpaths every candidate and refuses
+  // what it cannot resolve, so the same name cannot become a link out of the root between the check and
+  // the read (idb-vector-4c06). It is not served either way.
+  assert.equal((await served('/demo/nope.html')).status, 403, '/demo/nope.html');
 });
