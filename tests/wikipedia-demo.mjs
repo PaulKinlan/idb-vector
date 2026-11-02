@@ -9,9 +9,10 @@ import { runDir } from '../tools/report-target.mjs';
 // and that check then waited 15s, so a correct tree failed. A load phase downloads the model and
 // commits a corpus (233s measured for the 250-passage load under host load, idb-vector-k6wh); any
 // other page phase encodes a query, reads 2,000 records back or waits for the offline flag. The full
-// gate allows 2400s for npm test, the packed run and this driver together: a load gets a quarter of
-// that, every other page phase an eighth, the same split tests/browser.mjs uses for its dataset and
-// search waits.
+// gate allows 3600s for npm test, the packed run and this driver together (~/.fleet/idb-vector-check.conf
+// CHECK_TIMEOUT, raised from 2400s by idb-vector-9dze): a load gets a sixth of that, every other page
+// phase a twelfth, the same split tests/browser.mjs uses for its dataset and search waits. The
+// fractions are a reading aid - the budgets are set by the loaded-host measurements above.
 const READY_WAIT_MS = 600000;
 const PAGE_WORK_WAIT_MS = 300000;
 const external = process.argv[2];

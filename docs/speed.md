@@ -4,13 +4,15 @@ There are three tiers. A suite belongs in the fastest tier whose costs it can ho
 
 | tier | command | runs | budget |
 | --- | --- | --- | --- |
-| fast | `tools/fast-gate.sh` via `fleet-check --fast` | `tests/unit/*.test.mjs` minus the middle list | **<= 120 s at load 5** |
+| fast | `tools/fast-gate.sh` via `fleet-check --fast` | `tests/unit/*.test.mjs` minus the middle list | **<= 120 s at load 5** (policy); enforced by `CHECK_FAST_TIMEOUT=300` (`~/.fleet/idb-vector-check.conf`) |
 | middle | `npm run test:middle` | the suites enumerated in `tools/unit-tier-suites.sh` | **<= 180 s** |
 | full | `npm test && npm run test:packed && npm run test:wikipedia && npm run gate:research` (merger) | `npm test` - the `tests/*.mjs` drivers plus, because the `test` script ends with `npm run test:middle`, the middle unit tier - then the packed and wikipedia legs, then the research publication leg under its own 300 s bound | **3600 s** bound (`CHECK_TIMEOUT`, raised from 2400 s after this measurement) against **2236 s measured** on 2026-10-31 - see [Merged gate time](#merged-gate-time-four-legs-2236-s-measured-idb-vector-9dze) |
 
+**The fast tier's two numbers.** The 120 s is a policy budget - the wall clock the tier is meant to hold at load 5 - and it appears in the repo only as a sentence in this file and in the message `tests/support/fast-tier-guard.mjs` prints when a suite spawns. The bound actually enforced is `CHECK_FAST_TIMEOUT=300` in `~/.fleet/idb-vector-check.conf` (outside this repo, the way `CHECK_TIMEOUT` in the table's full row is). Both sit far above what the tier costs: at `97fc78f` the whole `tools/fast-gate.sh` run took 5 s, of which `duration_ms 4553` was node:test time (gate record `fleet-check --status --fast 97fc78f`, 2026-11-02T05:30:21Z, 37 suites/172 tests). The distance from 4.6 s to either number is host load, not the size of the tier: the same tier measured 23.8 s at load 1.1-1.9 on 2026-10-29 (32 files/137 tests, below), 57.4 s at load ~8 with the 2-worker cap in place, and before the spawn/socket/clone suites were moved out of it one commit swung 55 s -> 273 s (idb-vector-t7u). That is what both numbers are priced for.
+
 **Shape rule for the fast tier (policy, enforced at runtime).** It contains only suites that never spawn a child process, never bind a socket, and never clone or stage the repo: those three costs track host load, so a tier holding them oscillates between 55 s and 273 s on the same commit, and each bound raise is absorbed within days (idb-vector-t7u). Everything else goes to the middle tier - it still runs, it just stops being the per-lane contract. A new unit file is fast by default; excluding one is a single line in `tools/unit-tier-suites.sh`, which is the only place the split is defined. A suite that breaks this rule fails in its own test at runtime (below); the one fast suite that does spawn is a written, documented exception, recorded as an opt-out in the guard.
 
-Measured 2026-10-29 on this tree (load 1.1-1.9), before the guard moved `start-command.test.mjs` out of the fast tier: fast 32 files/137 tests in 23.8 s, middle 8 files/58 tests in 19.3 s — the whole unit set, split across two runs. Today the fast tier is 32 files/141 tests (the guard's own suite is +6, `start-command.test.mjs`'s 2 moved to middle, which is now 9 files).
+Measured 2026-10-29 on this tree (load 1.1-1.9), before the guard moved `start-command.test.mjs` out of the fast tier: fast 32 files/137 tests in 23.8 s, middle 8 files/58 tests in 19.3 s — the whole unit set, split across two runs. The fast tier at `97fc78f` (2026-11-02) is **37 suites / 172 tests**, and the middle list is 9 files - 37 + 9 = the 46 that `ls tests/unit/*.test.mjs` counts (idb-vector-yt8x). Source is the gate record rather than this sentence: `fleet-check --status --fast <sha>` returns the whole suite list plus the run's tail, `tests 172 / pass 172 / fail 0 / duration_ms 4553.169077`, for `asked:"97fc78f"`, `tree:"b27a9d7b..."`, `secs:5`. Read that command for the live count; four of those 37 suites landed in the three days after the count this paragraph used to print (32 files/141 tests), which is why a count in prose is not worth trusting on its own.
 
 **The rule is enforced at runtime, by one guard loaded only for the fast tier** (idb-vector-kljx). `tests/support/fast-tier-guard.mjs` replaces `child_process.{execSync,execFileSync,spawn,spawnSync,exec,execFile,fork}`, `net.createServer`, `net.Server.prototype.listen`, `http.createServer` and `https.createServer` with throwing stubs whose message names the construct and points at the `middle` list in `tools/unit-tier-suites.sh`. It is preloaded by `NODE_OPTIONS=--import ./tests/support/fast-tier-guard.mjs` on `npm run test:fast`, the command `tools/fast-gate.sh` dispatches, so running the fast script cannot skip it; `npm run test:middle` and `npm test` do not load it, because their suites spawn processes and bind loopback sockets deliberately. A fast suite that spawns or listens therefore fails in its own test, which is exact: nothing to evade with a string, a comment or a computed import, and no source parsing. Exemptions are explicit, reasoned opt-outs in that one file - today exactly one, `fast-style-coverage.test.mjs`. `tests/unit/fast-tier-guard.test.mjs` proves every patched entry point throws and that only the fast tier command preloads the guard. Static source analysis was tried for four rounds on idb-vector-t7u and abandoned - a call-name scan (round 1), a hand-rolled comment/string lexer (round 2), and a module-specifier allowlist (round 3) were each evaded by valid JavaScript: a string holding `//` blanked the rest of the line for the lexer, and a same-line `import` plus a computed `import(expr)` slipped past the allowlist. There is no parser dependency on this VM, so that is a parser problem we are not buying with review cycles; the guard needs none.
 
@@ -26,7 +28,7 @@ The fast gate runs without launching Chromium. Keep unit tests independent of te
 
 **CSS and HTML are not exercised by this fast unit tier.** `tools/report-fast-style-coverage.sh` compares the branch tip to its `origin/main` merge-base and emits `fast-gate: unmapped: <path>` for *each* changed `.css` or `.html` file before the suites run. Fleet-check surfaces those markers as a **COVERAGE WARNING**, even though its shared changed-file extractor does not classify these extensions. If the base cannot be determined, the gate explicitly reports `fast-gate: unknown:` rather than claiming coverage. A passing unit gate with these notices is not visual/browser verification.
 
-For demo style or markup changes, drive the affected demo in Chromium, assert the actual interaction or computed styles at relevant viewport sizes and colour schemes, and capture a screenshot. Use a focused browser check during implementation; do not add a full browser run to the fast unit tier. On landing, the merger runs the full gate (`npm test` including `npm run test:demo-restore` and the middle unit tier, `npm run test:packed`, `npm run test:wikipedia`, `npm run gate:research` - the research publication leg, measured 78-89 s on the 2-vCPU fleet VM at host loads 2.6-6.9 and held to its own 300 s bound) once on the merged result. The focused restore test drives Chromium and is deliberately excluded from `test:fast`; its changed file may appear as an unmapped fast-gate coverage warning, but it runs in the full gate. The compute lab is separate; when it changes, drive its controls and inspect the rendered report as well.
+For demo style or markup changes, drive the affected demo in Chromium, assert the actual interaction or computed styles at relevant viewport sizes and colour schemes, and capture a screenshot. Use a focused browser check during implementation; do not add a full browser run to the fast unit tier. On landing, the merger runs the full gate (`npm test` including `npm run test:demo-restore` and the middle unit tier, `npm run test:packed`, `npm run test:wikipedia`, `npm run gate:research` - the research publication leg, measured 78 s when it ran alone in a lane on 2026-10-29 and 150 s and 213 s inside the four-leg gate at host loads 6.07 and 11.24, held to its own 300 s bound) once on the merged result. The focused restore test drives Chromium and is deliberately excluded from `test:fast`; its changed file may appear as an unmapped fast-gate coverage warning, but it runs in the full gate. The compute lab is separate; when it changes, drive its controls and inspect the rendered report as well.
 
 `npm run test:compute` is that lab's focused browser check (real click, 100k × 128
 synthetic corpus, storage roundtrips, four-path top-k, near-tie fixture, screenshots);
@@ -94,13 +96,26 @@ an injected write failure are three different paths, so there is no redundant se
 
 **Why the bound is not repairable by trimming.** The gate's own sub-legs grant themselves more time
 than it: `test:wikipedia` gives each of its five load phases a 600 s budget and every other page phase
-300 s - 3000 s for the load phases alone - and `gate:research` carries its own 300 s bound, so the
-inner budgets are sized for a loaded host while the outer one was not. A load phase taking 277 s, well
-inside its 600 s budget and unremarkable on a host at load 11, would have taken the 2236 s run to
-2400.6 s - past the 2400 s bound then in force - and killed a correct tree with exit 124, because the
-outer bound fires before the inner ones that were designed to be generous. The total bound has to be
-consistent with what the legs are allowed to spend, and the answer is a total bound, not a smaller
-internal budget that fails slow-but-correct trees.
+300 s - 3000 s for the load phases alone - so those inner budgets are sized for a loaded host while
+the outer one was not. A load phase taking 277 s, well inside its 600 s budget and unremarkable on a
+host at load 11, would have taken the 2236 s run to 2400.6 s - past the 2400 s bound then in force -
+and killed a correct tree with exit 124, because the outer bound fires before the inner ones that were
+designed to be generous. The total bound has to be consistent with what the legs are allowed to
+spend, and the answer is a total bound, not a smaller internal budget that fails slow-but-correct
+trees.
+
+`gate:research` is the one inner bound that is *not* generous, and the paragraph above does not cover
+it (idb-vector-nt7s). Its 300 s (`package.json:36`) is 2.0x the 150 s it measured inside the gate at
+load 6.07 and **1.4x** the 213 s it measured at load 11.24 - the tightest ratio of any bound in the
+four-leg gate. That is deliberate: 300 s is the leg's own kill bound, a twelfth of
+`CHECK_TIMEOUT=3600`, and its job is to fail loudly. A research leg that outgrows it dies as
+`timeout`'s exit 124 with the leg named, which is diagnostic; a research leg granted 600 s would
+spend the headroom the worst case below depends on (2236 + 1192 + (600 - 213) = 3815 s, past 3600 s).
+So 1.4x is acceptable here for the reason 1.61x was not acceptable for the total: the cost of being
+wrong is one named leg, not a correct tree killed by a bound that covers everything. It is still a
+real exposure and should be read as one - the leg grew 42% between those two samples (:91), and one
+more step of that size (213 s x 1.42 = 303 s) takes it past its bound. If that happens the fix is a
+re-measurement and a bound that moves with it (below), not a quiet raise here.
 
 **The bound in force: `CHECK_TIMEOUT=3600`.** The coordinator raised it from 2400 s after this
 measurement. The conf lives outside this repo (`~/.fleet/idb-vector-check.conf`), so this file records
@@ -135,17 +150,23 @@ idb-vector-isyy) deliberately covers the static contract and not the browser beh
 VM, 2026-10-29: **78 s wall, exit 0**, host load 2.6 (1 min) rising to 5.0 during the run, and
 `pgrep -c chrome` = 0 afterwards - no browser left behind. That is bounded (well under 300 s) and it
 passed, so the remedy is a gate leg rather than a manual checklist: the run is host-load sensitive
-but not flaky, and 78 s is 3% of the gate's then-2400 s bound. Inside the merged gate the same leg measured
-150 s at host load 6.07 (2026-10-29) and 213 s at load 11.24 (2026-10-31, tree `4467a83`) - still well
-inside its 300 s bound, and 10% of the measured four-leg gate. Alone among the optional browser runs it
-needs no network, no credentials and no pinned model download (the `--links` mode is the part that
-fetches published sources, and that stays manual - see below).
+but not flaky, and 78 s is 3% of the gate's then-2400 s bound. Inside the merged gate the same leg
+measured 150 s at host load 6.07 (2026-10-29) and 213 s at load 11.24 (2026-10-31, tree `4467a83`):
+its 300 s bound is 2.0x the first and 1.4x the second, and the leg is 10% of the measured four-leg
+gate. Alone among the optional browser runs it needs no network, no credentials and no pinned model
+download (the `--links` mode is the part that fetches published sources, and that stays manual - see
+below).
 
 The repo's half is the script: `"gate:research": "timeout --kill-after=15s 300s node tests/research.mjs"`.
-The bound is explicit and ~4x the measurement, so a real regression fails as a named timeout instead
-of a stall; it is still under a quarter of `CHECK_TIMEOUT`. `npm run test:research` remains the
-unbounded manual form, and `tests/unit/research-driver-contract.test.mjs` pins both scripts so the
-gate leg cannot be silently renamed away. The leg is deliberately **not** in the fast or middle tier:
+The bound is explicit: 3.8x the 78 s it measured alone, but only 1.4x the 213 s it measured inside
+the merged gate at load 11.24 - the tightest ratio in the gate, and the reason the research leg is
+left at 300 s rather than priced like the wikipedia phases (see the worst-case arithmetic above) -
+so a real regression, or one more 42% growth step of the kind load produced, fails as a named
+timeout instead of a stall. Against `CHECK_TIMEOUT=3600`, 300 s is a twelfth of the outer bound, not
+a quarter of the 2400 s that was in force when this paragraph was first written.
+`npm run test:research` remains the unbounded manual form, and
+`tests/unit/research-driver-contract.test.mjs` pins both scripts so the gate leg cannot be silently
+renamed away. The leg is deliberately **not** in the fast or middle tier:
 it launches Chromium, which the fast-tier shape rule forbids and the fast-tier guard would reject.
 
 The wrapper needs the driver's own signal handling: `timeout` signals only the Node process, while

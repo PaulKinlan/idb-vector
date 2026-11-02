@@ -12,7 +12,8 @@ const out = runDir(undefined, 'idb-demo-restore-');
 // model and commits 250 passages; a standalone run under host load measured 233s, so the 180s bound
 // this file carried failed the full gate on a correct tree (idb-vector-k6wh). tests/browser.mjs uses
 // 300s for the same class of wait, but its corpus is smaller; 600s leaves headroom and is still a
-// quarter of the full gate's 2400s CHECK_TIMEOUT.
+// sixth of the full gate's 3600s CHECK_TIMEOUT (~/.fleet/idb-vector-check.conf, raised from 2400s by
+// idb-vector-9dze).
 const READY_WAIT_MS = 600000;
 
 const { server, url } = await serve();
