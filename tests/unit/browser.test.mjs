@@ -3,7 +3,8 @@
 // The budgets this driver spends are no longer declared here or in the driver: tests/lib/wait-budget.mjs
 // holds them and tests/unit/wait-budget.test.mjs pins them against the gate's bound (idb-vector-t5wv).
 // What is left to check here is the driver's side of the contract - each wait labelled, budgeted with
-// a shared budget, and reported through the shared attribution helper.
+// the budget its own phase requires (READY_WAIT_MS for the dataset build, PAGE_WORK_WAIT_MS for a
+// search), and reported through the shared attribution helper.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -17,11 +18,20 @@ function readBrowserSource() {
   return readFile(new URL('../../tests/browser.mjs', import.meta.url), 'utf8');
 }
 
-/** The budget a wait passes as `timeout:` must be one of the shared budgets. */
-function assertSharedBudget(token, wait) {
+/**
+ * The budget a wait passes as `timeout:` must be the one its phase requires, not merely a shared one:
+ * a dataset build is a corpus load and a search is page work, so swapping the two bounds is exactly
+ * the change this pins against (idb-vector-t5wv review).
+ */
+function assertPhaseBudget(token, expected, wait) {
   assert.ok(
     token in SHARED_BUDGETS,
-    `the ${wait} wait spends ${token}; it must spend a budget tests/lib/wait-budget.mjs exports (${Object.keys(SHARED_BUDGETS).join(', ')})`,
+    `the ${wait} wait in tests/browser.mjs spends ${token}; it must spend a budget tests/lib/wait-budget.mjs exports (${Object.keys(SHARED_BUDGETS).join(', ')})`,
+  );
+  assert.equal(
+    token,
+    expected,
+    `tests/browser.mjs: the ${wait} wait spends ${token}, but that phase needs ${expected} - a dataset build downloads a model and writes the dataset (a corpus load, READY_WAIT_MS, 600 s), while a search is page work (PAGE_WORK_WAIT_MS, 300 s). The two bounds are not interchangeable (idb-vector-t5wv review)`,
   );
 }
 
@@ -39,7 +49,7 @@ test('tests/browser.mjs dataset seeding wait budget is bounded near the full gat
 
   // The budget must be a shared one imported from tests/lib/wait-budget.mjs: a literal here would be
   // a budget with no floor over it, which is the shape idb-vector-k6wh removed.
-  assertSharedBudget(call[1], 'dataset creation (#generate seeding)');
+  assertPhaseBudget(call[1], 'READY_WAIT_MS', 'dataset creation (#generate seeding)');
 
   // Must include descriptive label naming dataset creation:
   assert.match(
@@ -80,7 +90,7 @@ test('tests/browser.mjs search-complete wait spends the shared page-work budget 
   assert.ok(predicate !== -1, "must wait for the page's 'Search complete' status");
   const budgetToken = /timeout:\s*([A-Za-z_$][\w$]*|\d[\d_]*)/.exec(browserSrc.slice(predicate));
   assert.ok(budgetToken, 'the search-complete wait must pass an explicit budget, not the 15s default');
-  assertSharedBudget(budgetToken[1], 'search-complete');
+  assertPhaseBudget(budgetToken[1], 'PAGE_WORK_WAIT_MS', 'search-complete');
 
   // Every search wait names its phase at the call site, so a timeout says which click stalled.
   const phases = [...browserSrc.matchAll(/waitForSearchComplete\(\s*page\s*,\s*(['"])([^'"\n]+)\1\s*\)/g)]

@@ -129,9 +129,14 @@ the number and the arithmetic rather than enforcing it:
 - It does not cover everything: three blown load-phase budgets reach 4004 s (the third smallest phase
   is 23.8 s, +576 s), and a leg that regresses outright would red the gate whatever the bound. That
   is a real anomaly rather than an ordinary load spike, which is the right place for the limit to sit.
-- No repo file changes with it: the browser drivers spend the wait budgets `tests/lib/wait-budget.mjs`
-  defines once (600 s `READY_WAIT_MS`, 300 s `PAGE_WORK_WAIT_MS`, and one 3600 s copy of the total
-  they are compared against, idb-vector-t5wv) and `gate:research` keeps its `300s` timeout.
+- The in-repo copy moves with it: `tests/lib/wait-budget.mjs` holds `GATE_CHECK_TIMEOUT_MS` as the
+  one 3600 s copy of the total the wait budgets are compared against, and
+  `tests/unit/wait-budget.test.mjs` asserts that constant is `3600000` ms *and*, when
+  `~/.fleet/idb-vector-check.conf` is present, that its `CHECK_TIMEOUT` still agrees with it. So a
+  raise is a repo change in both directions: the conf and the module constant move together, along
+  with the budgets that are fractions of it (600 s `READY_WAIT_MS`, a sixth; 300 s
+  `PAGE_WORK_WAIT_MS`, a twelfth; 60 s `STORAGE_PROBE_WAIT_MS`, a sixtieth, idb-vector-t5wv), or the
+  fast tier reds on a conf that was raised without them. `gate:research` keeps its `300s` timeout;
   `CHECK_CMD` and `CHECK_FAST_TIMEOUT` are unchanged.
 
 A re-measurement replaces these numbers here and in the tier table above; the bound moves with them,

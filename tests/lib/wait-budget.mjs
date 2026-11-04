@@ -29,12 +29,20 @@ export const PAGE_WORK_WAIT_MS = 300000;
  * The conf is a local file outside this repo - and one an install script has already clobbered once -
  * so the tree keeps one copy of the number and the test derives the floors from it, rather than a
  * driver run depending on a file it cannot see.
+ *
+ * The copy is checked in both directions by tests/unit/wait-budget.test.mjs, because a floor derived
+ * from this constant accepts every value of it: the test asserts this constant is the literal
+ * 3600000 and, when the conf exists, that CHECK_TIMEOUT still agrees. Raising CHECK_TIMEOUT is
+ * therefore a repo change too - this constant, the three budgets below and docs/speed.md:132 move
+ * with it.
  */
 export const GATE_CHECK_TIMEOUT_MS = 3600000;
 
 /**
  * The storage-probe waits in tests/demo-restore-trust.mjs: after a reload the page's `#storage` line
- * is written by an async IndexedDB inspection, so the wait is for that message, not for a click.
+ * is written by an async IndexedDB inspection, so the wait is for that message, not for a click. A
+ * sixtieth of the full gate, floored in tests/unit/wait-budget.test.mjs the way the other two
+ * budgets are, so a value that would time out on a loaded host cannot hide here.
  */
 export const STORAGE_PROBE_WAIT_MS = 60000;
 
