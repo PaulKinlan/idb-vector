@@ -1,20 +1,15 @@
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { launch } from './lib/cdp.mjs';
+import { PAGE_WORK_WAIT_MS, READY_WAIT_MS, timedOutAfter } from './lib/wait-budget.mjs';
 import { serve } from '../tools/wiki-demo-server.mjs';
 import { runDir } from '../tools/report-target.mjs';
-// Every wait here measures work on a host shared with other agent turns, so each spends a gate-derived
-// budget rather than waitFor's 15s default or a per-site guess: the load phase immediately before the
+// Every wait here measures work on a host shared with other agent turns, so each spends a budget
+// rather than waitFor's 15s default or a per-site guess: the load phase immediately before the
 // injected-write-failure check took 242.8s in the full gate on ea71d3f (2026-10-29, idb-vector-g85a),
-// and that check then waited 15s, so a correct tree failed. A load phase downloads the model and
-// commits a corpus (233s measured for the 250-passage load under host load, idb-vector-k6wh); any
-// other page phase encodes a query, reads 2,000 records back or waits for the offline flag. The full
-// gate allows 3600s for npm test, the packed run and this driver together (~/.fleet/idb-vector-check.conf
-// CHECK_TIMEOUT, raised from 2400s by idb-vector-9dze): a load gets a sixth of that, every other page
-// phase a twelfth, the same split tests/browser.mjs uses for its dataset and search waits. The
-// fractions are a reading aid - the budgets are set by the loaded-host measurements above.
-const READY_WAIT_MS = 600000;
-const PAGE_WORK_WAIT_MS = 300000;
+// and that check then waited 15s, so a correct tree failed. The budgets and the measurements behind
+// them are shared with the other two drivers in tests/lib/wait-budget.mjs (idb-vector-t5wv): a corpus
+// load gets READY_WAIT_MS, every other page phase PAGE_WORK_WAIT_MS.
 const external = process.argv[2];
 const local = external ? null : await serve();
 const url = external || local.url;
@@ -27,44 +22,10 @@ const page = await launch();
 const report = { url, evidence, at: new Date().toISOString(), browser: await page.send('Browser.getVersion'), model: 'Xenova/all-MiniLM-L6-v2 quantized, 384 dimensions', measurements: [] };
 const text = id => page.evaluate(id => document.getElementById(id).textContent, id);
 
-/** The page's last #status line, bounded: a hung renderer must not turn a failure into a stall. */
-async function lastStatusText(page) {
-  let timer;
-  const unreadable = new Promise(resolve => {
-    timer = setTimeout(() => resolve('<unreadable: page unresponsive>'), 5000);
-  });
-  try {
-    return await Promise.race([
-      page.evaluate(() => document.querySelector('#status')?.textContent ?? ''),
-      unreadable,
-    ]);
-  } catch (error) {
-    return `<unreadable: ${error.message}>`;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Turn a wait that ran out of budget into a report of which phase stalled and why: elapsed ms against
- * the budget plus the page's last #status line, so contention (status still mid-work) is
- * distinguishable from a hang (status unchanged since the action).
- */
-async function timedOutAfter(page, error, { phase, elapsedMs, budgetMs, stalledHint }) {
-  // page.waitFor's own message already names the label it was given, so a phase the message names
-  // must not be prefixed again: the message keeps the wording it was reviewed with.
-  const named = error.message.includes(phase) ? '' : `${phase} `;
-  return new Error(
-    `${error.message}\n  ${named}after ${elapsedMs} ms of a ${budgetMs} ms budget; page #status: ${JSON.stringify(await lastStatusText(page))}` +
-      `\n  (${stalledHint})`,
-    { cause: error },
-  );
-}
-
 /**
  * Wait for one page phase with an explicit budget and a label. Every wait in this driver goes through
- * here: the label names the phase a timeout stalled in, and the budget is a value this file derives
- * from the full gate's allowance rather than waitFor's default.
+ * here: the label names the phase a timeout stalled in, and the budget is a shared value
+ * (tests/lib/wait-budget.mjs) rather than waitFor's 15s default.
  */
 async function waitForPhase(page, predicate, { phase, budgetMs, stalledHint = 'still working => host contention; unchanged since the action => page hang' }) {
   const start = Date.now();

@@ -129,9 +129,10 @@ the number and the arithmetic rather than enforcing it:
 - It does not cover everything: three blown load-phase budgets reach 4004 s (the third smallest phase
   is 23.8 s, +576 s), and a leg that regresses outright would red the gate whatever the bound. That
   is a real anomaly rather than an ordinary load spike, which is the right place for the limit to sit.
-- No repo file changes with it: `tests/wikipedia-demo.mjs` pins its own 600 s and 300 s wait constants
-  (`READY_WAIT_MS`, `PAGE_WORK_WAIT_MS`) and `gate:research` keeps its `300s` timeout. `CHECK_CMD` and
-  `CHECK_FAST_TIMEOUT` are unchanged.
+- No repo file changes with it: the browser drivers spend the wait budgets `tests/lib/wait-budget.mjs`
+  defines once (600 s `READY_WAIT_MS`, 300 s `PAGE_WORK_WAIT_MS`, and one 3600 s copy of the total
+  they are compared against, idb-vector-t5wv) and `gate:research` keeps its `300s` timeout.
+  `CHECK_CMD` and `CHECK_FAST_TIMEOUT` are unchanged.
 
 A re-measurement replaces these numbers here and in the tier table above; the bound moves with them,
 not ahead of them.

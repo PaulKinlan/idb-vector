@@ -1,32 +1,28 @@
 // tests/unit/browser.test.mjs — regression protection for idb-vector-6b1, idb-vector-yhy, idb-vector-q8s9 and idb-vector-t2vo.
+//
+// The budgets this driver spends are no longer declared here or in the driver: tests/lib/wait-budget.mjs
+// holds them and tests/unit/wait-budget.test.mjs pins them against the gate's bound (idb-vector-t5wv).
+// What is left to check here is the driver's side of the contract - each wait labelled, budgeted with
+// a shared budget, and reported through the shared attribution helper.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { PAGE_WORK_WAIT_MS, READY_WAIT_MS, timedOutAfter } from '../lib/wait-budget.mjs';
 
-// The dataset wait has to survive a host shared with several agent turns and a browser: seeding
-// measured 17.9s at load 5.7 and 34.1s on the merge-base, and a real FULL gate blew through 300s at
-// load >16. Anything below this floor is a budget that assumes a fair CPU share.
-const MIN_DATASET_SEED_TIMEOUT_MS = 600000;
-
-// The search phase runs on that same host right after seeding: the FULL gate failed this wait at 30s
-// on a correct tree. A twelfth of the full gate's 3600s CHECK_TIMEOUT (~/.fleet/idb-vector-check.conf)
-// is the floor for a single phase.
-const MIN_SEARCH_COMPLETE_TIMEOUT_MS = 300000;
+// The names tests/browser.mjs may hand a wait: one of the shared budgets, or the phase's own label
+// forwarded by waitForSearchComplete. A numeric literal or an unimported name is a budget nothing pins.
+const SHARED_BUDGETS = { READY_WAIT_MS, PAGE_WORK_WAIT_MS };
 
 function readBrowserSource() {
   return readFile(new URL('../../tests/browser.mjs', import.meta.url), 'utf8');
 }
 
-/**
- * The budget a wait passes as `timeout:`: a literal at the call site, or a named constant declared
- * nearby as a numeric literal. Returns the number of milliseconds.
- */
-function resolveBudget(browserSrc, token) {
-  const literal = Number(token.replaceAll('_', ''));
-  if (!Number.isNaN(literal)) return literal;
-  const declaration = new RegExp(`const\\s+${token}\\s*=\\s*(\\d[\\d_]*)`).exec(browserSrc);
-  assert.ok(declaration, `timeout budget constant ${token} must be declared as a numeric literal`);
-  return Number(declaration[1].replaceAll('_', ''));
+/** The budget a wait passes as `timeout:` must be one of the shared budgets. */
+function assertSharedBudget(token, wait) {
+  assert.ok(
+    token in SHARED_BUDGETS,
+    `the ${wait} wait spends ${token}; it must spend a budget tests/lib/wait-budget.mjs exports (${Object.keys(SHARED_BUDGETS).join(', ')})`,
+  );
 }
 
 test('tests/browser.mjs dataset seeding wait budget is bounded near the full gate with clear attribution (idb-vector-6b1)', async () => {
@@ -41,13 +37,9 @@ test('tests/browser.mjs dataset seeding wait budget is bounded near the full gat
     'must provide a wait with a budget and the label "dataset creation (#generate seeding)"',
   );
 
-  // The budget may be a literal here or a named constant nearby; either way it must resolve to a
-  // number, and that number must not shrink back under the floor.
-  const budget = resolveBudget(browserSrc, call[1]);
-  assert.ok(
-    budget >= MIN_DATASET_SEED_TIMEOUT_MS,
-    `dataset creation (#generate seeding) budget must be at least ${MIN_DATASET_SEED_TIMEOUT_MS}ms, got ${budget}ms`,
-  );
+  // The budget must be a shared one imported from tests/lib/wait-budget.mjs: a literal here would be
+  // a budget with no floor over it, which is the shape idb-vector-k6wh removed.
+  assertSharedBudget(call[1], 'dataset creation (#generate seeding)');
 
   // Must include descriptive label naming dataset creation:
   assert.match(
@@ -57,11 +49,12 @@ test('tests/browser.mjs dataset seeding wait budget is bounded near the full gat
   );
 
   // A timeout must say whether the host was contended or the page hung: elapsed vs budget plus the
-  // page's last #status line.
+  // page's last #status line. That report is the shared helper's wording (pinned by the q8s9 test
+  // below), so what the driver owes is to spend it for this wait.
   assert.match(
     browserSrc,
-    /ms budget; page #status:/,
-    'timed-out dataset creation must report elapsed ms, the budget and the last #status text',
+    /timedOutAfter\(page, error, \{[^}]*phase: 'dataset creation \(#generate seeding\)'/,
+    'a timed-out dataset creation must report elapsed ms, the budget and the last #status text',
   );
 
   // Must measure and print elapsed seeding time:
@@ -79,7 +72,7 @@ test('tests/browser.mjs dataset seeding wait budget is bounded near the full gat
   );
 });
 
-test('tests/browser.mjs search-complete wait budget is derived from the full gate and each search phase is labelled (idb-vector-t2vo)', async () => {
+test('tests/browser.mjs search-complete wait spends the shared page-work budget and each search phase is labelled (idb-vector-t2vo)', async () => {
   const browserSrc = await readBrowserSource();
 
   // The search wait resolves its budget at the call site, like the dataset wait does.
@@ -87,11 +80,7 @@ test('tests/browser.mjs search-complete wait budget is derived from the full gat
   assert.ok(predicate !== -1, "must wait for the page's 'Search complete' status");
   const budgetToken = /timeout:\s*([A-Za-z_$][\w$]*|\d[\d_]*)/.exec(browserSrc.slice(predicate));
   assert.ok(budgetToken, 'the search-complete wait must pass an explicit budget, not the 15s default');
-  const budget = resolveBudget(browserSrc, budgetToken[1]);
-  assert.ok(
-    budget >= MIN_SEARCH_COMPLETE_TIMEOUT_MS,
-    `search-complete budget must be at least ${MIN_SEARCH_COMPLETE_TIMEOUT_MS}ms, got ${budget}ms`,
-  );
+  assertSharedBudget(budgetToken[1], 'search-complete');
 
   // Every search wait names its phase at the call site, so a timeout says which click stalled.
   const phases = [...browserSrc.matchAll(/waitForSearchComplete\(\s*page\s*,\s*(['"])([^'"\n]+)\1\s*\)/g)]
@@ -133,7 +122,7 @@ test('tests/browser.mjs search-complete wait budget is derived from the full gat
   // the same attribution as the dataset wait rather than a second variant of it.
   assert.match(
     browserSrc,
-    /ms budget; page #status:/,
+    /timedOutAfter\(page, error, \{[^}]*phase: label/,
     'timed-out search must report elapsed ms, the budget and the last #status text',
   );
 
@@ -141,23 +130,10 @@ test('tests/browser.mjs search-complete wait budget is derived from the full gat
   assert.match(browserSrc, /Search complete in \$\{/, 'must log the measured search duration');
 });
 
-/**
- * The timeout-attribution helpers from tests/browser.mjs. The harness runs the page when imported,
- * so the helpers are lifted out of the source instead; they are plain functions with no module-level
- * state.
- */
-function timeoutHelpers(browserSrc) {
-  const start = browserSrc.indexOf('async function lastStatusText(');
-  const end = browserSrc.indexOf('\n}\n', browserSrc.indexOf('async function timedOutAfter('));
-  assert.ok(start !== -1 && end > start, 'must keep the lastStatusText and timedOutAfter helpers');
-  return new Function(`${browserSrc.slice(start, end + 2)}\nreturn { timedOutAfter };`)();
-}
-
 // The dataset timeout message was reviewed and cleared on idb-vector-q8s9: the phase is named once,
-// by the wait's own message, and `after` follows on its own line.
-test('tests/browser.mjs dataset timeout message keeps the cleared q8s9 wording (idb-vector-t2vo)', async () => {
-  const browserSrc = await readBrowserSource();
-  const { timedOutAfter } = timeoutHelpers(browserSrc);
+// by the wait's own message, and `after` follows on its own line. The helper is called here from the
+// shared module the driver imports (idb-vector-t5wv), so the wording a lane reads is exactly this.
+test('the shared timeout attribution keeps the cleared q8s9 wording (idb-vector-t2vo)', async () => {
   const timedOut = await timedOutAfter(
     { evaluate: async () => 'creating dataset: 42%' },
     new Error('timed out waiting for dataset creation (#generate seeding); last value false'),
