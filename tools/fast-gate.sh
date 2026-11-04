@@ -9,7 +9,8 @@ bash tools/report-fast-style-coverage.sh
 # excluded with one line.
 mapfile -t fast_suites < <(bash tools/unit-tier-suites.sh fast)
 mapfile -t middle_suites < <(bash tools/unit-tier-suites.sh middle)
-# Name the suites being dispatched even when node:test fails (set -e exits on failure).
+# Name the suites being dispatched before the runner: when a suite fails this line is the only
+# statement of what the lane covered, because the gate exits with the runner's status.
 printf 'fast-gate: running:'
 printf ' %s' "${fast_suites[@]}"
 printf '\n'
@@ -21,4 +22,15 @@ printf '\n'
 printf 'fast-gate: not run here (npm run test:middle before hand-off):'
 printf ' %s' "${middle_suites[@]}"
 printf '\n'
+# The dispatch stays exactly this line (tests/unit/fast-tier-guard.test.mjs: it is the only way the
+# guarded tier is started); its status is captured rather than exited on so the report below still runs.
+set +e
 npm run test:fast
+rc=$?
+set -e
+# Last, so it is the tail fleet-check records: a changed middle-tier suite was verified by nothing in
+# this lane, and that reader needs the command that does verify it (idb-vector-ap0u). Reporting never
+# changes the verdict, so this runs after the runner's status is captured and cannot fail the gate.
+bash tools/report-changed-middle-suites.sh ||
+  printf 'fast-gate: middle-tier-uncovered: UNKNOWN (tools/report-changed-middle-suites.sh failed)\n'
+exit "$rc"

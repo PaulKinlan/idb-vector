@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path';
 // computed `import(expr)` slipped past a module allowlist), and there is no parser to depend on here,
 // so no static shape check lives in this file.
 const reporter = resolve('tools/report-fast-style-coverage.sh');
+const suiteReporter = resolve('tools/report-changed-middle-suites.sh');
 const gate = readFileSync(resolve('tools/fast-gate.sh'), 'utf8');
 const pkg = JSON.parse(readFileSync(resolve('package.json'), 'utf8'));
 const run = (cwd, cmd, args) => execFileSync(cmd, args, { cwd, encoding: 'utf8' }).trim();
@@ -57,6 +58,45 @@ test('the fast gate invokes the CSS/HTML reporter before unit suites', () => {
   const invocation = /^bash tools\/report-fast-style-coverage\.sh$/m.exec(gate);
   assert.ok(invocation, 'fast gate must actually invoke the CSS/HTML reporter');
   assert.ok(invocation.index < gate.indexOf('npm run test:fast'));
+});
+
+test('a changed middle-tier suite is named with the command that runs it, and a fast one is not', () => {
+  // idb-vector-ap0u: the contract maps product paths, so a changed suite that the fast tier never runs
+  // used to produce a bare "unmapped changed file" with no next step - twice on real branches (0bd3829,
+  // 0612767). The middle list is read from the one tier definition, so this holds for every sheet added
+  // there rather than for the two suites that happened to be changed.
+  const middle = tier('middle');
+  const changedMiddle = middle.find((suite) => suite.endsWith('demo-server-routing.test.mjs'));
+  const changedFast = 'tests/unit/geometry.test.mjs';
+  assert.ok(changedMiddle, 'the bead\'s own case must stay a middle-tier suite');
+  assert.ok(!middle.includes(changedFast), 'the pin needs one suite the fast tier runs');
+  const cwd = mkdtempSync(join(tmpdir(), 'idb-changed-suite-'));
+  try {
+    run(cwd, 'git', ['init', '-q']);
+    mkdirSync(join(cwd, 'tests/unit'), { recursive: true });
+    for (const suite of [changedMiddle, changedFast]) writeFileSync(join(cwd, suite), 'base\n');
+    run(cwd, 'git', ['add', '.']);
+    run(cwd, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'base']);
+    for (const suite of [changedMiddle, changedFast]) writeFileSync(join(cwd, suite), 'changed\n');
+    run(cwd, 'git', ['add', '.']);
+    run(cwd, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'changed']);
+    assert.deepEqual(run(cwd, 'bash', [suiteReporter, 'HEAD^', 'HEAD']).split('\n'), [
+      `fast-gate: middle-tier-uncovered: ${changedMiddle} (changed here, and the fast gate never runs the middle tier); run it before hand-off: node --test ${changedMiddle}`,
+    ]);
+    // A commit that touches no suite says nothing: the report is driven by the diff, not printed always.
+    assert.equal(run(cwd, 'bash', [suiteReporter, 'HEAD', 'HEAD']), '');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('the fast gate runs the changed-middle-suite report after the runner and keeps its status', () => {
+  const runner = gate.indexOf('\nnpm run test:fast\n');
+  const report = gate.indexOf('bash tools/report-changed-middle-suites.sh');
+  assert.ok(runner >= 0, 'the dispatch keeps its own line, which is what fast-tier-guard.test.mjs pins');
+  assert.ok(report > runner, 'the report is the tail fleet-check records, so it comes after the runner');
+  assert.match(gate, /rc=\$\?\nset -e/, "the runner's status is captured rather than exited on");
+  assert.ok(gate.trimEnd().endsWith('exit "$rc"'), 'the gate still fails when the runner fails');
 });
 
 test('a CSS-only or HTML-only commit is explicitly unmapped, never a silent pass', () => {
