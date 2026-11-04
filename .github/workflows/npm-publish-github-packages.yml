@@ -2,6 +2,14 @@ name: Publish Package to npmjs
 on:
   release:
     types: [published]
+# `npm ci` runs third-party install scripts in the same job that holds NPM_TOKEN, so this job must not
+# also carry token rights it never uses: `npm publish` authenticates to registry.npmjs.org with
+# NODE_AUTH_TOKEN (secrets.NPM_TOKEN, a token outside GitHub), and checkout of the released commit is
+# the only thing GITHUB_TOKEN is needed for. Declaring the block matters because without it the job
+# runs with the repository or organisation default, which nothing in this repo pins down
+# (idb-vector-nkay; same rule as the Pages build job, idb-vector-yfdc).
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
