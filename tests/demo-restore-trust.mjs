@@ -2,19 +2,17 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { serve } from '../tools/wiki-demo-server.mjs';
 import { launch } from './lib/cdp.mjs';
+import { READY_WAIT_MS, STORAGE_PROBE_WAIT_MS } from './lib/wait-budget.mjs';
 import { runDir } from '../tools/report-target.mjs';
 
 // Screenshots are evidence: a unique per-run directory, kept (a fixed /tmp name was clobbered by
 // concurrent runs - idb-vector-8oy).
 const out = runDir(undefined, 'idb-demo-restore-');
 
-// Bound this wait from the gate's allowance, not from an idle-host measurement. #load downloads the
-// model and commits 250 passages; a standalone run under host load measured 233s, so the 180s bound
-// this file carried failed the full gate on a correct tree (idb-vector-k6wh). tests/browser.mjs uses
-// 300s for the same class of wait, but its corpus is smaller; 600s leaves headroom and is still a
-// sixth of the full gate's 3600s CHECK_TIMEOUT (~/.fleet/idb-vector-check.conf, raised from 2400s by
-// idb-vector-9dze).
-const READY_WAIT_MS = 600000;
+// The load wait is the shared corpus-load budget, with the measurements behind it, in
+// tests/lib/wait-budget.mjs (idb-vector-t5wv): #load downloads the model and commits 250 passages,
+// which measured 233s under host load and made the 180s bound this file carried fail a correct tree
+// (idb-vector-k6wh).
 
 const { server, url } = await serve();
 let page;
@@ -56,7 +54,7 @@ try {
   const storage = await page.waitFor(() => {
     const text = document.querySelector('#storage').textContent;
     return /incomplete or invalid \(0 of 250 vectors\)/.test(text) ? text : '';
-  }, { label: 'incomplete storage message after reload', timeout: 60000 });
+  }, { label: 'incomplete storage message after reload', timeout: STORAGE_PROBE_WAIT_MS });
   assert.match(storage, /incomplete or invalid \(0 of 250 vectors\)/);
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true);
   await page.screenshot(join(out.dir, 'incomplete-before.png'));
@@ -103,7 +101,7 @@ try {
   const invalidStorage = await page.waitFor(() => {
     const text = document.querySelector('#storage').textContent;
     return /incomplete or invalid \(250 of 250 vectors\)/.test(text) ? text : '';
-  }, { label: 'invalid storage message after reload', timeout: 60000 });
+  }, { label: 'invalid storage message after reload', timeout: STORAGE_PROBE_WAIT_MS });
   assert.match(invalidStorage, /incomplete or invalid \(250 of 250 vectors\)/);
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true);
   console.log(JSON.stringify({ guarded, storage, ...result, invalidStorage, evidence: out.dir }));

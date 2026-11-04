@@ -3,20 +3,17 @@
 // The demo drivers wait for a '#status' that reports Ready: after the model is fetched and a corpus is
 // committed. Those waits were per-site guesses (120s, 180s) shorter than the workload they guard:
 // tests/demo-restore-trust.mjs measured 233s standalone under host load and timed out in the full gate
-// on a correct tree. The budgets are now declared once per file, derived from the gate's allowance, and
-// labelled so a timeout names its phase. This tier launches no browser: the sources are read as text.
+// on a correct tree. The budgets are now declared once, in tests/lib/wait-budget.mjs (idb-vector-t5wv),
+// imported by every driver and labelled so a timeout names its phase. This tier launches no browser:
+// the sources are read as text.
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { PAGE_WORK_WAIT_MS, READY_WAIT_MS } from '../lib/wait-budget.mjs';
 
-const MIN_READY_WAIT_MS = 600000;
-
-// Everything in tests/wikipedia-demo.mjs that is not a corpus load (a query encodes through the model,
-// the storage probes read 2,000 IndexedDB records) gets a twelfth of the full gate's 3600s
-// CHECK_TIMEOUT (~/.fleet/idb-vector-check.conf), the derivation tests/browser.mjs uses for its search
-// wait. A literal below either floor assumes a fair CPU share, which is what let waitFor's 15s
-// default fail a correct tree (idb-vector-g85a).
-const MIN_PAGE_WORK_WAIT_MS = 300000;
+// The budgets the shared module exports; tests/unit/wait-budget.test.mjs pins their values against
+// the full gate's bound, and this suite only checks that the drivers spend them.
+const SHARED_BUDGETS = { READY_WAIT_MS, PAGE_WORK_WAIT_MS };
 
 const readSource = file => readFile(new URL(`../../${file}`, import.meta.url), 'utf8');
 
@@ -27,11 +24,10 @@ function assertGateDerivedReadyBudget(src, file) {
     `${file} must not bound a demo load wait at 120s/180s: those budgets are shorter than the workload under host load (idb-vector-k6wh)`,
   );
 
-  const declaration = /const READY_WAIT_MS = (\d+);/.exec(src);
-  assert.ok(declaration, `${file} must declare its demo load wait budget as READY_WAIT_MS`);
-  assert.ok(
-    Number(declaration[1]) >= MIN_READY_WAIT_MS,
-    `${file} READY_WAIT_MS is ${declaration[1]}ms; a load wait shorter than ${MIN_READY_WAIT_MS}ms cannot cover a loaded 250-passage load (measured 233s)`,
+  assert.match(
+    src,
+    /import \{[^}]*\bREADY_WAIT_MS\b[^}]*\} from '\.\/lib\/wait-budget\.mjs';/,
+    `${file} must import its demo load wait budget READY_WAIT_MS from tests/lib/wait-budget.mjs`,
   );
 
   const sites = [...src.matchAll(/timeout: READY_WAIT_MS(, label: '[^']+')?/g)];
@@ -81,13 +77,13 @@ function callArguments(src, open) {
   assert.fail('a waitForPhase call must be closed');
 }
 
-/** A budget written as a numeric literal, or the numeric literal a named constant is declared with. */
-function resolveBudget(src, token) {
-  const literal = Number(token.replaceAll('_', ''));
-  if (!Number.isNaN(literal)) return literal;
-  const declaration = new RegExp(`const\\s+${token}\\s*=\\s*(\\d[\\d_]*)`).exec(src);
-  assert.ok(declaration, `wait budget constant ${token} must be declared as a numeric literal`);
-  return Number(declaration[1].replaceAll('_', ''));
+/** A budget token a wait spends: it must be one tests/lib/wait-budget.mjs exports. */
+function resolveBudget(token) {
+  assert.ok(
+    token in SHARED_BUDGETS,
+    `wait budget ${token} must be one tests/lib/wait-budget.mjs exports (${Object.keys(SHARED_BUDGETS).join(', ')}), not a local constant or a literal`,
+  );
+  return SHARED_BUDGETS[token];
 }
 
 /**
@@ -108,7 +104,7 @@ function phaseWaits(src) {
   return waits;
 }
 
-test('tests/wikipedia-demo.mjs gives every page wait a gate-derived budget and names its phase (idb-vector-g85a)', async () => {
+test('tests/wikipedia-demo.mjs gives every page wait a shared budget and names its phase (idb-vector-g85a)', async () => {
   const src = await readSource('tests/wikipedia-demo.mjs');
   assert.doesNotMatch(
     src,
@@ -116,14 +112,10 @@ test('tests/wikipedia-demo.mjs gives every page wait a gate-derived budget and n
     'tests/wikipedia-demo.mjs must not bound a demo load wait at 120s/180s: those budgets are shorter than the workload under host load (idb-vector-k6wh)',
   );
 
-  const declared = name => resolveBudget(src, name);
-  assert.ok(
-    declared('READY_WAIT_MS') >= MIN_READY_WAIT_MS,
-    `READY_WAIT_MS is ${declared('READY_WAIT_MS')}ms; a corpus load measured 242.8s in the full gate, so its budget cannot be shorter than ${MIN_READY_WAIT_MS}ms (idb-vector-g85a)`,
-  );
-  assert.ok(
-    declared('PAGE_WORK_WAIT_MS') >= MIN_PAGE_WORK_WAIT_MS,
-    `PAGE_WORK_WAIT_MS is ${declared('PAGE_WORK_WAIT_MS')}ms; a page phase gets a twelfth of the full gate's 3600s CHECK_TIMEOUT, so not below ${MIN_PAGE_WORK_WAIT_MS}ms`,
+  assert.match(
+    src,
+    /import \{[^}]*\b(?:READY_WAIT_MS|PAGE_WORK_WAIT_MS)\b[^}]*\} from '\.\/lib\/wait-budget\.mjs';/,
+    'tests/wikipedia-demo.mjs must import its wait budgets from tests/lib/wait-budget.mjs',
   );
 
   // Every wait in the driver goes through the one budgeted helper: a bare page.waitFor (15s default)
@@ -135,19 +127,16 @@ test('tests/wikipedia-demo.mjs gives every page wait a gate-derived budget and n
   assert.match(helper[0], /timeout:\s*budgetMs\b/, 'waitForPhase must spend its budgetMs parameter, never a literal nor the 15s default');
   assert.match(helper[0], /label:\s*phase\b/, 'waitForPhase must label the wait with the phase it guards');
   assert.match(helper[0], /elapsedMs:\s*Date\.now\(\)\s*-\s*start/, 'waitForPhase must measure how long the phase took');
-  assert.match(src, /ms budget; page #status:/, 'a timed-out wait must report elapsed ms, the budget and the last #status text');
+  assert.match(src, /timedOutAfter\(page, error, \{/, 'a timed-out wait must report elapsed ms, the budget and the last #status text');
 
   const waits = phaseWaits(src);
   assert.ok(waits.length >= 8, `expected every wait in the driver to go through waitForPhase, found ${waits.length}`);
   for (const wait of waits) {
     assert.ok(wait.phase, 'every waitForPhase call must name its phase so a timeout says which one stalled');
     assert.ok(wait.budgetToken, `waitForPhase call (${wait.phase}) must pass an explicit budgetMs, not waitFor's 15s default`);
-    const budget = resolveBudget(src, wait.budgetToken);
-    const floor = /load|restore/i.test(wait.phase) ? MIN_READY_WAIT_MS : MIN_PAGE_WORK_WAIT_MS;
-    assert.ok(
-      budget >= floor,
-      `waitForPhase call (${wait.phase}) spends ${budget}ms of its ${wait.budgetToken} budget, below the ${floor}ms floor for ${/load|restore/i.test(wait.phase) ? 'a corpus load' : 'a page phase'}`,
-    );
+    // And that budget must be one the shared module exports: the values themselves are pinned by
+    // tests/unit/wait-budget.test.mjs against the full gate's bound (idb-vector-t5wv).
+    resolveBudget(wait.budgetToken);
   }
 
   // The defect this pins: the wait added after the 2,000-passage load spends the load budget, because
