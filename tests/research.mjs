@@ -22,6 +22,7 @@ import { launch } from './lib/cdp.mjs';
 import { permittedCitation } from './lib/research-link-policy.mjs';
 import { requestPathname } from '../tools/request-pathname.mjs';
 import { acceptanceAsset } from '../tools/research-asset-allowlist.mjs';
+import { refuse } from '../tools/refusal.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const source = await readFile(resolve(root, 'research/architecture.md'), 'utf8');
@@ -56,7 +57,8 @@ const server = createServer(async (req, res) => {
     const path = requested.endsWith('/') ? requested + 'index.html' : requested;
     // Confinement lives in a unit-testable helper (idb-vector-gb9n): no unit suite can import this
     // driver, so the allowlist decision has to be reachable without a browser. A refusal is the same
-    // "not an acceptance asset" 404 every other off-allowlist path gets, not a distinct status.
+    // shared 404 (tools/refusal.mjs) that tools/wiki-demo-server.mjs answers for a confinedFile()
+    // refusal: "not an allowed asset" is one status over loopback, not two (idb-vector-zs1u).
     const file = await acceptanceAsset(path, root, { assetFiles, assetDirs });
     if (!file) throw new Error('not an acceptance asset');
     const content = await readFile(file);
@@ -70,8 +72,8 @@ const server = createServer(async (req, res) => {
     // error made a ReferenceError in this file (a dropped `sep` import) look like a correct refusal
     // for every path at once, and only the allowed-path loop above could tell the difference
     // (idb-vector-7iu). Anything else is a 500, so it fails loudly in both loops.
-    const denied = error.message === 'not an acceptance asset';
-    res.writeHead(denied ? 404 : 500).end(denied ? 'Not found' : 'Acceptance server error');
+    if (error.message === 'not an acceptance asset') { refuse(res, 'Not found'); return; }
+    res.writeHead(500).end('Acceptance server error');
   }
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -152,7 +154,16 @@ try {
     assert.equal(response.status, 404, `path outside the worktree root: ${path}`);
     await response.body?.cancel();
   }
-  receipt.checks.push({ localAssetAllowlist: true, deniedPaths: denyFiles.length, traversalRefused: 2, rootConfinement: 2 });
+  // The other refusal shape, at HTTP level and in both servers (idb-vector-zs1u): a name the allowlist
+  // ADMITS whose target does not resolve. tools/wiki-demo-server.mjs answers it the same way
+  // (tests/unit/demo-server-routing.test.mjs, /demo/nope.html), so "I will not serve this" is one status
+  // for both shapes rather than a 403 that would also tell a caller what exists.
+  for (const path of ['/demo/missing.html', '/utils/missing.js']) {
+    const response = await fetch(localUrl + path);
+    assert.equal(response.status, 404, `allowed directory, absent file: ${path}`);
+    await response.body?.cancel();
+  }
+  receipt.checks.push({ localAssetAllowlist: true, deniedPaths: denyFiles.length, traversalRefused: 2, rootConfinement: 2, refusedMissing: 2 });
   await page.goto(url);
   const content = await page.evaluate(() => {
     const article = document.querySelector('article');

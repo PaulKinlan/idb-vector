@@ -55,8 +55,10 @@ test('the harness serves directory URLs as GitHub Pages does, and nothing outsid
     assert.equal((await served(path)).status, 404, path);
   }
   // A name the allow-list admits but that does not exist under the root is refused by the confinement
-  // layer (403) instead of reaching readFile's 404: confinedFile() realpaths every candidate and refuses
-  // what it cannot resolve, so the same name cannot become a link out of the root between the check and
-  // the read (idb-vector-4c06). It is not served either way.
-  assert.equal((await served('/demo/nope.html')).status, 403, '/demo/nope.html');
+  // layer before it reaches readFile: confinedFile() realpaths every candidate and refuses what it
+  // cannot resolve, so the same name cannot become a link out of the root between the check and the read
+  // (idb-vector-4c06). That refusal answers the shared status tools/refusal.mjs defines, which is the
+  // 404 this loop above gets and the 404 tests/research.mjs answers for the same shape - one status for
+  // "I will not serve this", pinned on both servers (idb-vector-zs1u).
+  assert.equal((await served('/demo/nope.html')).status, 404, '/demo/nope.html');
 });

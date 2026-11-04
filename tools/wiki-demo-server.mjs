@@ -3,6 +3,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requestPathname } from './request-pathname.mjs';
+import { refuse } from './refusal.mjs';
 
 const root = new URL('../', import.meta.url);
 const rootPath = fileURLToPath(root);
@@ -12,16 +13,17 @@ const rootPath = fileURLToPath(root);
 // the `/demo/app.js` produced by `/idb-vector//demo/app.js` resolves against the filesystem root, and
 // a `..` that the pattern later learns to accept would climb out. So normalise the candidate, compare
 // it against the resolved server root, and `realpath()` it so a symlink inside the tree cannot point
-// the read back outside. null means "refuse": the caller answers 403, distinct from the 404 the
-// allow-list produces, because the two failures mean different things (idb-vector-r5wg).
+// the read back outside. null means "refuse": the caller answers the shared refusal status (404,
+// tools/refusal.mjs) - the same answer the allow-list below gives, because "not an allowed asset" is
+// one meaning (idb-vector-r5wg, idb-vector-zs1u).
 // Empty or whitespace-containing names are refused immediately.
 // realpath() is the only thing that can tell a link from its target, so its answer is the answer: a
 // candidate that cannot be resolved is refused, never returned unresolved for readFile to follow. The
 // unresolved fallback this had let a DANGLING link (demo/x.html -> /tmp/outside.html, target not
 // created yet) through: 404 while the target was absent, and a served file outside the root as soon as
 // anything created it, one await before the read (idb-vector-4c06). A name inside the root that simply
-// does not exist is unresolvable too, so it is refused here as 403 rather than reaching readFile's
-// 404; tools/research-asset-allowlist.mjs applies the same rule to the same shapes, and
+// does not exist is unresolvable too, so it is refused here rather than reaching readFile;
+// tools/research-asset-allowlist.mjs applies the same rule to the same shapes, and
 // tests/unit/asset-confinement-parity.test.mjs asserts that the two answer alike.
 export async function confinedFile(name, serverRoot = rootPath) {
   if (typeof name !== 'string') return null;
@@ -53,7 +55,9 @@ export async function serve() {
       res.writeHead(404).end(); return;
     }
     const target = await confinedFile(file);
-    if (target === null) { res.writeHead(403).end(); return; }
+    // Refused: tools/refusal.mjs answers the same 404 the allow-list above gives, which is also what the
+    // research acceptance driver (tests/research.mjs) answers for the same refusal (idb-vector-zs1u).
+    if (target === null) { refuse(res); return; }
     try {
       const body = await readFile(target);
       res.setHeader('Content-Type', ({ js: 'text/javascript', html: 'text/html', css: 'text/css', json: 'application/json', wasm: 'application/wasm' })[file.split('.').pop()] || 'application/octet-stream');

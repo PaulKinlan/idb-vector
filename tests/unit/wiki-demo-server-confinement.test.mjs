@@ -93,8 +93,9 @@ test('confinement refuses a symlink that points outside the server root', async 
   // A name that does not exist at all is unresolvable too, so it is refused rather than handed to
   // readFile: returning it unresolved is the same TOCTOU hole a dangling link opens (the name can be
   // turned into a link to the outside between the check and the read), and the research helper refuses
-  // the same shape (tests/unit/asset-confinement-parity.test.mjs). The caller answers 403 instead of
-  // the 404 readFile used to produce for a missing demo page.
+  // the same shape (tests/unit/asset-confinement-parity.test.mjs). The caller answers the shared refusal
+  // status (tools/refusal.mjs) rather than readFile's answer, which is what keeps a refusal one status in
+  // both loopback servers (tests/unit/refusal-status-parity.test.mjs, idb-vector-zs1u).
   assert.equal(await confinedFile('demo/missing.html', root), null,
     'a name under the root that does not exist is refused, not returned unresolved (idb-vector-4c06)');
 
