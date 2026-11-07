@@ -41,7 +41,7 @@ test('the published site carries every module the demo imports, and the workflow
 
 test('the workflow stages with the script instead of listing utils/ files by hand', () => {
   const workflow = readFileSync(join(repoRoot, '.github/workflows/pages.yml'), 'utf8');
-  assert.match(workflow, /node tools\/stage-site\.mjs site/, 'the Pages step runs the staging script');
+  assert.match(workflow, /node tools\/stage-site\.mjs \.\.\/site/, 'the Pages step runs the staging script');
   assert.doesNotMatch(workflow, /cp utils\/\S+\.js/, 'no hand-maintained utils/ copy list can drift again');
 });
 
