@@ -115,6 +115,41 @@ test('the site is staged from the published commit, not from the worktree the in
   assert.match(buildBody, /> site\/index\.html$/m, 'the redirect stub is still written at the artifact root');
 });
 
+// The staging roots are plain worktree paths, so the install and build steps above can write into
+// them, and the extraction does not contain that: `tar -x` only overlays a tree it did not create,
+// and the artifact upload publishes `site` whole (idb-vector-5yqb review). A postinstall that
+// created `.site-src/demo/preseed.js` or `site/preseed.html` used to publish both - the same trust
+// boundary broken one level sideways, by writing into the staging directory instead of mutating a
+// tracked file. The staging step must therefore delete both roots before it writes anything, which
+// is what this pins: the delete is the step's first executed line, ahead of the extraction that
+// overlays and the stager that fills `site`.
+test('the staging step deletes both staging roots before it writes into them (idb-vector-5yqb review)', () => {
+  const build = [...jobs].find(([, body]) => /\bnpm ci\b/.test(body));
+  assert.ok(build, 'some job must still run npm ci');
+  const [buildName, buildBody] = build;
+  const stepAt = buildBody.indexOf('- name: Stage public demo');
+  assert.notEqual(stepAt, -1, `job "${buildName}": the staging step must be identified by name`);
+  const nextStepAt = buildBody.indexOf('\n      - ', stepAt + 1);
+  const step = buildBody.slice(stepAt, nextStepAt === -1 ? buildBody.length : nextStepAt);
+  // The `run: |` block's content is the lines indented past the step's own keys; comments are prose,
+  // so only the executed lines are compared.
+  const commands = step.split('\n')
+    .filter(line => line.startsWith('          '))
+    .map(line => line.trim())
+    .filter(line => line !== '' && !line.startsWith('#'));
+  assert.equal(commands[0], 'set -o pipefail', `job "${buildName}": the staging step still fails when a stage of the pipeline fails`);
+  // Shell options are not writes; the first real command is the delete of both roots, so nothing can
+  // create or fill a staging root before it is gone.
+  const firstWrite = commands.findIndex(command => !command.startsWith('set '));
+  assert.equal(commands[firstWrite], 'rm -rf .site-src site',
+    `job "${buildName}" must delete .site-src and site before staging: the install and build steps can create files there, the extraction only overlays and the upload publishes site whole, so a pre-seeded file would ship (idb-vector-5yqb review)`);
+  const extract = commands.findIndex(command => command.startsWith('git archive "$GITHUB_SHA"'));
+  const stage = commands.findIndex(command => command.startsWith('(cd .site-src && node tools/stage-site.mjs'));
+  assert.notEqual(extract, -1, `job "${buildName}" still extracts the published commit before staging`);
+  assert.notEqual(stage, -1, `job "${buildName}" still stages from the extracted commit`);
+  assert.ok(extract > firstWrite && stage > extract, `job "${buildName}" must clean the roots, then extract the commit, then stage`);
+});
+
 test('the publication triggers and concurrency are unchanged', () => {
   assert.match(workflowScope, /^on:[\s\S]*push:[\s\S]*branches: \[main\]/m, 'main still publishes');
   assert.match(workflowScope, /^ {2}workflow_dispatch:/m, 'manual dispatch still publishes');

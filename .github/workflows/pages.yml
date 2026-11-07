@@ -42,7 +42,15 @@ jobs:
           # commit that ships this code - holds for the bytes on the live site (idb-vector-5yqb). The
           # stager runs from the extracted tree too, so the code that picks the published files is
           # committed code. No .gitattributes export-ignore exists, so the archive is the whole tree.
+          #
+          # Both roots are deleted first. They are ordinary worktree paths, so the install and build
+          # steps above can write files into them, and neither mistake is contained by the extraction:
+          # `tar -x` only overlays, and the upload publishes `site` whole. A postinstall that left
+          # .site-src/demo/preseed.js or site/preseed.html behind would therefore ship it under the
+          # commit's trust root without touching a tracked byte - the same break one level sideways
+          # (idb-vector-5yqb review). After the delete, only the extraction and the stager write here.
           set -o pipefail
+          rm -rf .site-src site
           mkdir -p .site-src
           git archive "$GITHUB_SHA" | tar -x -C .site-src
           (cd .site-src && node tools/stage-site.mjs ../site)
