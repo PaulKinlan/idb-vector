@@ -22,14 +22,31 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:research
-      - run: git diff --exit-code -- research/index.html
+      # research/index.html is generated, and the staging step publishes the committed page, so the
+      # generated one must be the committed one: without this check a builder change that forgets to
+      # regenerate the page would ship stale content. Runs before staging, on the worktree.
+      - name: Check the built research page matches its committed bytes
+        run: git diff --exit-code -- research/index.html
       - uses: actions/configure-pages@v5
-      - name: Stage public demo, library and research
+      - name: Stage public demo, library and research from the published commit
         run: |
           # demo/ ships whole; index.js and utils/*.js are derived from what demo/app.js imports
           # (tools/stage-site.mjs), so a new utils/ module reaches the live site without an edit here.
-          node tools/stage-site.mjs site
-          cp -r research site/research
+          #
+          # Every published path is tracked in the commit: demo/ entire, the derived library modules,
+          # and research/ - whose index.html the step above holds to its committed bytes. So the tree
+          # is extracted from that commit instead of copied out of the worktree, where `npm ci` has
+          # just run third-party install scripts and the research build ran project scripts. A
+          # postinstall that rewrites demo/app.js, or a build step that rewrites demo/index.html, then
+          # writes a file nothing publishes, and demo/integrity.js's trust root - the repository
+          # commit that ships this code - holds for the bytes on the live site (idb-vector-5yqb). The
+          # stager runs from the extracted tree too, so the code that picks the published files is
+          # committed code. No .gitattributes export-ignore exists, so the archive is the whole tree.
+          set -o pipefail
+          mkdir -p .site-src
+          git archive "$GITHUB_SHA" | tar -x -C .site-src
+          (cd .site-src && node tools/stage-site.mjs ../site)
+          cp -r .site-src/research site/research
           printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=./demo/"><a href="./demo/">Open the Wikipedia search demo</a>' > site/index.html
       - uses: actions/upload-pages-artifact@v3
         with:

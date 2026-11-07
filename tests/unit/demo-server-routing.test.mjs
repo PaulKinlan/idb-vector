@@ -43,7 +43,7 @@ test('the harness serves directory URLs as GitHub Pages does, and nothing outsid
   const entry = await readFile(new URL('../../index.js', import.meta.url), 'utf8');
   const repoRoot = resolve(new URL('../../', import.meta.url).pathname);
   const stagedModules = new Set(moduleClosure('demo/app.js', repoRoot).map(f => relative(repoRoot, f).split(sep).join('/')));
-  assert.match(pages, /node tools\/stage-site\.mjs site/, 'Pages must stage with stage-site.mjs');
+  assert.match(pages, /node tools\/stage-site\.mjs \.\.\/site/, 'Pages must stage with stage-site.mjs');
   for (const [, module] of entry.matchAll(/(?:from\s+|import\s*)["'](\.\/utils\/[^"']+)["']/g)) {
     assert.ok(realAssets.has(module.slice(1)), `real-vectors server must serve ${module}`);
     assert.equal((await served(module.slice(1))).status, 200, `wiki demo must serve ${module}`);
