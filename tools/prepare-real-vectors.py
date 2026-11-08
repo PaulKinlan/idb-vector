@@ -2,25 +2,24 @@
 Requires numpy and h5py (test tooling, not runtime dependencies).
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 import time
-import urllib.request
 
 # Bound BLAS on a shared machine; set before importing numpy.
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '2')
 import numpy as np
 import h5py
 
+# tools/ is the script's own directory when run as `python tools/prepare-real-vectors.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fetch_verified import digest, ensure_verified, require_verified
+
 CACHE = Path(__file__).resolve().parents[1] / '.cache/real-vectors'
 SOURCE = 'https://ann-benchmarks.com/glove-25-angular.hdf5'
 SHA256 = '51004cb0ae962159f0db507a51fec2b395de14b166f55976c89f16bd2f8b6391'
-
-def digest(path):
-    with open(path, 'rb') as f:
-        return hashlib.file_digest(f, 'sha256').hexdigest()
 
 def unit(x):
     norms = np.linalg.norm(x, axis=1, keepdims=True)
@@ -113,14 +112,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     CACHE.mkdir(parents=True, exist_ok=True)
     if args.corpus == 'glove':
-        path = CACHE / 'glove-25-angular.hdf5'
-        if not path.exists():
-            req = urllib.request.Request(SOURCE, headers={'User-Agent': 'idb-vector benchmark'})
-            with urllib.request.urlopen(req, timeout=120) as response, open(str(path) + '.partial', 'wb') as out:
-                while chunk := response.read(1024 * 1024):
-                    out.write(chunk)
-            Path(str(path) + '.partial').replace(path)
-        assert digest(path) == SHA256, 'source checksum mismatch'
+        # Download-and-verify, then verify-before-use: bytes reach the cache only once they hash to
+        # SHA256, and an existing cache file is checked rather than trusted (idb-vector-pgs7).
+        path = ensure_verified(SOURCE, CACHE / 'glove-25-angular.hdf5', SHA256)
         with h5py.File(path, 'r') as f:
             assert f.attrs['distance'] == 'angular'
             for size in map(int, args.sizes.split(',')):
@@ -133,7 +127,8 @@ if __name__ == '__main__':
                         (f['neighbors'][:40], f['distances'][:40]) if size == len(f['train']) else None)
     else:
         metadata = json.loads((CACHE / 'wiki-api/source.json').read_text())
-        path = CACHE / 'wiki-api/embeddings.f32'
-        assert digest(path) == metadata['vectorSha256'], 'embedding checksum mismatch'
+        # Same rule as the GloVe branch: verify the cache file before any vector is read from it.
+        path = require_verified(CACHE / 'wiki-api/embeddings.f32', metadata['vectorSha256'],
+                                'Remove it and rerun `node tools/embed-wikipedia.mjs --embed` to regenerate.')
         x = np.fromfile(path, dtype='<f4').reshape(metadata['rows'], metadata['dimensions'])
         prepare(f'wiki-api-{len(x)-40}', x[40:], x[:40], metadata)
