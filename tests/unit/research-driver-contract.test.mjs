@@ -16,7 +16,7 @@
 // by matching `research` inside `import ... from '../lib/research-link-policy.mjs'` in a sibling
 // suite, so a change to the driver was reported as covered by a test that never touches it.
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import test from 'node:test';
 
@@ -130,3 +130,27 @@ test('the receipt lands in the evidence directory the README documents, with the
     assert.match(driver, new RegExp(`receipt\\.${key}\\b`), `the driver must still write the ${key} field the committed receipt records`);
   }
 });
+
+test('every tools/*.py file has a mapping in tests/coverage-contract.json', () => {
+  // Bead idb-vector-gqgs: tools/*.py files must be mapped to the test suite that exercises them
+  // in tests/coverage-contract.json, so new or changed Python tools cannot arrive unmapped.
+  const contract = JSON.parse(read('tests/coverage-contract.json'));
+  const toolsPyFiles = readdirSync(new URL('tools', repoRoot), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.py'))
+    .map((entry) => `tools/${entry.name}`)
+    .sort();
+
+  assert.ok(toolsPyFiles.length > 0, 'expected at least one tools/*.py file in tools/');
+  const unmapped = toolsPyFiles.filter(
+    (file) =>
+      !Array.isArray(contract[file]) ||
+      contract[file].length === 0 ||
+      contract[file].some((s) => typeof s !== 'string' || s.trim() === ''),
+  );
+  assert.deepEqual(
+    unmapped,
+    [],
+    `tools/*.py missing coverage-contract mapping: ${unmapped.join(', ')}`,
+  );
+});
+
