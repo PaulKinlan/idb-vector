@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { REDIRECT_HTML } from '../../tools/audit-staged-site.mjs';
 
 const workflow = readFileSync(new URL('../../.github/workflows/pages.yml', import.meta.url), 'utf8');
 
@@ -154,4 +155,42 @@ test('the publication triggers and concurrency are unchanged', () => {
   assert.match(workflowScope, /^on:[\s\S]*push:[\s\S]*branches: \[main\]/m, 'main still publishes');
   assert.match(workflowScope, /^ {2}workflow_dispatch:/m, 'manual dispatch still publishes');
   assert.match(workflowScope, /^concurrency:[\s\S]*group: pages[\s\S]*cancel-in-progress: true/m, 'one publication at a time');
+});
+
+// The staging step closes the pre-seeded-root path, but not the window after it: a process left running
+// by the install or the research build can write into site/ after the stager returns and before the
+// upload reads the tree, and the artifact would publish a file no commit tracks - under the commit's
+// trust root (idb-vector-vy5v, residual risk (i) of the idb-vector-5yqb review). The build must audit
+// the staged tree against the commit after the last write and before the upload, and the audit is the
+// defence: a second `rm -rf` cannot help, because the delete has to stay ahead of the first write.
+test('the staged site is audited against the published commit before it is uploaded (idb-vector-vy5v)', () => {
+  const build = [...jobs].find(([, body]) => /\bnpm ci\b/.test(body));
+  assert.ok(build, 'some job must still run npm ci');
+  const [buildName, buildBody] = build;
+  const stageAt = buildBody.indexOf('- name: Stage public demo');
+  const auditAt = buildBody.indexOf('- name: Audit the staged site against the published commit');
+  const uploadAt = buildBody.indexOf('uses: actions/upload-pages-artifact');
+  assert.notEqual(stageAt, -1, `job "${buildName}": the staging step must be identified by name`);
+  assert.notEqual(auditAt, -1, `job "${buildName}": the staged tree must be audited, in a step named for it`);
+  assert.ok(uploadAt > auditAt, `job "${buildName}": the artifact upload stays after the audit`);
+  assert.ok(stageAt < auditAt && auditAt < uploadAt, `job "${buildName}" must stage, then audit, then upload`);
+  const step = buildBody.slice(auditAt, uploadAt);
+  // The checker runs from the extracted commit, like the stager: the code that decides whether the site
+  // is publishable must be committed code, not code npm ci may have rewritten. "$GITHUB_SHA" is the
+  // commit the tree was staged from, so a staging step pointed at another commit cannot pass.
+  assert.ok(
+    step.includes('node .site-src/tools/audit-staged-site.mjs --commit "$GITHUB_SHA" --site site --source .site-src'),
+    `job "${buildName}" must run the committed audit against $GITHUB_SHA over site/ and the extracted tree`,
+  );
+  assert.equal(buildBody.match(/rm -rf/g)?.length, 1, `job "${buildName}": the delete stays before the first write, and the audit is the defence, not a second rm -rf`);
+});
+
+// The audit knows one generated file, the redirect stub at the artifact root, because the workflow
+// writes it after staging and it is in no commit. The bytes exist twice by construction - the printf
+// in the staging step and REDIRECT_HTML in the audit - so they are pinned to each other here: drift
+// fails the fast tier instead of failing the publication it would otherwise break.
+test('the workflow redirect stub is the bytes the audit expects', () => {
+  const stub = /printf '([^']*)' > site\/index\.html/.exec(workflow);
+  assert.ok(stub, 'the staging step still writes the redirect stub into the staged tree');
+  assert.equal(stub[1], REDIRECT_HTML, 'the printf stub and the audit constant are the same bytes');
 });

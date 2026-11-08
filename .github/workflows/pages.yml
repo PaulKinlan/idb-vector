@@ -56,6 +56,18 @@ jobs:
           (cd .site-src && node tools/stage-site.mjs ../site)
           cp -r .site-src/research site/research
           printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=./demo/"><a href="./demo/">Open the Wikipedia search demo</a>' > site/index.html
+      # The staging step above closes the pre-seeded-file path by deleting its roots first and taking
+      # every byte from the commit, but it cannot close this one: a process the install or the research
+      # build left running can still write into site/ after the stager returns and before the upload
+      # reads it, and the artifact would publish a file no commit tracks - under the commit's trust
+      # root (idb-vector-vy5v, residual risk (i) of the idb-vector-5yqb review). A second delete is not
+      # the answer: it has to stay ahead of the first write, and this window is after the last one. So
+      # the build audits the tree instead, and fails on any file that is extra, missing, or not the
+      # commit's bytes. The checker runs out of the extracted tree, like the stager, so the code that
+      # decides whether the site is publishable is committed code rather than code npm ci may have
+      # rewritten.
+      - name: Audit the staged site against the published commit
+        run: node .site-src/tools/audit-staged-site.mjs --commit "$GITHUB_SHA" --site site --source .site-src
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

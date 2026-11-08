@@ -18,6 +18,7 @@ cd "$(dirname "$0")/.."
 middle=(
   tests/unit/packed-stress-split.test.mjs      # execFileSync: clones the repo, runs a stress driver
   tests/unit/site-staging.test.mjs             # execFileSync: tools/stage-site.mjs
+  tests/unit/staged-site-audit.test.mjs        # execFileSync: git init/commit in /tmp + the audit's git calls
   tests/unit/demo-server-routing.test.mjs      # binds loopback and fetches from it
   tests/unit/demo-server.test.mjs              # binds loopback, raw sockets
   tests/unit/start-command.test.mjs            # http.createServer + loopback fetch: binds a socket
