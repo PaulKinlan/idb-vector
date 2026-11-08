@@ -25,6 +25,7 @@ middle=(
   tests/unit/integrity.test.mjs                # reads the shipped demo manifest and assets
   tests/unit/packed-snapshot-validation.test.mjs  # full snapshot build per case
   tests/unit/quantized-pass.test.mjs           # quantized experiment sweeps
+  tests/unit/fetch-verified.test.mjs           # spawns python3 to exercise the download/verify ordering
 )
 
 case "${1:-}" in
