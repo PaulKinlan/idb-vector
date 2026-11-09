@@ -39,7 +39,33 @@ function splitWorkflow(yaml) {
   };
 }
 
-const withoutComments = text => text.split('\n').filter(line => !line.trim().startsWith('#')).join('\n');
+// Strip #-to-end-of-line comments from text while preserving '#' inside single or double quotes.
+// Limitation: does not parse multiline quoted strings or YAML block scalars spanning across lines.
+function withoutComments(text) {
+  return text
+    .split('\n')
+    .filter(line => !line.trim().startsWith('#'))
+    .map(line => {
+      let inSingleQuote = false;
+      let inDoubleQuote = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '\\' && inDoubleQuote && i + 1 < line.length) {
+          i++;
+          continue;
+        }
+        if (ch === "'" && !inDoubleQuote) {
+          inSingleQuote = !inSingleQuote;
+        } else if (ch === '"' && !inSingleQuote) {
+          inDoubleQuote = !inDoubleQuote;
+        } else if (ch === '#' && !inSingleQuote && !inDoubleQuote) {
+          return line.slice(0, i);
+        }
+      }
+      return line;
+    })
+    .join('\n');
+}
 
 // Steps in a job body under `steps:`. A step begins with `      - ` (6 spaces and a dash).
 function extractSteps(jobBody) {
@@ -181,7 +207,7 @@ test('no job that installs dependencies holds more than contents: read', () => {
   const installing = [];
   for (const { file, jobs } of workflows) {
     for (const job of jobs) {
-      if (/\bnpm (ci|install)\b/.test(job.body)) installing.push({ file, ...job });
+      if (/\bnpm\s+(ci|install)\b/.test(job.body)) installing.push({ file, ...job });
     }
   }
   assert.deepEqual(
@@ -243,7 +269,7 @@ test('every npm ci step in a job that references NODE_AUTH_TOKEN carries --ignor
 
   for (const { file, name, body } of tokenHoldingJobs) {
     const steps = extractSteps(body);
-    const installSteps = steps.filter(step => /\bnpm (ci|install)\b/.test(step.text));
+    const installSteps = steps.filter(step => /\bnpm\s+(ci|install)\b/.test(step.code));
     assert.ok(
       installSteps.length > 0,
       `${file} job "${name}" references NODE_AUTH_TOKEN but has no install step; verify publish dependencies`,
@@ -251,7 +277,7 @@ test('every npm ci step in a job that references NODE_AUTH_TOKEN carries --ignor
 
     for (const step of installSteps) {
       assert.match(
-        step.text,
+        step.code,
         /(?:^|\s)--ignore-scripts(?:\s|$)/,
         `${file} job "${name}" step ${step.index} ("${step.name}"): npm ci must carry --ignore-scripts in a job that references NODE_AUTH_TOKEN`,
       );
