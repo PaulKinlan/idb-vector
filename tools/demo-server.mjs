@@ -2,11 +2,17 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { requestPathname } from './request-pathname.mjs';
+import { hostAllowed } from './request-host.mjs';
+import { refuse } from './refusal.mjs';
 const root = new URL('../', import.meta.url);
 const files = new Set(['index.js', 'utils/sortedarray.js', 'utils/geometry.js', 'utils/packed-snapshot.js', 'utils/side-store.js', 'utils/options.js', 'utils/record-copy.js', 'demo/data/vectors-2000.f32', 'test-harness/index.html',
   'test-harness/demo.js', 'test-harness/experiment.js', 'test-harness/quantized-pass.js', 'test-harness/side-store.js', 'reports/browser-analysis.md']);
 export async function serve() {
   const server = createServer(async (req, res) => {
+    // A loopback bind is not a browser-origin boundary on its own: a rebound page reaches this port
+    // with its own hostname as Host (idb-vector-2703). Rules and rationale in tools/request-host.mjs;
+    // the answer is the shared refusal (tools/refusal.mjs), before anything else looks at the request.
+    if (!hostAllowed(req)) { refuse(res); return; }
     const pathname = requestPathname(req);
     if (pathname === null) { res.writeHead(400).end('Bad request target'); return; }
     const raw = pathname.slice(1);

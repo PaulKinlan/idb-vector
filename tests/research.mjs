@@ -21,6 +21,7 @@ import { Marked } from 'marked';
 import { launch } from './lib/cdp.mjs';
 import { permittedCitation } from './lib/research-link-policy.mjs';
 import { requestPathname } from '../tools/request-pathname.mjs';
+import { hostAllowed } from '../tools/request-host.mjs';
 import { acceptanceAsset } from '../tools/research-asset-allowlist.mjs';
 import { refuse } from '../tools/refusal.mjs';
 
@@ -50,6 +51,10 @@ const assetFiles = new Map([
 const assetDirs = ['/demo/', '/utils/'];
 const server = createServer(async (req, res) => {
   try {
+    // A loopback bind is not a browser-origin boundary on its own: a rebound page reaches this port
+    // with its own hostname as Host (idb-vector-2703). Rules and rationale in tools/request-host.mjs;
+    // the answer is the shared refusal (tools/refusal.mjs), before anything else looks at the request.
+    if (!hostAllowed(req)) { refuse(res, 'Not found'); return; }
     // Shared safe parse (idb-vector-i9w/tb6/wqv): a malformed request target is a client error
     // and answers 400, never the 500 this try/catch would otherwise produce (idb-vector-yom).
     const requested = requestPathname(req);

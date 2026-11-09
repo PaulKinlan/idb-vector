@@ -8,9 +8,12 @@ import { connect } from 'node:net';
 import { serve } from '../../tools/demo-server.mjs';
 import { serve as serveWiki } from '../../tools/wiki-demo-server.mjs';
 
+// The Host must carry the port the server is listening on: tools/request-host.mjs refuses a bare
+// loopback name (that addresses port 80), and a refused Host would answer before the request target is
+// ever parsed - these assertions are about the parse, so the authority has to be a valid one.
 const rawGet = (port, target) => new Promise((resolve, reject) => {
   const socket = connect(port, '127.0.0.1', () => {
-    socket.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
+    socket.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n`);
   });
   let buffer = '';
   socket.on('data', (chunk) => { buffer += chunk; });
