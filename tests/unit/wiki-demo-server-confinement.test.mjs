@@ -102,4 +102,16 @@ test('confinement refuses a symlink that points outside the server root', async 
   // A root that cannot be resolved is a configuration error: refused, not compared lexically.
   assert.equal(await confinedFile('demo/index.html', join(scratch, 'absent-root')), null,
     'a server root that does not resolve must be refused');
+
+  // ENOENT is one thing; a realpath() that FAILS is another, and only the first is a refusal. A symlink
+  // that points at itself cannot be resolved (ELOOP), which is the filesystem failing to answer rather
+  // than a decision about the name; reporting it as null dressed a server fault as the shared 404 in the
+  // handler, the masking idb-vector-7g2x removed one layer down (idb-vector-bc9t). It throws now, and
+  // the handler answers 500 (tests/unit/wiki-demo-server-faults.test.mjs drives that over a socket).
+  await symlink('loop.html', join(root, 'demo', 'loop.html'));
+  await assert.rejects(() => confinedFile('demo/loop.html', root), { code: 'ELOOP' },
+    'a realpath() fault is the filesystem failing, not the name: it must not be reported as a refusal');
+  // The same for a name whose path component is a file: ENOTDIR is "no such name", not a fault.
+  assert.equal(await confinedFile('demo/index.html/nested.html', root), null,
+    'ENOTDIR is still a refusal, not a fault');
 });

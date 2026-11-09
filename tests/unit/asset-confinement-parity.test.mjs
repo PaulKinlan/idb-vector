@@ -142,6 +142,25 @@ test('confinedFile and acceptanceAsset answer the same table of shapes the same 
   }
 });
 
+test('both helpers report a realpath fault as a fault, not a refusal (idb-vector-bc9t)', async (t) => {
+  // The classification both helpers must share, added here for the reason this file exists: a helper
+  // that answers null for a filesystem failure puts a server fault in "the path does not exist"
+  // clothing, and the two helpers must not disagree about which failures are decisions. ELOOP is the
+  // reproducible fault (a link that points at itself); ENOENT stays a refusal in both.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'confinement-parity-fault-')));
+  t.after(() => rm(scratch, { recursive: true, force: true }));
+  const root = join(scratch, 'root');
+  await mkdir(join(root, 'demo'), { recursive: true });
+  await symlink('loop.js', join(root, 'demo', 'loop.js'));
+
+  for (const [helper, confine] of helpers) {
+    await assert.rejects(() => confine('demo/loop.js', root), { code: 'ELOOP' },
+      `${helper}: a realpath() fault is the filesystem failing, not a decision about the name`);
+    assert.equal(await confine('demo/missing.js', root), null,
+      `${helper}: ENOENT is still the refusal`);
+  }
+});
+
 test('both helpers refuse to answer for a root that cannot be resolved', async (t) => {
   const scratch = await realpath(await mkdtemp(join(tmpdir(), 'confinement-parity-root-')));
   t.after(() => rm(scratch, { recursive: true, force: true }));

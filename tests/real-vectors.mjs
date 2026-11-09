@@ -11,6 +11,7 @@ import { evidenceDir, reportTarget } from '../tools/report-target.mjs';
 import { requestPathname } from '../tools/request-pathname.mjs';
 import { hostAllowed } from '../tools/request-host.mjs';
 import { refuse } from '../tools/refusal.mjs';
+import { answerFault } from '../tools/server-fault.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const corpora = (process.env.IDB_REAL_CORPORA || 'glove25-10000,glove25-100000,glove25-1183514,wiki-api-10000').split(',');
@@ -42,7 +43,7 @@ const server = createServer(async (req, res) => {
     res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.html') ? 'text/html' : file.endsWith('.json') ? 'application/json' : 'application/octet-stream');
     res.setHeader('Cache-Control', 'no-store');
     res.end(data);
-  } catch { res.writeHead(500).end('Dataset unavailable'); }
+  } catch { answerFault(res, 'Dataset unavailable'); }
 });
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
 const url = `http://127.0.0.1:${server.address().port}`;

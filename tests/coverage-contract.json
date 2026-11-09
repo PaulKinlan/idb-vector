@@ -7,5 +7,6 @@
   "tools/fetch_verified.py": ["tests/unit/fetch-verified.test.mjs"],
   "tools/prepare-real-vectors.py": ["tests/unit/fetch-verified.test.mjs"],
   "tools/report-fast-style-coverage.sh": ["tests/unit/fast-style-coverage.test.mjs"],
+  "tools/server-fault.mjs": ["tests/unit/server-fault.test.mjs"],
   "tools/unit-tier-suites.sh": ["tests/unit/fast-style-coverage.test.mjs"]
 }
