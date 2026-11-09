@@ -6,6 +6,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { relative, resolve, sep } from 'node:path';
 import { serve } from '../../tools/wiki-demo-server.mjs';
+import { REFUSAL_STATUS } from '../../tools/refusal.mjs';
 import { realVectorAssets } from '../../tools/real-vector-assets.mjs';
 import { moduleClosure } from '../../tools/stage-site.mjs';
 
@@ -61,4 +62,35 @@ test('the harness serves directory URLs as GitHub Pages does, and nothing outsid
   // 404 this loop above gets and the 404 tests/research.mjs answers for the same shape - one status for
   // "I will not serve this", pinned on both servers (idb-vector-zs1u).
   assert.equal((await served('/demo/nope.html')).status, 404, '/demo/nope.html');
+});
+
+// Admission and the read that follows it are two different events, and this server answered both with
+// the shared refusal (idb-vector-7g2x): "not an allowed asset" is the 404 tools/refusal.mjs defines,
+// while a read that fails AFTER confinedFile() admitted and realpath()ed the target is a server fault.
+// The other three loopback servers already answer 500 for that second event - tools/demo-server.mjs
+// ('Could not read demo file'), tests/real-vectors.mjs ('Dataset unavailable'), tests/research.mjs
+// ('Acceptance server error') - and tests/research.mjs records why (idb-vector-7iu): a 404 must mean
+// "not an allowed asset", never "this handler crashed".
+//
+// The failure is induced honestly, with nothing patched in the server and nothing faked: `/demo/compute`
+// (no trailing slash) passes the name allow-list, realpath()s to a directory inside the server root, so
+// confinedFile() admits it and hands it to readFile(), which fails with EISDIR. That is one of the
+// shapes the bead names - a target that is admitted and then cannot be read - and it is reachable in
+// the same form on tests/research.mjs, where the same name is admitted by the /demo/ prefix and the
+// read fails the same way. The assertion is about which status class answers a failed read.
+test('a read that fails after admission answers 500, and a refused path keeps the shared 404', async (t) => {
+  const { server, url } = await serve();
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = new URL(url).origin + '/idb-vector';
+
+  const failedRead = await fetch(`${base}/demo/compute`);
+  assert.equal(failedRead.status, 500,
+    'a read that fails after admission is a server fault: 500, as tools/demo-server.mjs, tests/real-vectors.mjs and tests/research.mjs answer it (idb-vector-7g2x)');
+  assert.notEqual(failedRead.status, REFUSAL_STATUS,
+    'a failed read must not wear the refusal status, or a crashed handler looks like a correct refusal (idb-vector-7iu)');
+
+  // The other half of the split, in the same place: a path the allow-list never names is still the one
+  // shared refusal, not a 500.
+  assert.equal((await fetch(`${base}/README.md`)).status, REFUSAL_STATUS,
+    'a path outside the allow-list keeps answering the shared refusal (tools/refusal.mjs)');
 });
