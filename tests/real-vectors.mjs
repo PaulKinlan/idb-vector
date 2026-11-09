@@ -9,6 +9,8 @@ import { launch } from './lib/cdp.mjs';
 import { realVectorAssets } from '../tools/real-vector-assets.mjs';
 import { evidenceDir, reportTarget } from '../tools/report-target.mjs';
 import { requestPathname } from '../tools/request-pathname.mjs';
+import { hostAllowed } from '../tools/request-host.mjs';
+import { refuse } from '../tools/refusal.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const corpora = (process.env.IDB_REAL_CORPORA || 'glove25-10000,glove25-100000,glove25-1183514,wiki-api-10000').split(',');
@@ -25,6 +27,10 @@ for (const corpus of corpora) {
   for (const file of ['manifest.json', 'vectors.f32', 'cells.u32']) allowed.set(`/data/${corpus}/${file}`, path.join(directory, file));
 }
 const server = createServer(async (req, res) => {
+  // A loopback bind is not a browser-origin boundary on its own: a rebound page reaches this port with
+  // its own hostname as Host (idb-vector-2703). Rules and rationale in tools/request-host.mjs; the
+  // answer is the shared refusal (tools/refusal.mjs), before anything else looks at the request.
+  if (!hostAllowed(req)) { refuse(res); return; }
   // Shared safe parse (idb-vector-i9w/tb6): a malformed absolute-form request target must answer
   // 400, never throw out of the handler and kill the measurement run (idb-vector-wqv).
   const pathname = requestPathname(req);

@@ -3,6 +3,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requestPathname } from './request-pathname.mjs';
+import { hostAllowed } from './request-host.mjs';
 import { refuse } from './refusal.mjs';
 
 const root = new URL('../', import.meta.url);
@@ -43,6 +44,10 @@ export async function confinedFile(name, serverRoot = rootPath) {
 
 export async function serve() {
   const server = createServer(async (req, res) => {
+    // A loopback bind is not a browser-origin boundary on its own: a rebound page reaches this port
+    // with its own hostname as Host (idb-vector-2703). Rules and rationale in tools/request-host.mjs;
+    // the answer is the shared refusal (tools/refusal.mjs), before anything else looks at the request.
+    if (!hostAllowed(req)) { refuse(res); return; }
     const path = requestPathname(req);
     if (path === null) { res.writeHead(400).end(); return; }
     // Exercise the same repository subpath used by GitHub Pages.
