@@ -77,6 +77,15 @@ const duplicateHostCases = [
     'two identical loopback fields are still two fields, and field names are case-insensitive'],
   [['host', `127.0.0.1:${port}`, 'HOST', 'evil.example', 'accept', '*/*'], false,
     'mixed case and other fields in the list do not hide the duplicate'],
+  // The duplicate count is over Host fields, not over the list: a real request carries several
+  // ordinary headers (Accept, Connection, ...) and exactly one Host, and refusing that shape would
+  // break every ordinary caller rather than a rebinding page (idb-vector-4ohy).
+  [['Host', `127.0.0.1:${port}`, 'Accept', '*/*', 'Connection', 'close'], true,
+    'an ordinary request: several headers, one Host field'],
+  // And it counts Host fields, not "any field name that appears twice": two of the same ordinary
+  // header are legal, and neither of them is a second Host.
+  [['Host', `127.0.0.1:${port}`, 'Accept', '*/*', 'Accept', 'text/html'], true,
+    'a repeated non-Host header is not a repeated Host field'],
   [[], false, 'no Host field at all: refused, through the shared refusal asserted below'],
 ];
 
