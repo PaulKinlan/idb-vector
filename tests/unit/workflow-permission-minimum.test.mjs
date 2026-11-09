@@ -39,6 +39,49 @@ function splitWorkflow(yaml) {
   };
 }
 
+const withoutComments = text => text.split('\n').filter(line => !line.trim().startsWith('#')).join('\n');
+
+// Steps in a job body under `steps:`. A step begins with `      - ` (6 spaces and a dash).
+function extractSteps(jobBody) {
+  const lines = jobBody.split('\n');
+  const stepsAt = lines.findIndex(line => /^ {4}steps:\s*$/.test(line));
+  if (stepsAt === -1) return [];
+  const steps = [];
+  let current = null;
+  for (let i = stepsAt + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^ {0,4}\S/.test(line)) break;
+    const stepMarker = /^ {6}-\s*(.*)$/.exec(line);
+    if (stepMarker) {
+      if (current) steps.push(current);
+      current = { lines: [stepMarker[1].trim()].filter(Boolean) };
+    } else if (current) {
+      current.lines.push(line.trim());
+    }
+  }
+  if (current) steps.push(current);
+  return steps.map((s, idx) => {
+    const text = s.lines.join('\n');
+    const code = withoutComments(text);
+    const nameLine = s.lines.find(l => /^name:\s*(.+)$/.test(l));
+    const runLine = s.lines.find(l => /^run:\s*(.+)$/.test(l));
+    const usesLine = s.lines.find(l => /^uses:\s*(.+)$/.test(l));
+    const stepName = nameLine
+      ? /^name:\s*(.+)$/.exec(nameLine)[1].trim()
+      : runLine
+        ? /^run:\s*(.+)$/.exec(runLine)[1].trim()
+        : usesLine
+          ? /^uses:\s*(.+)$/.exec(usesLine)[1].trim()
+          : `step ${idx + 1}`;
+    return {
+      index: idx + 1,
+      name: stepName,
+      text,
+      code,
+    };
+  });
+}
+
 // The `permissions:` key at exactly `indent` spaces, either inline (`permissions: {contents: read}`) or
 // as a block of `name: level` lines one level deeper. `null` means the key is absent at that level, so
 // the job inherits whatever the level above grants, and at the workflow level that is the repository
@@ -77,6 +120,7 @@ const workflows = workflowFiles.map(file => {
   const { scope, jobs } = splitWorkflow(yaml);
   return {
     file,
+    scope,
     workflowScope: permissionsAt(scope, 0, `${file} (workflow level)`),
     jobs: [...jobs].map(([name, body]) => {
       const declared = permissionsAt(body, 4, `${file} job "${name}"`);
@@ -110,6 +154,14 @@ const installJobs = [
   'npm-publish-github-packages.yml:build',
   'packed-stress.yml:stress',
   'pages.yml:build',
+];
+
+// The jobs that reference NODE_AUTH_TOKEN today. Every npm ci step in these jobs must carry
+// --ignore-scripts so dependency lifecycle scripts cannot run in an environment that carries
+// publish credentials (idb-vector-4r86). Pinning the list ensures that a new publish or credential-
+// bearing job is reviewed here, and an existing one cannot be silently renamed or dropped.
+const tokenPublishJobs = [
+  'npm-publish-github-packages.yml:build',
 ];
 
 test('every workflow declares workflow-level permissions no wider than contents: read', () => {
@@ -170,5 +222,92 @@ test('every grant above the floor is a job that names its reason here', () => {
     const workflow = workflows.find(candidate => candidate.file === file);
     assert.ok(workflow, `justifiedGrants names ${file}, which is not a workflow here`);
     assert.ok(workflow.jobs.some(job => job.name === name), `justifiedGrants names job "${name}" in ${file}, which no longer exists; drop the entry so the grant is not carried forward`);
+  }
+});
+
+test('every npm ci step in a job that references NODE_AUTH_TOKEN carries --ignore-scripts (idb-vector-4r86)', () => {
+  const tokenHoldingJobs = [];
+  for (const { file, jobs } of workflows) {
+    for (const job of jobs) {
+      if (/\bNODE_AUTH_TOKEN\b/.test(job.body)) {
+        tokenHoldingJobs.push({ file, ...job });
+      }
+    }
+  }
+
+  assert.deepEqual(
+    tokenHoldingJobs.map(({ file, name }) => `${file}:${name}`).sort(),
+    tokenPublishJobs,
+    'the set of jobs referencing NODE_AUTH_TOKEN changed: review any new credential-holding job here',
+  );
+
+  for (const { file, name, body } of tokenHoldingJobs) {
+    const steps = extractSteps(body);
+    const installSteps = steps.filter(step => /\bnpm (ci|install)\b/.test(step.text));
+    assert.ok(
+      installSteps.length > 0,
+      `${file} job "${name}" references NODE_AUTH_TOKEN but has no install step; verify publish dependencies`,
+    );
+
+    for (const step of installSteps) {
+      assert.match(
+        step.text,
+        /(?:^|\s)--ignore-scripts(?:\s|$)/,
+        `${file} job "${name}" step ${step.index} ("${step.name}"): npm ci must carry --ignore-scripts in a job that references NODE_AUTH_TOKEN`,
+      );
+    }
+  }
+});
+
+// The publish token (NODE_AUTH_TOKEN / secrets.NPM_TOKEN) must not be exported more broadly than
+// the publish step needs. Placing it in workflow-level or job-level `env:` would expose the token to
+// every step in the job (including checkout and setup-node), so it is scoped strictly to `npm publish`.
+test('publish tokens are scoped strictly to the publish step and not exported to the job or install environment', () => {
+  for (const { file, scope, jobs } of workflows) {
+    assert.doesNotMatch(
+      withoutComments(scope),
+      /\b(NODE_AUTH_TOKEN|secrets\.NPM_TOKEN)\b/,
+      `"${file}" must not export publish credentials at the workflow level; scope credentials to individual steps`,
+    );
+
+    for (const { name, body } of jobs) {
+      if (!tokenPublishJobs.includes(`${file}:${name}`)) {
+        assert.doesNotMatch(
+          withoutComments(body),
+          /\b(NODE_AUTH_TOKEN|secrets\.NPM_TOKEN)\b/,
+          `"${file}" job "${name}" is not a recognized publish job and must not reference publish credentials`,
+        );
+        continue;
+      }
+
+      // Inside a token-bearing job:
+      // 1. Job-level env (before steps:) must not define NODE_AUTH_TOKEN or secrets.NPM_TOKEN
+      const stepsAt = body.search(/^ {4}steps:\s*$/m);
+      const preSteps = stepsAt === -1 ? body : body.slice(0, stepsAt);
+      assert.doesNotMatch(
+        withoutComments(preSteps),
+        /\b(NODE_AUTH_TOKEN|secrets\.NPM_TOKEN)\b/,
+        `"${file}" job "${name}" must not declare publish credentials in job-level env; publish credentials belong only on the publish step`,
+      );
+
+      // 2. Only the publish step may reference NODE_AUTH_TOKEN
+      const steps = extractSteps(body);
+      for (const step of steps) {
+        const isPublishStep = /\bnpm publish\b/.test(step.code);
+        if (!isPublishStep) {
+          assert.doesNotMatch(
+            step.code,
+            /\b(NODE_AUTH_TOKEN|secrets\.NPM_TOKEN)\b/,
+            `"${file}" job "${name}" step ${step.index} ("${step.name}") must not have publish credentials in env; only npm publish needs NODE_AUTH_TOKEN`,
+          );
+        } else {
+          assert.match(
+            step.code,
+            /\bNODE_AUTH_TOKEN:\s*\${{\s*secrets\.NPM_TOKEN\s*}}/,
+            `"${file}" job "${name}" step ${step.index} ("${step.name}") must provide NODE_AUTH_TOKEN from secrets.NPM_TOKEN to npm publish`,
+          );
+        }
+      }
+    }
   }
 });

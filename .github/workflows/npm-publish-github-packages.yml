@@ -2,12 +2,13 @@ name: Publish Package to npmjs
 on:
   release:
     types: [published]
-# `npm ci` runs third-party install scripts in the same job that holds NPM_TOKEN, so this job must not
-# also carry token rights it never uses: `npm publish` authenticates to registry.npmjs.org with
-# NODE_AUTH_TOKEN (secrets.NPM_TOKEN, a token outside GitHub), and checkout of the released commit is
-# the only thing GITHUB_TOKEN is needed for. Declaring the block matters because without it the job
-# runs with the repository or organisation default, which nothing in this repo pins down
-# (idb-vector-nkay; same rule as the Pages build job, idb-vector-yfdc).
+# The publish job needs NODE_AUTH_TOKEN to authenticate `npm publish` to registry.npmjs.org, so the
+# install step runs `npm ci --ignore-scripts` to ensure third-party lifecycle scripts cannot execute
+# in the same job or shell environment that holds the publish credential (idb-vector-4r86). The job
+# also must not carry token rights it never uses: checkout of the released commit is the only thing
+# GITHUB_TOKEN is needed for. Declaring the block matters because without it the job runs with the
+# repository or organisation default, which nothing in this repo pins down (idb-vector-nkay; same rule
+# as the Pages build job, idb-vector-yfdc).
 permissions:
   contents: read
 jobs:
@@ -20,7 +21,7 @@ jobs:
         with:
           node-version: '16.x'
           registry-url: 'https://registry.npmjs.org'
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
