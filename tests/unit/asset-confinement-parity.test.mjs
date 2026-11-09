@@ -16,11 +16,12 @@
 // the answers they share.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { confinedFile } from '../../tools/wiki-demo-server.mjs';
 import { acceptanceAsset } from '../../tools/research-asset-allowlist.mjs';
+import { simulateRealpathFaults } from '../support/realpath-faults.mjs';
 
 // The same shape asked of both helpers: a root-relative name, with acceptanceAsset's leading-slash path
 // form and its allowlist derived from it. The allowlist names one exact file (index.js) and one exact
@@ -145,19 +146,47 @@ test('confinedFile and acceptanceAsset answer the same table of shapes the same 
 test('both helpers report a realpath fault as a fault, not a refusal (idb-vector-bc9t)', async (t) => {
   // The classification both helpers must share, added here for the reason this file exists: a helper
   // that answers null for a filesystem failure puts a server fault in "the path does not exist"
-  // clothing, and the two helpers must not disagree about which failures are decisions. ELOOP is the
-  // reproducible fault (a link that points at itself); ENOENT stays a refusal in both.
+  // clothing, and the two helpers must not disagree about which failures are decisions. The rule is a
+  // set - ENOENT and ENOTDIR are decisions, every other realpath() error is a fault - so it is asked
+  // row by row (idb-vector-xi96): driving ELOOP alone left "treat EACCES as a refusal" GREEN in both
+  // helpers, and the same mutation in the research helper is invisible to the demo server's own suite.
   const scratch = await realpath(await mkdtemp(join(tmpdir(), 'confinement-parity-fault-')));
-  t.after(() => rm(scratch, { recursive: true, force: true }));
   const root = join(scratch, 'root');
-  await mkdir(join(root, 'demo'), { recursive: true });
+  await mkdir(join(root, 'demo', 'locked'), { recursive: true });
+  await writeFile(join(root, 'demo', 'app.js'), 'export {};');
+  await writeFile(join(root, 'demo', 'locked', 'app.js'), 'export {};');
+  await writeFile(join(root, 'demo', 'io-fault.js'), 'export {};');
   await symlink('loop.js', join(root, 'demo', 'loop.js'));
+  // EACCES is the one fault a tree in /tmp can make for itself: a directory with no traverse bit. The
+  // mode is restored before the tree is removed, in one hook, because rm cannot recurse into it.
+  await chmod(join(root, 'demo', 'locked'), 0o000);
+  t.after(async () => {
+    await chmod(join(root, 'demo', 'locked'), 0o755);
+    await rm(scratch, { recursive: true, force: true });
+  });
+  // EIO is the one errno no tree can produce (no permission bit makes readlink() fail with it), so it
+  // is thrown by a stub over the syscall; every other row is a real realpath() on the real tree.
+  const stub = simulateRealpathFaults([[join(root, 'demo', 'io-fault.js'), 'EIO']]);
+  t.after(() => stub.restore());
 
-  for (const [helper, confine] of helpers) {
-    await assert.rejects(() => confine('demo/loop.js', root), { code: 'ELOOP' },
-      `${helper}: a realpath() fault is the filesystem failing, not a decision about the name`);
-    assert.equal(await confine('demo/missing.js', root), null,
-      `${helper}: ENOENT is still the refusal`);
+  const classification = [
+    { errno: 'EACCES', name: 'demo/locked/app.js', induced: 'a directory with no traverse bit', refused: false },
+    { errno: 'EIO', name: 'demo/io-fault.js', induced: 'realpath() stubbed to throw EIO for this one path', refused: false },
+    { errno: 'ELOOP', name: 'demo/loop.js', induced: 'a symlink that points at itself', refused: false },
+    { errno: 'ENOENT', name: 'demo/missing.js', induced: 'a name that was never created', refused: true },
+    { errno: 'ENOTDIR', name: 'demo/app.js/nested.js', induced: 'a path whose component is a file', refused: true },
+  ];
+
+  for (const { errno, name, induced, refused } of classification) {
+    for (const [helper, confine] of helpers) {
+      if (refused) {
+        assert.equal(await confine(name, root), null,
+          `${helper}: ${errno} (${induced}) is "no such name", so it stays the refusal (idb-vector-xi96)`);
+      } else {
+        await assert.rejects(() => confine(name, root), { code: errno },
+          `${helper}: ${errno} (${induced}) is the filesystem failing, not a decision about the name (idb-vector-xi96)`);
+      }
+    }
   }
 });
 
