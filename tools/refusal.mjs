@@ -14,8 +14,9 @@
 // A 403 for the second shape would tell any process on the host that a confined path exists, and no
 // consumer reads the difference - not a test, not the demo page, not the driver's receipt. The demo
 // server's own admission helper is the confiner as well, so the two shapes are one event there and
-// "allowed but genuinely missing" is refused before any read; the driver reads after admission, and
-// keeps its 500 for a read that fails there.
+// "allowed but genuinely missing" is refused before any read; both servers read after admission, and
+// both answer 500 for a read that fails there (the driver's since idb-vector-7iu, the demo server's
+// since idb-vector-7g2x), so this status never covers a broken read.
 //
 // Pinned by tests/unit/refusal-status-parity.test.mjs without a socket (the fast tier): it asserts this
 // value, drives refuse() against a fake response, and checks both callers route through it. The

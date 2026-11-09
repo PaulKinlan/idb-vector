@@ -63,11 +63,21 @@ export async function serve() {
     // Refused: tools/refusal.mjs answers the same 404 the allow-list above gives, which is also what the
     // research acceptance driver (tests/research.mjs) answers for the same refusal (idb-vector-zs1u).
     if (target === null) { refuse(res); return; }
+    // The read is where the two meanings split, and this server was the one that merged them
+    // (idb-vector-7g2x): everything above answers a path that is NOT an allowed asset, while a read
+    // that fails on a target confinedFile() already admitted and realpath()ed - EACCES, fd exhaustion,
+    // a delete between the realpath() and the read, a directory named as a file (EISDIR) - is a server
+    // fault. Answering the refusal here made a failed read look like a correct refusal, in the one
+    // server a human actually runs. tools/demo-server.mjs ('Could not read demo file'),
+    // tests/real-vectors.mjs ('Dataset unavailable') and tests/research.mjs ('Acceptance server
+    // error') all answer 500 for this event; tests/research.mjs records why (idb-vector-7iu): a 404
+    // must mean "not an allowed asset", never "this handler crashed". None of the four logs it to
+    // stderr, so this one does not either - the 500 with its body is the loud answer.
     try {
       const body = await readFile(target);
       res.setHeader('Content-Type', ({ js: 'text/javascript', html: 'text/html', css: 'text/css', json: 'application/json', wasm: 'application/wasm' })[file.split('.').pop()] || 'application/octet-stream');
       res.end(body);
-    } catch { res.writeHead(404).end(); }
+    } catch { res.writeHead(500).end('Could not read demo file'); }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   return { server, url: `http://127.0.0.1:${server.address().port}/idb-vector/demo/index.html` };
