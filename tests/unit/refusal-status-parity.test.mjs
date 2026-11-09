@@ -14,7 +14,7 @@
 // Pinned WITHOUT a socket, which is why this suite is in the fast tier: refuse() is driven against a
 // fake response, server entry points calling createServer() are discovered dynamically from the tree
 // and asserted to import and use the helper (unless in an explicitly justified allow-list), and no
-// file under tools/ or tests/ may write a literal writeHead() for a refusal.
+// file under tools/ or tests/ may write a literal writeHead() or assign statusCode for a refusal.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -29,7 +29,7 @@ const ALLOWED_SERVERS_WITHOUT_REFUSAL = new Map([
 ]);
 
 // Numeric statuses legitimately needed for non-refusal paths.
-// Any numeric writeHead() under tools/ or tests/ must be in this narrow list with an explicit reason.
+// Any numeric writeHead() or statusCode assignment under tools/ or tests/ must be in this narrow list with an explicit reason.
 const ALLOWED_NON_REFUSAL_STATUSES = new Map([
   [400, 'malformed request target error (requestPathname returned null)'],
   [302, 'redirect bare root to test-harness/index.html in demo-server'],
@@ -41,23 +41,6 @@ const fakeResponse = (calls) => ({
   writeHead(code) { calls.push(['writeHead', code]); return this; },
   end(body) { calls.push(['end', body]); return this; },
 });
-
-// Discover all server files in tools/*.mjs and tests/*.mjs that call createServer()
-function discoverServers() {
-  const servers = [];
-  for (const dir of ['tools', 'tests']) {
-    const dirUrl = new URL(dir, repoRoot);
-    for (const name of readdirSync(dirUrl)) {
-      if (!name.endsWith('.mjs')) continue;
-      const relPath = `${dir}/${name}`;
-      const body = readFileSync(new URL(name, dirUrl + '/'), 'utf8');
-      if (/\bcreateServer\(/.test(body)) {
-        servers.push({ relPath, body });
-      }
-    }
-  }
-  return servers;
-}
 
 // Walk all .mjs files under tools/ and tests/, excluding unit test suites (*.test.mjs)
 function findSourceFiles(dirUrl, relPrefix = '') {
@@ -75,6 +58,37 @@ function findSourceFiles(dirUrl, relPrefix = '') {
     }
   }
   return files;
+}
+
+// Detect calls to createServer(), whitespace-tolerant and resolving aliased imports
+// from node:http or node:https (e.g. import { createServer as cs } from 'node:http'; cs(...)).
+function callsCreateServer(body) {
+  if (/\bcreateServer\s*\(/.test(body)) {
+    return true;
+  }
+  const aliasRegex = /import\s*(?:[A-Za-z0-9_$,\s]+,\s*)?\{[^}]*\bcreateServer\s+as\s+([A-Za-z0-9_$]+)[^}]*\}\s*from\s*['"](?:node:)?https?['"]/g;
+  for (const match of body.matchAll(aliasRegex)) {
+    const alias = match[1];
+    const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(?:^|[^\\w$])${escapedAlias}\\s*\\(`).test(body)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Discover all server files under tools/ and tests/ that call createServer()
+function discoverServers() {
+  const servers = [];
+  const toolsFiles = findSourceFiles(new URL('tools/', repoRoot), 'tools/');
+  const testsFiles = findSourceFiles(new URL('tests/', repoRoot), 'tests/');
+  for (const relPath of [...toolsFiles, ...testsFiles]) {
+    const body = readFileSync(new URL(relPath, repoRoot), 'utf8');
+    if (callsCreateServer(body)) {
+      servers.push({ relPath, body });
+    }
+  }
+  return servers;
 }
 
 test('the shared refusal status is 404, and refuse() answers it with either body', () => {
@@ -146,7 +160,7 @@ test('every server entry point discovered from the tree routes refusals through 
     "tests/research.mjs acceptanceAsset() refusal must answer through refuse()");
 });
 
-test('no file under tools/ or tests/ contains a literal writeHead for a refusal', () => {
+test('no file under tools/ or tests/ contains a literal writeHead or statusCode for a refusal', () => {
   const toolsFiles = findSourceFiles(new URL('tools/', repoRoot), 'tools/');
   const testsFiles = findSourceFiles(new URL('tests/', repoRoot), 'tests/');
   const allFiles = [...toolsFiles, ...testsFiles];
@@ -163,6 +177,17 @@ test('no file under tools/ or tests/ contains a literal writeHead for a refusal'
       assert.ok(
         ALLOWED_NON_REFUSAL_STATUSES.has(code),
         `${relPath} contains unjustified literal writeHead(${code}): only explicit non-refusal statuses are permitted (${[...ALLOWED_NON_REFUSAL_STATUSES.keys()].join(', ')})`,
+      );
+    }
+    for (const match of content.matchAll(/\b[A-Za-z0-9_$]+\.statusCode\s*=\s*(\d+)/g)) {
+      const code = Number(match[1]);
+      assert.notEqual(code, 404,
+        `${relPath} contains literal statusCode = 404 for a refusal: refusal statuses must route through refuse() (tools/refusal.mjs)`);
+      assert.notEqual(code, 403,
+        `${relPath} contains literal statusCode = 403 for a refusal: refusal statuses must route through refuse() (tools/refusal.mjs)`);
+      assert.ok(
+        ALLOWED_NON_REFUSAL_STATUSES.has(code),
+        `${relPath} contains unjustified literal statusCode = ${code}: only explicit non-refusal statuses are permitted (${[...ALLOWED_NON_REFUSAL_STATUSES.keys()].join(', ')})`,
       );
     }
   }
