@@ -30,21 +30,40 @@
 // the driver's own allowed-asset loop loudly. A worktree root or allowed directory that cannot be
 // resolved is a configuration error for the same reason, and is refused rather than degraded to a
 // lexical-only compare.
+//
+// null has to keep ONE meaning - "refuse" - so a realpath() that FAILS is not the same answer as one
+// that succeeds and lands outside. ENOENT and ENOTDIR are refusals ("no such name"); EACCES, EIO and
+// ELOOP are the filesystem failing to answer, and they are thrown so the driver's handler answers
+// 500 instead of dressing a server fault as the refusal, exactly as tools/wiki-demo-server.mjs
+// confinedFile() does (idb-vector-bc9t).
 import { realpath } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 
-export async function acceptanceAsset(path, root, { assetFiles, assetDirs }) {
-  let base;
+// The two error codes that mean "no such name", the same pair tools/wiki-demo-server.mjs names: ENOENT
+// for an absent target, ENOTDIR for a path whose component is a file. Everything else a realpath() can
+// raise is the filesystem failing to answer.
+function absent(error) {
+  const code = error?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+async function resolved(target) {
   try {
-    base = await realpath(root);
-  } catch {
-    return null;
+    return await realpath(target);
+  } catch (error) {
+    if (absent(error)) return null;
+    throw error;
   }
+}
+
+export async function acceptanceAsset(path, root, { assetFiles, assetDirs }) {
+  const base = await resolved(root);
+  if (base === null) return null;
   // The exact-file branch: an allowlist hit names a file, so it gets the same realpath() and the same
   // inside-the-resolved-root requirement as everything below, and only the resolved path is returned.
   const exact = assetFiles.get(path);
   if (exact !== undefined) {
-    const exactTarget = await realpath(exact).catch(() => null);
+    const exactTarget = await resolved(exact);
     return exactTarget !== null && exactTarget.startsWith(base + sep) ? exactTarget : null;
   }
   // Resolve against the realpath()ed root, so a worktree reached through a symlink compares equal to
@@ -55,12 +74,12 @@ export async function acceptanceAsset(path, root, { assetFiles, assetDirs }) {
     .map((prefix) => resolve(base, prefix.slice(1)))
     .find((dir) => candidate.startsWith(dir + sep));
   if (allowedDir === undefined) return null;
-  const target = await realpath(candidate).catch(() => null);
+  const target = await resolved(candidate);
   if (target === null) return null;
   // Root first, then the allowed directory itself realpath()ed: an allowed directory that is ITSELF a
   // link out of the worktree must not widen the allowlist to its resolved contents.
   if (!target.startsWith(base + sep)) return null;
-  const confinedDir = await realpath(allowedDir).catch(() => null);
+  const confinedDir = await resolved(allowedDir);
   if (confinedDir === null) return null;
   return target.startsWith(confinedDir + sep) ? target : null;
 }

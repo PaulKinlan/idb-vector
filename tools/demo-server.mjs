@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { requestPathname } from './request-pathname.mjs';
 import { hostAllowed } from './request-host.mjs';
 import { refuse } from './refusal.mjs';
+import { answerFault } from './server-fault.mjs';
 const root = new URL('../', import.meta.url);
 const files = new Set(['index.js', 'utils/sortedarray.js', 'utils/geometry.js', 'utils/packed-snapshot.js', 'utils/side-store.js', 'utils/options.js', 'utils/record-copy.js', 'demo/data/vectors-2000.f32', 'test-harness/index.html',
   'test-harness/demo.js', 'test-harness/experiment.js', 'test-harness/quantized-pass.js', 'test-harness/side-store.js', 'reports/browser-analysis.md']);
@@ -27,7 +28,7 @@ export async function serve() {
         res.writeHead(302, { Location: '/test-harness/index.html' }).end(); return;
       }
       res.end(content);
-    } catch { res.writeHead(500).end('Could not read demo file'); }
+    } catch { answerFault(res, 'Could not read demo file'); }
   });
   await new Promise((resolve, reject) => {
     server.on('error', reject);

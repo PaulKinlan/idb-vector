@@ -24,6 +24,7 @@ import { requestPathname } from '../tools/request-pathname.mjs';
 import { hostAllowed } from '../tools/request-host.mjs';
 import { acceptanceAsset } from '../tools/research-asset-allowlist.mjs';
 import { refuse } from '../tools/refusal.mjs';
+import { answerFault } from '../tools/server-fault.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const source = await readFile(resolve(root, 'research/architecture.md'), 'utf8');
@@ -76,9 +77,10 @@ const server = createServer(async (req, res) => {
     // A 404 must mean "not an acceptance asset", never "this handler crashed". Swallowing every
     // error made a ReferenceError in this file (a dropped `sep` import) look like a correct refusal
     // for every path at once, and only the allowed-path loop above could tell the difference
-    // (idb-vector-7iu). Anything else is a 500, so it fails loudly in both loops.
+    // (idb-vector-7iu). Anything else is a 500, so it fails loudly in both loops - including a
+    // realpath() fault out of acceptanceAsset(), which throws rather than refusing (idb-vector-bc9t).
     if (error.message === 'not an acceptance asset') { refuse(res, 'Not found'); return; }
-    res.writeHead(500).end('Acceptance server error');
+    answerFault(res, 'Acceptance server error');
   }
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));

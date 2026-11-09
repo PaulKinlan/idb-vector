@@ -20,6 +20,7 @@ middle=(
   tests/unit/site-staging.test.mjs             # execFileSync: tools/stage-site.mjs
   tests/unit/staged-site-audit.test.mjs        # execFileSync: git init/commit in /tmp + the audit's git calls
   tests/unit/demo-server-routing.test.mjs      # binds loopback and fetches from it
+  tests/unit/wiki-demo-server-faults.test.mjs  # binds loopback and fetches from it
   tests/unit/demo-server.test.mjs              # binds loopback, raw sockets
   tests/unit/loopback-host-refusal.test.mjs    # spawns two servers as child processes and binds loopback sockets
   tests/unit/start-command.test.mjs            # http.createServer + loopback fetch: binds a socket
