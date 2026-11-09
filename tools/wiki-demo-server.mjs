@@ -57,11 +57,11 @@ export async function serve() {
     // where the lab's own "../" back-link points, while /demo/compute/ happened to pass.
     const file = name.endsWith('/') ? `${name}index.html` : name;
     if (path === name || name.includes('..') || !/^(demo\/[\w./-]+|index\.js|utils\/(?:sortedarray|geometry|packed-snapshot|side-store|options|record-copy)\.js)$/.test(file)) {
-      res.writeHead(404).end(); return;
+      refuse(res); return;
     }
     const target = await confinedFile(file);
-    // Refused: tools/refusal.mjs answers the same 404 the allow-list above gives, which is also what the
-    // research acceptance driver (tests/research.mjs) answers for the same refusal (idb-vector-zs1u).
+    // Refused: tools/refusal.mjs answers the same 404 both the allow-list above and
+    // the research acceptance driver (tests/research.mjs) answer for the same refusal (idb-vector-zs1u, idb-vector-sd71).
     if (target === null) { refuse(res); return; }
     // The read is where the two meanings split, and this server was the one that merged them
     // (idb-vector-7g2x): everything above answers a path that is NOT an allowed asset, while a read

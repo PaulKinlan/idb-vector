@@ -1,10 +1,11 @@
-// Both loopback servers answer for the same refusal: tools/wiki-demo-server.mjs (the demo server) and
-// the allowlist server inside tests/research.mjs (the research acceptance driver). "I will not serve
-// this path" is one status, written once here, because the two confinement helpers have drifted twice
-// while each server kept its own answer (tests/unit/asset-confinement-parity.test.mjs records that
-// history) - and until idb-vector-zs1u this status was the third one: the demo server answered 403 for
-// a confinedFile() refusal and the driver answered 404 for the identical acceptanceAsset() refusal,
-// with no test asserting either. One source, so the number cannot diverge again.
+// All in-repo loopback servers answer for the same refusal: tools/wiki-demo-server.mjs (the wiki demo
+// server), tools/demo-server.mjs (the measurement harness demo server), tests/real-vectors.mjs (the real
+// vectors measurement server), and the allowlist server inside tests/research.mjs (the research
+// acceptance driver). "I will not serve this path" is one status, written once here, because the two
+// confinement helpers have drifted twice while each server kept its own answer
+// (tests/unit/asset-confinement-parity.test.mjs records that history) - until idb-vector-zs1u settled on
+// 404 and idb-vector-sd71 routed all four servers through this single writer. One source, so the number
+// cannot diverge again.
 //
 // 404 is the status, not 403, and it covers both shapes of the same meaning:
 //   - the path is not an allowed asset at all (the demo server's name regex, or the driver's
