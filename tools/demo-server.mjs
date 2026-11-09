@@ -17,7 +17,7 @@ export async function serve() {
     if (pathname === null) { res.writeHead(400).end('Bad request target'); return; }
     const raw = pathname.slice(1);
     const name = raw || 'test-harness/index.html';
-    if (!files.has(name)) { res.writeHead(404).end('Not found'); return; }
+    if (!files.has(name)) { refuse(res, 'Not found'); return; }
     try {
       const content = await readFile(new URL(name, root));
       res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.html') ? 'text/html' : 'text/plain');

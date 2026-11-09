@@ -36,7 +36,7 @@ const server = createServer(async (req, res) => {
   const pathname = requestPathname(req);
   if (pathname === null) { res.writeHead(400).end('Bad request target'); return; }
   const file = allowed.get(pathname);
-  if (!file) { res.writeHead(404).end(); return; }
+  if (!file) { refuse(res); return; }
   try {
     const data = await readFile(file);
     res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.html') ? 'text/html' : file.endsWith('.json') ? 'application/json' : 'application/octet-stream');
