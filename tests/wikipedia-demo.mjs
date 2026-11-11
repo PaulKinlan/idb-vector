@@ -54,6 +54,18 @@ async function query(value) {
 try {
   await page.send('Network.enable');
   await page.goto(url);
+  // The markup supplies an already-enabled #load button, but demo/app.js attaches its click listener
+  // only at the end of its top-level await (the IndexedDB open, then the stored-corpus read), and
+  // Chromium fires loadEventFired without waiting for that await. A click dispatched in that window
+  // lands on a listener-less button and is dropped silently, so the run then waits out READY_WAIT_MS
+  // on a load that never started: three recorded failures, each at the load phase below with #status
+  // still at its markup default (idb-vector-deh0). demo/app.js publishes data-storage-probe in every
+  // case; the later navigations in this driver already wait for it, and this is the first one.
+  await waitForPhase(page, () => document.documentElement.dataset.storageProbe === 'done', {
+    phase: 'demo init before the first load click',
+    budgetMs: PAGE_WORK_WAIT_MS,
+    stalledHint: 'app.js module init still running => host contention; no probe => module failed',
+  });
   assert.equal(await page.evaluate(() => document.querySelector('#run').disabled), true);
   assert.equal(await page.evaluate(() => performance.getEntriesByType('resource').some(r => /vendor|models|vectors-/.test(r.name))), false, 'No model, runtime or vector download before click');
   await page.screenshot(`${evidence}/before.png`);
