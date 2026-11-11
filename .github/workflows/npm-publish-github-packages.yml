@@ -8,18 +8,19 @@ on:
 # also must not carry token rights it never uses: checkout of the released commit is the only thing
 # GITHUB_TOKEN is needed for. Declaring the block matters because without it the job runs with the
 # repository or organisation default, which nothing in this repo pins down (idb-vector-nkay; same rule
-# as the Pages build job, idb-vector-yfdc).
+# as the Pages build job, idb-vector-yfdc). Action majors and Node runtime match sibling workflows
+# on Node 22 and @v4 actions (idb-vector-pw5j).
 permissions:
   contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       # Setup .npmrc file to publish to npm
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: '16.x'
+          node-version: 22
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci --ignore-scripts
       - run: npm publish
