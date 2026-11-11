@@ -5,6 +5,8 @@
   "tools/embed-wikipedia.mjs": ["tests/unit/embedding-rows.test.mjs"],
   "tools/fast-gate.sh": ["tests/unit/fast-style-coverage.test.mjs"],
   "tools/fetch_verified.py": ["tests/unit/fetch-verified.test.mjs"],
+  "tools/gate-wiring.json": ["tests/unit/gate-wiring.test.mjs"],
+  "tools/gate-wiring.mjs": ["tests/unit/gate-wiring.test.mjs"],
   "tools/prepare-real-vectors.py": ["tests/unit/fetch-verified.test.mjs"],
   "tools/report-fast-style-coverage.sh": [
     "tests/unit/fast-style-coverage.test.mjs",

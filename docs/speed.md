@@ -201,9 +201,13 @@ browser. That needs the network and reaches third-party publishers, so it is a p
 `RESEARCH_URL=<published url> npm run test:research` - the gate only ever proves the worktree copy.
 
 **The conf lives outside the repo.** `~/.fleet/idb-vector-check.conf` holds `CHECK_CMD`; the merger
-must append `&& npm run gate:research` to it for the leg to run at merge time. The repo cannot
-enforce that (the file is not tracked here and has been clobbered before - see its own warning
-header), which is why the script, its bound and this section are pinned and reviewed on the branch.
+must append `&& npm run gate:research` to it for the leg to run at merge time. The file is not
+tracked here and has been clobbered before (see its own warning header), so no test can install it -
+but a wrong one is no longer silent: `tools/gate-wiring.json` declares the four legs in order,
+`CHECK_FAST_CMD` and both bounds, `node tools/gate-wiring.mjs --conf` prints the conf those values
+make for the file's owner to regenerate it, and `tests/unit/gate-wiring.test.mjs` holds the effective
+conf to them in the fast tier (it skips on a checkout without the conf, printing the reason). That is
+why the script, its bound and this section are pinned and reviewed on the branch.
 
 ## Packed-snapshot stress measurement (not in the full gate)
 

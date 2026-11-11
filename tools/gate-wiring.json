@@ -1,0 +1,12 @@
+{
+  "note": "The gate wiring this repo expects of the fleet gate, in one place (idb-vector-cnyx). The conf those values make is ~/.fleet/idb-vector-check.conf: a local file OUTSIDE git, hand-maintained by the idb-vector coord lane, written by `node tools/gate-wiring.mjs --conf` and never by the agents-factory installer (an `agents tools/check-cmd.sh --install` run rewrote it once and every idb-vector full gate then exited 127). tools/gate-wiring.mjs reads this file, prints the conf, and tests/unit/gate-wiring.test.mjs holds the effective conf to it.",
+  "checkCmdLegs": [
+    "npm test",
+    "npm run test:packed",
+    "npm run test:wikipedia",
+    "npm run gate:research"
+  ],
+  "checkFastCmd": "bash tools/fast-gate.sh",
+  "checkTimeoutSeconds": 3600,
+  "checkFastTimeoutSeconds": 300
+}
