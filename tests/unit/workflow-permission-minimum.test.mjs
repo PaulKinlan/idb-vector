@@ -108,6 +108,40 @@ function extractSteps(jobBody) {
   });
 }
 
+// Extract node-version declarations from un-commented text.
+function extractAllNodeVersions(text) {
+  const matches = [...withoutComments(text).matchAll(/\bnode-version:\s*['"]?([^'"\s\n]+)['"]?/g)];
+  return matches.map(m => {
+    const raw = m[1];
+    const majorMatch = /^(\d+)/.exec(raw);
+    return {
+      raw,
+      major: majorMatch ? parseInt(majorMatch[1], 10) : null,
+    };
+  });
+}
+
+// Extract actions/setup-node steps and their configured node-version from a job body.
+function extractSetupNodeVersions(jobBody) {
+  const steps = extractSteps(jobBody);
+  const results = [];
+  for (const step of steps) {
+    if (/\buses:\s*actions\/setup-node@/i.test(step.code)) {
+      const versionMatch = /\bnode-version:\s*['"]?([^'"\s\n]+)['"]?/.exec(step.code);
+      const rawVersion = versionMatch ? versionMatch[1] : null;
+      const majorMatch = rawVersion ? /^(\d+)/.exec(rawVersion) : null;
+      const major = majorMatch ? parseInt(majorMatch[1], 10) : null;
+      results.push({
+        stepIndex: step.index,
+        stepName: step.name,
+        rawVersion,
+        major,
+      });
+    }
+  }
+  return results;
+}
+
 // The `permissions:` key at exactly `indent` spaces, either inline (`permissions: {contents: read}`) or
 // as a block of `name: level` lines one level deeper. `null` means the key is absent at that level, so
 // the job inherits whatever the level above grants, and at the workflow level that is the repository
@@ -189,6 +223,18 @@ const installJobs = [
 const tokenPublishJobs = [
   'npm-publish-github-packages.yml:build',
 ];
+
+// The workflows that publish packages or deploy site artifacts. Every workflow that publishes or
+// deploys must use the same Node major as its siblings (Node 22), and no workflow across the repo
+// may use an abandoned Node version (idb-vector-pw5j).
+const publishOrDeployWorkflows = [
+  'npm-publish-github-packages.yml',
+  'pages.yml',
+];
+
+// The supported Node major across the repository CI/CD pipeline. Node versions prior to 22
+// (e.g. Node 16 EOL 2023-09-11) are abandoned and must not be used by any workflow (idb-vector-pw5j).
+const EXPECTED_NODE_MAJOR = 22;
 
 test('every workflow declares workflow-level permissions no wider than contents: read', () => {
   assert.ok(workflows.length > 0, 'the scan must actually read .github/workflows');
@@ -332,6 +378,86 @@ test('publish tokens are scoped strictly to the publish step and not exported to
             /\bNODE_AUTH_TOKEN:\s*\${{\s*secrets\.NPM_TOKEN\s*}}/,
             `"${file}" job "${name}" step ${step.index} ("${step.name}") must provide NODE_AUTH_TOKEN from secrets.NPM_TOKEN to npm publish`,
           );
+        }
+      }
+    }
+  }
+});
+
+test('every workflow that publishes or deploys uses the same Node major as its siblings, and no workflow uses an abandoned Node version', () => {
+  const discoveredPublishOrDeploy = workflows
+    .map(w => w.file)
+    .filter(file => publishOrDeployWorkflows.includes(file));
+  assert.deepEqual(
+    discoveredPublishOrDeploy.sort(),
+    publishOrDeployWorkflows.slice().sort(),
+    'all publish or deploy workflows must be present in .github/workflows',
+  );
+
+  for (const { file, scope, jobs } of workflows) {
+    const isPublishOrDeploy = publishOrDeployWorkflows.includes(file);
+
+    const workflowNodeMatches = extractAllNodeVersions(scope);
+    assert.equal(
+      workflowNodeMatches.length,
+      0,
+      `"${file}" declares node-version at workflow level; configure node-version in job steps`,
+    );
+
+    let foundNodeSetup = false;
+    for (const { name, body } of jobs) {
+      const setups = extractSetupNodeVersions(body);
+      for (const setup of setups) {
+        foundNodeSetup = true;
+        assert.ok(
+          setup.rawVersion,
+          `"${file}" job "${name}" step ${setup.stepIndex} ("${setup.stepName}") uses actions/setup-node without specifying node-version`,
+        );
+        assert.equal(
+          setup.major,
+          EXPECTED_NODE_MAJOR,
+          `"${file}" job "${name}" uses offending node-version "${setup.rawVersion}"; every workflow that publishes or deploys must use Node major ${EXPECTED_NODE_MAJOR} and abandoned Node versions are not permitted`,
+        );
+      }
+
+      const allNodeMatches = extractAllNodeVersions(body);
+      for (const match of allNodeMatches) {
+        assert.equal(
+          match.major,
+          EXPECTED_NODE_MAJOR,
+          `"${file}" job "${name}" uses offending node-version "${match.raw}"; every workflow that publishes or deploys must use Node major ${EXPECTED_NODE_MAJOR} and abandoned Node versions are not permitted`,
+        );
+      }
+    }
+
+    if (isPublishOrDeploy) {
+      assert.ok(
+        foundNodeSetup,
+        `"${file}" is a publish or deploy workflow but does not configure Node; it must use Node major ${EXPECTED_NODE_MAJOR}`,
+      );
+    }
+  }
+});
+
+test('core action references across every workflow use v4 or newer (idb-vector-pw5j)', () => {
+  const coreActions = ['actions/checkout', 'actions/setup-node'];
+
+  for (const { file, jobs } of workflows) {
+    for (const { name, body } of jobs) {
+      const steps = extractSteps(body);
+      for (const step of steps) {
+        for (const action of coreActions) {
+          const regex = new RegExp(`\\buses:\\s*${action}@([^\\s\\n]+)`, 'i');
+          const match = regex.exec(step.code);
+          if (match) {
+            const ref = match[1];
+            const majorMatch = /^v?(\d+)/.exec(ref);
+            const major = majorMatch ? parseInt(majorMatch[1], 10) : null;
+            assert.ok(
+              major !== null && major >= 4,
+              `"${file}" job "${name}" step ${step.index} uses offending action ref "${action}@${ref}"; core actions must use @v4 or newer to match sibling workflows`,
+            );
+          }
         }
       }
     }
