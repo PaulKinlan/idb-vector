@@ -8,7 +8,9 @@
 //
 // The Node-major parity rule below discovers its own subjects: a workflow counts as publish or deploy
 // when a step publishes a package or deploys the site, so a publish path added tomorrow is pinned to a
-// Node major without anyone remembering to add it to a list (idb-vector-koec).
+// Node major without anyone remembering to add it to a list (idb-vector-koec). A publish action whose
+// name does not say "publish" and a reusable-workflow caller with no steps to scan are covered by their
+// own checks (idb-vector-q9js).
 //
 // Text-level on purpose: the fast tier has no YAML parser and this must cost nothing.
 import assert from 'node:assert/strict';
@@ -254,8 +256,25 @@ const publishOrDeployMarkers = [
   // The Pages pair: the build job uploads the artifact, the deploy job publishes it.
   /\bupload-pages-artifact\b/,
   /\bdeploy-pages\b/,
-  // A publish action, e.g. JS-DevTools/npm-publish@v3 or pypa/gh-action-pypi-publish@release/v1.
+  // A publish action, e.g. JS-DevTools/npm-publish@v3 or pypa/gh-action-pypi-publish@release/v1 - the
+  // action ref names the publish, which is what this marker reads.
   /\buses:\s*[^\s@]*publish[^\s@]*@/i,
+];
+
+// Actions that publish without saying so in their ref, so the ref-shaped marker above cannot see them:
+// each entry is the action ref plus the input that turns it into a publish. The input is part of the
+// marker because `changesets/action` only opens a version PR until it is given `publish:`, and flagging
+// the bare ref would report a non-publishing step. JS-DevTools/npm-publish and the npm-publish actions
+// spell publish in the ref and need no entry here. This is a marker list, so a publish action nobody has
+// named here stays a residual: it is pinned only if its ref contains "publish" or it is listed below.
+const publishActionMarkers = [
+  {
+    // `- uses: changesets/action@v1` with `with: publish: npm run release`: the publish command lives in
+    // the input, and neither the action ref nor any run step says publish.
+    action: /^changesets\/action@/i,
+    input: /^publish:\s*\S/m,
+    describe: 'runs the command in its publish: input',
+  },
 ];
 
 // Why this workflow publishes or deploys, or null when nothing in it does. The reason names the step
@@ -265,6 +284,13 @@ function publishOrDeployReason(workflow) {
     for (const step of extractSteps(job.body)) {
       const marker = publishOrDeployMarkers.find(candidate => candidate.test(step.code));
       if (marker) return `job "${job.name}" step ${step.index} ("${step.name}") matches ${marker}`;
+      const uses = /^uses:\s*(\S+)/m.exec(step.code);
+      const publishAction = uses && publishActionMarkers.find(
+        candidate => candidate.action.test(uses[1]) && candidate.input.test(step.code),
+      );
+      if (publishAction) {
+        return `job "${job.name}" step ${step.index} ("${step.name}") uses ${uses[1]}, which ${publishAction.describe}`;
+      }
     }
   }
   return null;
@@ -520,6 +546,71 @@ test('every workflow discovered publishing or deploying declares an explicit nod
       `inheritsRunnerNode lists ${file}, which the discovery no longer sees publishing or deploying; drop the entry so a new publish step in it is not exempted by a stale reason`,
     );
     assert.match(why, /\S/, `inheritsRunnerNode entry for ${file} must say why it inherits the runner Node`);
+  }
+});
+
+// A reusable-workflow caller (`jobs.<id>.uses:`) has no steps, so nothing inside it can be scanned for a
+// publish marker or a node-version pin - a job that calls a workflow cannot declare steps at all. An
+// in-tree callee (`./.github/workflows/x.yml`) is also read as its own file, so the caller resolves it
+// and requires the callee to declare a node-version, which makes the publish path visible from its call
+// site too. An external callee (`owner/repo/path@ref`) is not in this tree: whether it publishes and
+// which Node major it runs cannot be known from any text here, so the caller fails rather than pass
+// silently, and the exemption is a written entry below - a human read that workflow, which this scan
+// cannot (idb-vector-q9js).
+const uncheckedExternalCallees = {
+  // none today
+};
+
+// The job-level `uses:` ref of a job body, i.e. a reusable-workflow call. Steps sit at 8 spaces and a
+// step marker at 6, so the 4-space anchor is the job's own key and cannot reach into a step's `uses:`.
+function jobLevelUses(jobBody) {
+  const match = /^ {4}uses:\s*(\S+)/m.exec(jobBody);
+  return match ? match[1] : null;
+}
+
+test('a reusable-workflow caller reaches a callee whose publish path is pinned, or is listed as unchecked (idb-vector-q9js)', () => {
+  const callers = [];
+  for (const { file, jobs } of workflows) {
+    for (const job of jobs) {
+      const uses = jobLevelUses(job.body);
+      if (uses) callers.push({ file, job: job.name, uses });
+    }
+  }
+
+  for (const { file, job, uses } of callers) {
+    const where = `"${file}" job "${job}"`;
+    if (!uses.startsWith('./')) {
+      const reason = uncheckedExternalCallees[`${file}:${job}`];
+      assert.ok(
+        reason !== undefined,
+        `${where} calls the external reusable workflow "${uses}"; this suite cannot see whether it publishes or which Node major it runs, so either call an in-tree workflow or add uncheckedExternalCallees["${file}:${job}"] with the reason you read ${uses} and know it is safe`,
+      );
+      assert.match(reason, /\S/, `uncheckedExternalCallees entry for ${file}:${job} must say why calling ${uses} is checked`);
+      continue;
+    }
+
+    const calleeName = uses.slice(uses.lastIndexOf('/') + 1);
+    const callee = workflows.find(candidate => candidate.file === calleeName);
+    assert.ok(
+      callee,
+      `${where} calls ${uses}, which is not one of the files this suite reads (.github/workflows/*.ya?ml); a callee outside that scan is a publish path nothing here pins`,
+    );
+
+    const discovered = discoveredPublishOrDeploy.find(entry => entry.file === calleeName);
+    if (discovered === undefined) continue;
+    const pinned = callee.jobs.flatMap(calleeJob => extractSetupNodeVersions(calleeJob.body)).filter(setup => setup.rawVersion);
+    assert.ok(
+      pinned.length > 0,
+      `${where} calls ${uses}, which publishes or deploys (${discovered.why}) and declares no node-version; the caller cannot pin one - a job with uses: has no steps - so the callee must declare node-version: ${EXPECTED_NODE_MAJOR}. The callee also fails the discovery check above; this assertion names the publish path from the site that reaches it`,
+    );
+  }
+
+  for (const key of Object.keys(uncheckedExternalCallees)) {
+    const [file, job] = key.split(':');
+    assert.ok(
+      callers.some(caller => caller.file === file && caller.job === job && !caller.uses.startsWith('./')),
+      `uncheckedExternalCallees lists ${key}, which is no longer an external reusable-workflow caller; drop the entry so a new call in that job is checked`,
+    );
   }
 });
 
