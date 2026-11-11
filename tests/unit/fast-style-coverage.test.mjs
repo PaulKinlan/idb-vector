@@ -1,24 +1,40 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-// This file pins the unit tier PARTITION and the gate wiring around it - both exact and cheap. The fast
-// tier's shape rule (no spawn, no socket, no clone/stage) is enforced at runtime by
-// tests/support/fast-tier-guard.mjs (bead idb-vector-kljx), which `npm run test:fast` preloads; this
-// file is its one documented opt-out, because the coverage-reporter check below runs `git` in a
-// throwaway repo. Four rounds of static source analysis on idb-vector-t7u were each evaded by valid
-// JavaScript (a string holding "comment//here" hid a call from a lexer; a same-line `import` and a
-// computed `import(expr)` slipped past a module allowlist), and there is no parser to depend on here,
-// so no static shape check lives in this file.
-const reporter = resolve('tools/report-fast-style-coverage.sh');
-const suiteReporter = resolve('tools/report-changed-middle-suites.sh');
+// This file pins the unit tier PARTITION and the gate wiring around it - both exact and cheap.
+// The fast tier's shape rule (zero child processes, zero sockets, zero repo staging) is enforced
+// at runtime by tests/support/fast-tier-guard.mjs (bead idb-vector-kljx), which `npm run test:fast`
+// preloads. Git-history coverage fixtures were moved to tests/unit/fast-style-coverage-git.test.mjs
+// under proposal idb-vector-hfra, leaving this fast suite with zero opt-outs.
 const gate = readFileSync(resolve('tools/fast-gate.sh'), 'utf8');
 const pkg = JSON.parse(readFileSync(resolve('package.json'), 'utf8'));
-const run = (cwd, cmd, args) => execFileSync(cmd, args, { cwd, encoding: 'utf8' }).trim();
-const tier = (name) => run(process.cwd(), 'bash', ['tools/unit-tier-suites.sh', name]).split('\n');
+
+function readMiddleSuites() {
+  const toolSource = readFileSync(resolve('tools/unit-tier-suites.sh'), 'utf8');
+  const match = /^middle=\(\n([\s\S]*?)\n\)/m.exec(toolSource);
+  if (!match) throw new Error('Could not parse middle array from tools/unit-tier-suites.sh');
+  return match[1]
+    .split('\n')
+    .map((line) => line.replace(/#.*$/, '').trim())
+    .filter(Boolean);
+}
+
+function tier(name) {
+  if (name === 'middle') {
+    return readMiddleSuites();
+  }
+  if (name === 'fast') {
+    const middle = readMiddleSuites();
+    const all = readdirSync('tests/unit')
+      .filter((file) => file.endsWith('.test.mjs'))
+      .map((file) => `tests/unit/${file}`)
+      .sort();
+    return all.filter((suite) => !middle.includes(suite));
+  }
+  throw new Error(`unknown tier: ${name}`);
+}
 
 // The fast tier is the per-lane contract (docs/speed.md, idb-vector-t7u). What makes the split safe
 // is not a shape check but this partition: every unit suite is in exactly one tier, and the split has
@@ -31,6 +47,9 @@ test('the two unit tiers partition every unit suite, with a worker bound the 2-V
   assert.deepEqual([...fast, ...middle].sort(), all.sort(), 'no suite drops out of both tiers');
   assert.deepEqual(fast.filter((suite) => middle.includes(suite)), [], 'a suite is in one tier only');
   assert.ok(middle.every((suite) => !suite.includes('*')), 'the middle tier is enumerated, never a glob');
+  for (const suite of middle) {
+    assert.ok(existsSync(suite), `middle suite exists on disk: ${suite}`);
+  }
   for (const name of ['test:fast', 'test:middle']) {
     assert.match(pkg.scripts[name], /--test-concurrency=2\b/, `${name} keeps concurrency at VM capacity`);
     assert.doesNotMatch(pkg.scripts[name], /--test-only\b/, `an only-filter would silently drop tests from ${name}`);
@@ -60,36 +79,6 @@ test('the fast gate invokes the CSS/HTML reporter before unit suites', () => {
   assert.ok(invocation.index < gate.indexOf('npm run test:fast'));
 });
 
-test('a changed middle-tier suite is named with the command that runs it, and a fast one is not', () => {
-  // idb-vector-ap0u: the contract maps product paths, so a changed suite that the fast tier never runs
-  // used to produce a bare "unmapped changed file" with no next step - twice on real branches (0bd3829,
-  // 0612767). The middle list is read from the one tier definition, so this holds for every sheet added
-  // there rather than for the two suites that happened to be changed.
-  const middle = tier('middle');
-  const changedMiddle = middle.find((suite) => suite.endsWith('demo-server-routing.test.mjs'));
-  const changedFast = 'tests/unit/geometry.test.mjs';
-  assert.ok(changedMiddle, 'the bead\'s own case must stay a middle-tier suite');
-  assert.ok(!middle.includes(changedFast), 'the pin needs one suite the fast tier runs');
-  const cwd = mkdtempSync(join(tmpdir(), 'idb-changed-suite-'));
-  try {
-    run(cwd, 'git', ['init', '-q']);
-    mkdirSync(join(cwd, 'tests/unit'), { recursive: true });
-    for (const suite of [changedMiddle, changedFast]) writeFileSync(join(cwd, suite), 'base\n');
-    run(cwd, 'git', ['add', '.']);
-    run(cwd, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'base']);
-    for (const suite of [changedMiddle, changedFast]) writeFileSync(join(cwd, suite), 'changed\n');
-    run(cwd, 'git', ['add', '.']);
-    run(cwd, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'changed']);
-    assert.deepEqual(run(cwd, 'bash', [suiteReporter, 'HEAD^', 'HEAD']).split('\n'), [
-      `fast-gate: middle-tier-uncovered: ${changedMiddle} (changed here, and the fast gate never runs the middle tier); run it before hand-off: node --test ${changedMiddle}`,
-    ]);
-    // A commit that touches no suite says nothing: the report is driven by the diff, not printed always.
-    assert.equal(run(cwd, 'bash', [suiteReporter, 'HEAD', 'HEAD']), '');
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
 test('the fast gate runs the changed-middle-suite report after the runner and keeps its status', () => {
   const runner = gate.indexOf('\nnpm run test:fast\n');
   const report = gate.indexOf('bash tools/report-changed-middle-suites.sh');
@@ -97,39 +86,4 @@ test('the fast gate runs the changed-middle-suite report after the runner and ke
   assert.ok(report > runner, 'the report is the tail fleet-check records, so it comes after the runner');
   assert.match(gate, /rc=\$\?\nset -e/, "the runner's status is captured rather than exited on");
   assert.ok(gate.trimEnd().endsWith('exit "$rc"'), 'the gate still fails when the runner fails');
-});
-
-test('a CSS-only or HTML-only commit is explicitly unmapped, never a silent pass', () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'idb-style-gate-'));
-  try {
-    run(cwd, 'git', ['init', '-q']);
-    for (const name of ['page.css', 'page.html', 'app.js']) writeFileSync(join(cwd, name), 'initial\n');
-    run(cwd, 'git', ['add', '.']);
-    run(cwd, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'base']);
-    const base = run(cwd, 'git', ['rev-parse', 'HEAD']);
-    for (const [name, marker] of [['page.css', 'fast-gate: unmapped: page.css'], ['page.html', 'fast-gate: unmapped: page.html']]) {
-      writeFileSync(join(cwd, name), 'changed\n');
-      run(cwd, 'git', ['add', name]);
-      run(cwd, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', name]);
-      const tip = run(cwd, 'git', ['rev-parse', 'HEAD']);
-      assert.equal(run(cwd, 'bash', [reporter, `${tip}^`, tip]), marker);
-    }
-    writeFileSync(join(cwd, 'app.js'), 'changed\n');
-    run(cwd, 'git', ['add', 'app.js']);
-    run(cwd, 'git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'js']);
-    assert.equal(run(cwd, 'bash', [reporter, 'HEAD^', 'HEAD']), '');
-    assert.equal(run(cwd, 'bash', [reporter, base, 'HEAD']).split('\n').length, 2);
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test('an unavailable base is reported as unknown, not silently ignored', () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'idb-style-no-base-'));
-  try {
-    run(cwd, 'git', ['init', '-q']);
-    assert.match(run(cwd, 'bash', [reporter]), /^fast-gate: unknown: no base branch/);
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
 });

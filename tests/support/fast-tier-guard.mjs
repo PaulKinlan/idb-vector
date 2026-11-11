@@ -51,16 +51,9 @@ export const fastTierBlockedBindings = ['spawn_sync', 'tcp_wrap', 'pipe_wrap'];
 
 // Suites that may use a blocked construct, keyed by path relative to the repo root. Every entry is a
 // hole in the shape rule, so the list is deliberately tiny and each one carries its reason.
-export const fastTierOptOuts = [
-  {
-    suite: 'tests/unit/fast-style-coverage.test.mjs',
-    constructs: ['child_process.execFileSync'],
-    // Runs git init/add/commit in a throwaway /tmp repo (~2.5 s) to pin the CSS/HTML reporter against
-    // a real git history. docs/speed.md records it as the fast tier's one documented exception: a fixed
-    // local cost, no network, no browser, and it does not track host load.
-    reason: 'pins tools/report-fast-style-coverage.sh against a real git history in a throwaway repo',
-  },
-];
+// With idb-vector-hfra, git-history coverage fixtures moved to the middle tier, so the fast tier has
+// zero opt-outs.
+export const fastTierOptOuts = [];
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 

@@ -123,8 +123,8 @@ test('only the fast tier preloads the guard; middle and merged gates keep spawn 
   assert.doesNotMatch(gate, /node --test/, 'tools/fast-gate.sh must not start node --test on its own');
 });
 
-test('the opt-out list is one documented exception, and the doc no longer calls the rule unenforced', () => {
-  assert.deepEqual(fastTierOptOuts.map((entry) => entry.suite), ['tests/unit/fast-style-coverage.test.mjs']);
+test('the opt-out list is empty - no fast-tier suites are excused from the shape guard', () => {
+  assert.deepEqual(fastTierOptOuts, [], 'fast tier admits zero opt-outs');
   for (const entry of fastTierOptOuts) {
     assert.ok(entry.reason.length > 0, `${entry.suite} needs a recorded reason`);
     for (const construct of entry.constructs) {

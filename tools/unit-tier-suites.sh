@@ -30,6 +30,7 @@ middle=(
   tests/unit/quantized-pass.test.mjs           # quantized experiment sweeps
   tests/unit/fetch-verified.test.mjs           # spawns python3 to exercise the download/verify ordering
   tests/unit/package-files.test.mjs            # execFileSync: runs npm pack --dry-run to read the real packlist
+  tests/unit/fast-style-coverage-git.test.mjs  # execFileSync: git init/commit in /tmp to exercise reporters
 )
 
 case "${1:-}" in
