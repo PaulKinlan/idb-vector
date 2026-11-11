@@ -48,6 +48,7 @@ const CHECK_CONF = process.env.FLEET_CHECK_CONF || join(homedir(), '.fleet', 'id
 // A wait labelled with a phase missing from this table fails: a new wait arrives with its floor.
 const EXPECTED_PHASE_BUDGETS = {
   'tests/wikipedia-demo.mjs': [
+    ['demo init before the first load click', 'PAGE_WORK_WAIT_MS'],
     ['query results for ${JSON.stringify(value)}', 'PAGE_WORK_WAIT_MS'],
     ['explicit load of the 250-passage corpus', 'READY_WAIT_MS'],
     ['offline network emulation', 'PAGE_WORK_WAIT_MS'],
