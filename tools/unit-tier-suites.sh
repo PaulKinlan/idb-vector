@@ -29,6 +29,7 @@ middle=(
   tests/unit/packed-snapshot-validation.test.mjs  # full snapshot build per case
   tests/unit/quantized-pass.test.mjs           # quantized experiment sweeps
   tests/unit/fetch-verified.test.mjs           # spawns python3 to exercise the download/verify ordering
+  tests/unit/package-files.test.mjs            # execFileSync: runs npm pack --dry-run to read the real packlist
 )
 
 case "${1:-}" in
