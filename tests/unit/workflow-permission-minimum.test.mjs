@@ -6,6 +6,10 @@
 // floor lives on a named job with its reason. Without a declared block a job runs with the repository
 // or organisation default - often write-all - which nothing in this repo pins down.
 //
+// The Node-major parity rule below discovers its own subjects: a workflow counts as publish or deploy
+// when a step publishes a package or deploys the site, so a publish path added tomorrow is pinned to a
+// Node major without anyone remembering to add it to a list (idb-vector-koec).
+//
 // Text-level on purpose: the fast tier has no YAML parser and this must cost nothing.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -236,6 +240,47 @@ const publishOrDeployWorkflows = [
 // (e.g. Node 16 EOL 2023-09-11) are abandoned and must not be used by any workflow (idb-vector-pw5j).
 const EXPECTED_NODE_MAJOR = 22;
 
+// What makes a workflow a publish or deploy workflow, matched against each step's un-commented text.
+// Discovery is the point here (idb-vector-koec): the list above can only cover workflows someone
+// remembered to add to it, so a publish path added later would run on whatever Node the runner image
+// happens to default to, and nothing would say so.
+const publishOrDeployMarkers = [
+  // `npm publish` and its package-manager siblings send a package to a registry.
+  /\b(?:npm|pnpm|yarn)\s+publish\b/,
+  // `npm pack` alone only writes a tarball; it publishes only when the same run pipes it into a publish.
+  /\bnpm\s+pack\b[^\n]*\|\s*(?:npm|pnpm|yarn)\s+publish\b/,
+  // `gh-pages` pushes a directory or a branch to the Pages site.
+  /\bgh-pages\b/,
+  // The Pages pair: the build job uploads the artifact, the deploy job publishes it.
+  /\bupload-pages-artifact\b/,
+  /\bdeploy-pages\b/,
+  // A publish action, e.g. JS-DevTools/npm-publish@v3 or pypa/gh-action-pypi-publish@release/v1.
+  /\buses:\s*[^\s@]*publish[^\s@]*@/i,
+];
+
+// Why this workflow publishes or deploys, or null when nothing in it does. The reason names the step
+// that matched, so a newly discovered publish path fails with the line that made it one.
+function publishOrDeployReason(workflow) {
+  for (const job of workflow.jobs) {
+    for (const step of extractSteps(job.body)) {
+      const marker = publishOrDeployMarkers.find(candidate => candidate.test(step.code));
+      if (marker) return `job "${job.name}" step ${step.index} ("${step.name}") matches ${marker}`;
+    }
+  }
+  return null;
+}
+
+const discoveredPublishOrDeploy = workflows
+  .map(workflow => ({ file: workflow.file, workflow, why: publishOrDeployReason(workflow) }))
+  .filter(entry => entry.why !== null);
+
+// A discovered publish or deploy workflow may inherit the runner's Node only if it is listed here with
+// the reason it cannot pin a major. Prefer an empty list: the runner image's default Node changes
+// without a commit here, so an unpinned publish path can change major under the same workflow file.
+const inheritsRunnerNode = {
+  // none today
+};
+
 test('every workflow declares workflow-level permissions no wider than contents: read', () => {
   assert.ok(workflows.length > 0, 'the scan must actually read .github/workflows');
   for (const { file, workflowScope } of workflows) {
@@ -385,13 +430,24 @@ test('publish tokens are scoped strictly to the publish step and not exported to
 });
 
 test('every workflow that publishes or deploys uses the same Node major as its siblings, and no workflow uses an abandoned Node version', () => {
-  const discoveredPublishOrDeploy = workflows
+  // The enumerated list, held to the tree: this is the fallback check, and the discovery below is the
+  // one that does not depend on anyone remembering to extend the list.
+  const enumeratedPresentInTree = workflows
     .map(w => w.file)
     .filter(file => publishOrDeployWorkflows.includes(file));
   assert.deepEqual(
-    discoveredPublishOrDeploy.sort(),
+    enumeratedPresentInTree.sort(),
     publishOrDeployWorkflows.slice().sort(),
     'all publish or deploy workflows must be present in .github/workflows',
+  );
+
+  // The enumerated list is the fallback for these files, not their only record: if the discovery below
+  // stopped seeing one of them publish or deploy, a new publish step in that file would be invisible to
+  // both checks (idb-vector-koec).
+  assert.deepEqual(
+    publishOrDeployWorkflows.filter(file => !discoveredPublishOrDeploy.some(entry => entry.file === file)),
+    [],
+    'publishOrDeployWorkflows names a workflow that no longer publishes or deploys as far as discovery can see; drop the entry or fix the matcher, so a publish step in that file is still pinned',
   );
 
   for (const { file, scope, jobs } of workflows) {
@@ -436,6 +492,34 @@ test('every workflow that publishes or deploys uses the same Node major as its s
         `"${file}" is a publish or deploy workflow but does not configure Node; it must use Node major ${EXPECTED_NODE_MAJOR}`,
       );
     }
+  }
+});
+
+// The version rule the list above applies, applied to whatever the tree contains (idb-vector-koec). A
+// publish or deploy workflow that runs on the runner's default Node publishes an artifact whose Node
+// major nobody chose and no test names; requiring the declaration is what makes the parity rule reach
+// a publish path added after this file was written.
+test('every workflow discovered publishing or deploying declares an explicit node-version (idb-vector-koec)', () => {
+  assert.ok(
+    discoveredPublishOrDeploy.length > 0,
+    'the publish and deploy discovery found no workflow at all, so it is not pinning the Node major of any publish path',
+  );
+
+  for (const { file, workflow, why } of discoveredPublishOrDeploy) {
+    if (inheritsRunnerNode[file] !== undefined) continue;
+    const pinned = workflow.jobs.flatMap(job => extractSetupNodeVersions(job.body)).filter(setup => setup.rawVersion);
+    assert.ok(
+      pinned.length > 0,
+      `"${file}" publishes or deploys (${why}) but no actions/setup-node step declares a node-version, so it runs on whatever Node the runner image defaults to and the published artifact's Node major is unpinned; declare node-version: ${EXPECTED_NODE_MAJOR}, or list the file in inheritsRunnerNode with the reason it cannot`,
+    );
+  }
+
+  for (const [file, why] of Object.entries(inheritsRunnerNode)) {
+    assert.ok(
+      discoveredPublishOrDeploy.some(entry => entry.file === file),
+      `inheritsRunnerNode lists ${file}, which the discovery no longer sees publishing or deploying; drop the entry so a new publish step in it is not exempted by a stale reason`,
+    );
+    assert.match(why, /\S/, `inheritsRunnerNode entry for ${file} must say why it inherits the runner Node`);
   }
 });
 
